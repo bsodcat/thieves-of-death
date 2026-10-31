@@ -93,6 +93,10 @@ class App:
     def __init__(self, context, console, config: dict):
         self.context, self.console, self.config = context, console, config
 
+    def season_fn(self):
+        """The holiday theme to use, unless the player has hidden them."""
+        return None if self.config["hide_holidays"] == "On" else seasons.current()
+
     def remember(self, values: dict) -> None:
         self.config.update(values)
         settings.save(self.config)
@@ -137,13 +141,14 @@ class App:
     # ------------------------------------------------------------ screens
 
     def main_menu(self) -> None:
-        form = Form(seasons.greeting(seasons.current()), [Row("Host Game", action="host"), Row("Join Game", action="join"),
+        form = Form("", [Row("Host Game", action="host"), Row("Join Game", action="join"),
                          Row("Character", action="character"), Row("Server Tool", action="tool"),
                          Row("Options", action="options"), Row("Quit", action="quit")])
         form.footer = title_footer()
         screens = {"host": self.host_game, "join": self.join_game, "character": self.character,
                    "tool": self.server_tool, "options": self.options}
         while True:
+            form.title = seasons.greeting(self.season_fn())  # options may have just changed
             action = self.show(form)
             if action == "quit":
                 return
@@ -180,7 +185,7 @@ class App:
             except ValueError as exc:
                 form.error = str(exc)
                 continue
-            runner = ServerRunner(port, seed, monster_time, mode=mode)
+            runner = ServerRunner(port, seed, monster_time, mode=mode, season_fn=self.season_fn)
             try:
                 runner.start()
             except OSError:
@@ -232,7 +237,7 @@ class App:
             except ValueError as exc:
                 form.error = str(exc)
                 continue
-            runner = ServerRunner(port, seed, monster_time, mode=mode)
+            runner = ServerRunner(port, seed, monster_time, mode=mode, season_fn=self.season_fn)
             try:
                 runner.start()
             except OSError:
@@ -310,7 +315,10 @@ class App:
 
     def options(self) -> None:
         form = Form("Options", [Row("Font", "font", self.config["font"], choices=tuple(FONTS)),
-                                Row("Save", action="save"), Row("Back", action="back")])
+                                Row("Hide holiday themes", "hide_holidays", self.config["hide_holidays"],
+                                    choices=("On", "Off")),
+                                Row("Save", action="save"), Row("Back", action="back")],
+                    note="Holiday themes follow the host's setting.")
         if self.show(form) != "save":
             return
         changed = form.values()["font"] != self.config["font"]

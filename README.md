@@ -29,7 +29,7 @@ that one file. The main menu has:
 - **Server Tool**: runs a server without playing, and shows the address to share, who's
   connected, their floor and ping, and a log.
 - **Character**: your name, shape and color.
-- **Options**: the font.
+- **Options**: the font, and whether to hide the holiday themes.
 
 Use the arrow keys and Enter, or the mouse. Your choices are saved in
 `%APPDATA%\Togetherogue\settings.json`. In the game, press `Q` twice to leave.
@@ -148,9 +148,10 @@ descriptions in `MONSTERS` in `game/entities.py` and `DESCRIPTIONS` in `game/til
 
 ## Holidays
 
-From October 24 to 31 and December 18 to 26, monsters and items get Halloween or Christmas names,
-descriptions and colors, and the title screen says so. It's purely cosmetic: every stat stays
-the same. The date comes from the clock of the computer running the server, so everyone in a
+From October 24 to 31 and December 18 to 26, monsters and items can get Halloween or Christmas
+names, descriptions and colors, and the title screen says so. **Hide holiday themes** in Options is
+On by default; turn it Off to see them. In a game, the host's setting applies to everyone. It's
+purely cosmetic: every stat stays the same. The date comes from the clock of the computer running the server, so everyone in a
 game sees the same thing, and it's checked at the start of each run so nothing changes partway
 through. Change the dates and names in `game/seasons.py`. To preview one, use
 `python server.py --season christmas`.

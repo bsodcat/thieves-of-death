@@ -2,6 +2,13 @@
 
 Versions are MAJOR.MINOR.PATCH. See "Versions" in the README for what each number means.
 
+## 1.2.1 - October 31, 2026
+
+### Changed
+
+- Added **Hide holiday themes** to Options. It's On by default, which turns the themes off.
+  The host's setting applies to everyone in a game.
+
 ## 1.2.0 - October 31, 2026
 
 ### Added

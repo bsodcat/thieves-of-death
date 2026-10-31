@@ -16,6 +16,7 @@ DEFAULTS = {
     "font": "Terminal (10x20)",
     "shape": "@",
     "color": "Gold",
+    "hide_holidays": "On",
 }
 
 
