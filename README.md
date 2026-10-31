@@ -203,6 +203,24 @@ doesn't pause while the pack is open; the panel opens on the far side of the map
 
 Add or change items in `game/items.py`. Stronger items appear deeper down.
 
+## Versions
+
+Versions are MAJOR.MINOR.PATCH, and each one is listed in `CHANGELOG.md`.
+
+| Raise | When | Example |
+| --- | --- | --- |
+| PATCH | A fix that adds nothing new | 1.0.0 to 1.0.1 |
+| MINOR | A new feature that keeps the game working as before | 1.0.0 to 1.1.0 |
+| MAJOR | A big change to how the game plays, or old saves or settings stop working | 1.0.0 to 2.0.0 |
+
+Reset the numbers to the right when one goes up. Separately, raise `PROTOCOL_VERSION` in
+`game/constants.py` whenever older copies can no longer play with newer ones; that's what the
+server checks when someone joins.
+
+To release: update `game/version.py` and `CHANGELOG.md`, run the tests, commit, tag it
+(`git tag -a v1.1.0 -m "Togetherogue 1.1.0"`), then run `build.bat`. To get an old version back,
+use `git checkout v0.1.0`.
+
 ## Project layout
 
 ```

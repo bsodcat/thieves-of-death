@@ -2,6 +2,13 @@
 
 Versions are MAJOR.MINOR.PATCH. See "Versions" in the README for what each number means.
 
+## 1.0.0 - October 31, 2026
+
+The first full release. There are no gameplay changes from 0.2.0, and the two can play together.
+
+- Versioning rules are written down in the README.
+- Every release is tagged in Git, and this changelog records what changed.
+
 ## 0.2.0 - October 31, 2026
 
 ### Added
