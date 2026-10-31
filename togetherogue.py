@@ -1,6 +1,6 @@
 """The Togetherogue app: main menu, setup screens and the Server Tool.
 
-    python togetherogue.py       # or double-click Togetherogue.exe
+   type python togetherogue.py   ->   or double-click Togetherogue.exe
 """
 from __future__ import annotations
 
@@ -19,10 +19,10 @@ from game.version import AUTHOR, RELEASE_DATE, VERSION
 from server import ServerRunner
 
 FONTS = {
-    "Terminal (10x20)": ("C:/Windows/Fonts/8514oem.fon", 10, 20),
+    "Terminal (10x20)":      ("C:/Windows/Fonts/8514oem.fon", 10, 20),
     "Terminal small (8x12)": ("C:/Windows/Fonts/vgaoem.fon", 8, 12),
     "Terminal wide (12x16)": ("C:/Windows/Fonts/dosapp.fon", 12, 16),
-    "Consolas (11x20)": ("C:/Windows/Fonts/consola.ttf", 11, 20),
+    "Consolas (11x20)":      ("C:/Windows/Fonts/consola.ttf", 11, 20),
 }
 MONSTER_SPEEDS = {"Slow": 2.0, "Normal": MONSTER_TIME, "Fast": 1.0}
 SETUP_NOTE = (f"Leave the seed blank for a random dungeon.\n"
@@ -94,8 +94,8 @@ class App:
         self.context, self.console, self.config = context, console, config
 
     def season_fn(self):
-        """The holiday theme to use, unless the player has hidden them."""
-        return None if self.config["hide_holidays"] == "On" else seasons.current()
+        """The holiday theme to use, unless the player has turned them off."""
+        return seasons.current() if self.config["holiday_themes"] == "On" else None
 
     def remember(self, values: dict) -> None:
         self.config.update(values)
@@ -138,7 +138,7 @@ class App:
             time.sleep(1 / 60)
         return None
 
-    # ------------------------------------------------------------ screens
+    # ----------------------------- Screens -------------------------------
 
     def main_menu(self) -> None:
         form = Form("", [Row("Host Game", action="host"), Row("Join Game", action="join"),
@@ -206,7 +206,7 @@ class App:
                      Row("Port", "port", c["port"], digits=True, limit=5),
                      Row("Connect", action="go"), Row("Back", action="back")],
                     note="Ask the host for their address and port.")
-        while self.show(form) == "go":
+        while self.show(form) =="go":
             values = form.values()
             self.remember(values)
             form.error = ""
@@ -315,7 +315,7 @@ class App:
 
     def options(self) -> None:
         form = Form("Options", [Row("Font", "font", self.config["font"], choices=tuple(FONTS)),
-                                Row("Hide holiday themes", "hide_holidays", self.config["hide_holidays"],
+                                Row("Holiday themes", "holiday_themes", self.config["holiday_themes"],
                                     choices=("On", "Off")),
                                 Row("Save", action="save"), Row("Back", action="back")],
                     note="Holiday themes follow the host's setting.")

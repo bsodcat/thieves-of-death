@@ -2,6 +2,13 @@
 
 Versions are MAJOR.MINOR.PATCH. See "Versions" in the README for what each number means.
 
+## 1.2.2 - October 31, 2026
+
+### Fixed
+
+- The holiday option worked backwards, with the themes showing when it said Off. It's now called
+  **Holiday themes**: On shows them, Off hides them, and it starts On.
+
 ## 1.2.1 - October 31, 2026
 
 ### Changed
