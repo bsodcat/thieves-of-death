@@ -43,6 +43,7 @@ class Player(Actor):
     weapon: Item | None = None   # equipped items stay in the pack
     armor: Item | None = None
     haste_until: int = 0         # tick when haste wears off
+    levitate_until: int = 0      # tick when they come back down
     stealth: float = 0.0         # 0 to stealth_cap
     stealth_cap: int = STEALTH_MAX   # lowered by the noise of equipped gear
     ping: float | None = None    # smoothed round trip in ms; None until measured
@@ -82,6 +83,16 @@ PLAYER_COLOR_NAMES = {
 }
 PLAYER_COLORS = list(PLAYER_COLOR_NAMES.values())
 
+@dataclass(eq=False)
+class Merchant(Actor):
+    stock: dict = field(default_factory=dict)   # stock id -> Item
+
+
+def make_merchant(mid: int, name: str) -> Merchant:
+    return Merchant(id=mid, name=name, glyph="$", color=(255, 215, 90), hp=1, max_hp=1, accuracy=0,
+                    defense=0, damage=(0, 0))
+
+
 PLAYER_STATS = dict(hp=40, accuracy=100, defense=30, damage=(2, 4))
 
 
@@ -109,7 +120,7 @@ def reset_player(p: Player) -> None:
     p.alive, p.pending, p.hold, p.death, p.stealth = True, None, None, "", 0.0
     p.downed, p.revive_ticks = False, 0
     p.final_gold, p.kill_tally, p.hardest = None, {}, ""
-    p.turns = p.kills = p.regen_acc = p.next_time = p.haste_until = 0
+    p.turns = p.kills = p.regen_acc = p.next_time = p.haste_until = p.levitate_until = 0
     p.fov_key, p.fov = None, None
     p.pack, p.gold, p.weapon, p.armor, p.pack_dirty = [], 0, None, None, True
     apply_gear(p)

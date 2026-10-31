@@ -162,6 +162,17 @@ ping. Ping is the round trip to the server in milliseconds, measured once a seco
 smoothed. It shows `--` until the first measurement. The green bar behind each name is
 that player's health.
 
+## Merchants
+
+Every 5th floor has a 60% chance of a merchant (`$`), and you'll hear them when you arrive. Walk
+into them to see their stock, and press a number to buy. They sell 3 to 5 weapons and armor suited
+to the floor, and there's one of each, shared by the whole party. Walking away closes the shop.
+Spending gold lowers your score, since the score counts what you're carrying.
+
+The potion of levitation is rare on the floor, and 30% of merchants have one for 600 gold. For 9
+seconds you float: ground monsters can't reach you and moving doesn't use up your stealth, though
+you can still attack. Prices are in `game/items.py`, the odds in `game/constants.py`.
+
 ## Stealth
 
 The blue bar under your health is your stealth. It fills from empty to full in 3 seconds
@@ -194,6 +205,7 @@ doesn't pause while the pack is open; the panel opens on the far side of the map
 | Potion of healing | `!` | Heals 20 | |
 | Potion of greater healing | `!` | Heals 40 | |
 | Potion of haste | `!` | Double speed for 10 seconds | |
+| Potion of levitation | `!` | Float for 9 seconds, out of reach of ground monsters | |
 | Dagger | `)` | 3-5 damage | 5 |
 | Sword | `)` | 5-9 damage | 15 |
 | Mace | `)` | 12-18 damage, attacks take twice as long | 20 |

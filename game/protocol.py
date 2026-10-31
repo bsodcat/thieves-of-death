@@ -7,16 +7,18 @@ Client -> server
                                                                  dx = dy = 0 stops, press buffers a step
     {"t": "act", "a": "use" | "drop", "slot": 0}
     {"t": "act", "a": "descend" | "ascend" | "pickup" | "dropgold"}
+    {"t": "act", "a": "buy", "id": 2}                            an item in the shop
     {"t": "chat", "text": "hi"}
     {"t": "pong", "n": 7}    answers a ping straight away
 
 Server -> client
-    {"t": "welcome", "id": 3, "name": "Alice", "version": 11}
+    {"t": "welcome", "id": 3, "name": "Alice", "version": 12}
     {"t": "level", "depth": 1, "run": 1, "w": 79, "h": 29, "tiles": <base64 uint8>}
     {"t": "state", ...}      see World.state_for
     {"t": "pack", ...}       see World.pack_msg; sent only when it changes
     {"t": "msg", "text": "...", "c": [r, g, b]}
     {"t": "ping", "n": 7}
+    {"t": "shop", "name": "merchant", "x": 4, "y": 9, "stock": [...]}   sent when you're at the shop
     {"t": "reject", "text": "..."}   the versions don't match; the server then hangs up
 """
 from __future__ import annotations

@@ -258,6 +258,7 @@ def play(context, console, net: Net, leave_note: str = "", intro: tuple = ()) ->
                     if not view.connected:
                         return True
                     view.show_pack = view.drop_mode = view.show_help = view.show_tally = False
+                    view.shop = None
                     view.leave_prompt = ""
                 elif event.sym in help_keys and not event.repeat:
                     view.show_help = not view.show_help
@@ -268,9 +269,14 @@ def play(context, console, net: Net, leave_note: str = "", intro: tuple = ()) ->
                     send_hold(sent_dir, press=True)  # here, so even the shortest tap counts
                 elif event.sym in slot_keys and not event.repeat \
                         and not event.mod & tcod.event.Modifier.SHIFT:  # shift+4 is $
-                    verb = "drop" if view.drop_mode else "use"
-                    net.send({"t": "act", "a": verb, "slot": slot_keys[event.sym]})
-                    view.drop_mode = False
+                    slot = slot_keys[event.sym]
+                    if view.shop is not None:
+                        if slot < len(view.shop):
+                            net.send({"t": "act", "a": "buy", "id": view.shop[slot]["id"]})
+                    else:
+                        verb = "drop" if view.drop_mode else "use"
+                        net.send({"t": "act", "a": verb, "slot": slot})
+                        view.drop_mode = False
             elif isinstance(event, tcod.event.TextInput):
                 if view.leave_prompt:
                     if event.text in ("q", "Q"):
@@ -288,6 +294,7 @@ def play(context, console, net: Net, leave_note: str = "", intro: tuple = ()) ->
                 elif event.text == "d":
                     view.drop_mode = True
                     view.show_help = view.show_tally = False
+                    view.shop = None
                 elif event.text == "$" and view.drop_mode:
                     action, view.drop_mode = "dropgold", False
                 else:

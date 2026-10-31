@@ -14,6 +14,7 @@ SEASONS = {
         "greeting": "Happy Halloween!",
         "joined": "Happy Halloween! Something has dressed up the dungeon...",
         "gold": "candy corn",
+        "merchant": "cloaked peddler",
         "monsters": {
             "rat": ("skeletal rat", (225, 220, 195), "Nothing but bones and spite."),
             "kobold": ("jack-o'-kobold", (255, 150, 40), "Its grin is carved on."),
@@ -26,6 +27,7 @@ SEASONS = {
             "healing": ("pumpkin juice", (255, 150, 40)),
             "greater_healing": ("witch's brew", (170, 90, 220)),
             "haste": ("bag of sugary candy", (255, 90, 160)),
+            "levitation": ("broomstick brew", (190, 170, 255)),
             "dagger": ("bone shiv", (225, 220, 195)),
             "sword": ("cursed sword", (170, 90, 220)),
             "mace": ("tombstone club", (160, 160, 170)),
@@ -39,6 +41,7 @@ SEASONS = {
         "greeting": "Merry Christmas!",
         "joined": "Merry Christmas! The dungeon is looking festive...",
         "gold": "chocolate coins",
+        "merchant": "jolly toymaker",
         "monsters": {
             "rat": ("stirring mouse", (190, 190, 200), "Not a creature was stirring, except this."),
             "kobold": ("naughty elf", (90, 200, 110), "Definitely on the list."),
@@ -51,6 +54,7 @@ SEASONS = {
             "healing": ("mug of cocoa", (170, 110, 70)),
             "greater_healing": ("figgy pudding", (140, 80, 60)),
             "haste": ("candy cane", (255, 90, 90)),
+            "levitation": ("pinch of sleigh dust", (190, 170, 255)),
             "dagger": ("sharp icicle", (170, 230, 255)),
             "sword": ("peppermint sword", (255, 120, 120)),
             "mace": ("yule log", (150, 100, 60)),
@@ -72,6 +76,10 @@ def active_season(day: date) -> str | None:
 def current() -> str | None:
     """The season by this computer's clock."""
     return active_season(date.today())
+
+
+def merchant_name(season: str | None) -> str:
+    return SEASONS[season]["merchant"] if season else "merchant"
 
 
 def gold_name(season: str | None) -> str:

@@ -28,15 +28,16 @@ from collections import deque
 import numpy as np
 
 from . import algo, mapgen, protocol, seasons
-from .constants import (BONES_GLYPH, DEEPEST_TABLE, DEFENSE_FACTOR, GOLD_DROP, MAP_H, MAP_W, MONSTER_TIME, NOTICE_RANGE_AWAKE,
+from .constants import (BONES_GLYPH, DEEPEST_TABLE, DEFENSE_FACTOR, GOLD_DROP, LEVITATION_STOCK_CHANCE, MAP_H, MAP_W,
+                        MERCHANT_CHANCE, MERCHANT_EVERY, MERCHANT_STOCK, MONSTER_TIME, NOTICE_RANGE_AWAKE,
                         NOTICE_RANGE_SLEEPING, PACK_SIZE, REGEN_TURNS, RESET_DELAY, REVIVE_HEALTH,
                         REVIVE_SECONDS, SCORE_PER_GOLD, SCORE_PER_MOVE, STEALTH_FILL_SECONDS,
                         STEALTH_MAX, STEALTH_MOVE_DRAIN, STEALTH_RANGE_MIN, TICKS_PER_SECOND,
                         TICKS_PER_TURN)
-from .entities import (MONSTERS, PLAYER_COLOR_NAMES, PLAYER_COLORS, PLAYER_GLYPHS, Monster, Player, apply_gear, danger,
-                       make_monster, make_player, reset_player)
+from .entities import (MONSTERS, PLAYER_COLOR_NAMES, PLAYER_COLORS, PLAYER_GLYPHS, Merchant, Monster, Player, apply_gear,
+                       danger, make_merchant, make_monster, make_player, reset_player)
 from .items import AUTO_PICKUP, ITEMS, Item, make_gold, make_item
-from .tiles import DOOR, STAIRS_DOWN, STAIRS_UP, TRANSPARENT, WALKABLE
+from .tiles import DOOR, FLOOR, STAIRS_DOWN, STAIRS_UP, TRANSPARENT, WALKABLE
 
 DIRS8 = [(dx, dy) for dx in (-1, 0, 1) for dy in (-1, 0, 1) if dx or dy]
 
@@ -70,6 +71,7 @@ class Level:
         self.monsters: list[Monster] = []
         self.items: dict[tuple[int, int], Item] = {}   # one item per tile
         self.downed: list[Player] = []                 # Revive mode: bones on this level
+        self.merchant: Merchant | None = None
         self.door_version = 0  # bumps whenever someone enters or leaves a doorway
         self._transparent = None
         self._transparent_version = -1
@@ -188,6 +190,28 @@ class World:
             lvl.place(m, x, y)
             lvl.monsters.append(m)
         self._add_items(lvl)
+        if lvl.depth % MERCHANT_EVERY == 0:
+            self._add_merchant(lvl)
+
+    def _add_merchant(self, lvl: Level) -> None:
+        rng = random.Random(f"{self.seed}:{lvl.depth}:merchant")
+        if rng.random() >= MERCHANT_CHANCE:
+            return
+        dist = algo.dijkstra(lvl.walkable, [lvl.up_front])
+        spots = [c for c in lvl.floor_cells if lvl.tiles[c] == FLOOR and 8 <= dist[c] < algo.INF
+                 and c not in lvl.occupant and c not in lvl.items]
+        if not spots:
+            return
+        m = make_merchant(next(self._ids), seasons.merchant_name(self.season))
+        depth = min(lvl.depth, DEEPEST_TABLE)
+        gear = [k for k, t in ITEMS.items()
+                if t["category"] in ("weapon", "armor") and t["depths"][0] <= depth <= t["depths"][1]]
+        kinds = rng.sample(gear, min(len(gear), rng.randint(*MERCHANT_STOCK)))
+        if rng.random() < LEVITATION_STOCK_CHANCE:
+            kinds.append("levitation")
+        m.stock = {i: self._item(kind) for i, kind in enumerate(kinds)}
+        lvl.place(m, *rng.choice(spots))
+        lvl.merchant = m
 
     def _add_items(self, lvl: Level) -> None:
         rng = random.Random(f"{self.seed}:{lvl.depth}:items")
@@ -302,6 +326,10 @@ class World:
                 if p.pending is not None and p.pending["a"] != "move":
                     return  # don't let walking replace a potion or a drop
                 p.pending = {"a": "move", "dx": dx, "dy": dy}
+        elif a == "buy":
+            if not isinstance(msg.get("id"), int) or isinstance(msg.get("id"), bool):
+                return
+            p.pending = {"a": "buy", "id": msg["id"]}
         elif a in ("use", "drop"):
             slot = msg.get("slot")
             if not isinstance(slot, int) or isinstance(slot, bool) or not 0 <= slot < PACK_SIZE:
@@ -405,6 +433,10 @@ class World:
                 if p.alive:
                     self._regen(p, ticks)
                     self._fill_stealth(p, ticks)
+                    if p.levitate_until and self.clock >= p.levitate_until:
+                        p.levitate_until = 0
+                        self.dirty = True
+                        self.tell(p, "You drift back down to the ground.", GRAY)
             self._tick_revives(ticks)
 
     def _player_turn(self, p: Player) -> None:
@@ -485,12 +517,14 @@ class World:
             cost = self._drop(p, lvl, act["slot"])
         elif a == "dropgold":
             cost = self._drop_gold(p, lvl)
+        elif a == "buy":
+            cost = self._buy(p, lvl, act["id"])
         if cost > 0 and p.alive:
             if p.haste_until > self.clock:
                 cost //= 2
             p.next_time = self.clock + cost
             p.turns += 1
-            if a in ("move", "descend", "ascend"):
+            if a in ("move", "descend", "ascend") and not self._levitating(p):
                 p.stealth = max(0.0, p.stealth - STEALTH_MOVE_DRAIN)
 
     def _player_move(self, p: Player, lvl: Level, dx: int, dy: int) -> int:
@@ -504,6 +538,10 @@ class World:
             return self._take_stairs(p, -1)
         other = lvl.actor_at(nx, ny)
         if other is not None:
+            if isinstance(other, Merchant):
+                self.outbox.append((p.id, self._shop_msg(other)))
+                self.tell(p, f"The {other.name} shows you what's for sale.", GOLD)
+                return 0
             if other.is_player:  # swap places with an ally, as in Brogue
                 ox, oy = p.x, p.y
                 lvl.remove(p)
@@ -537,14 +575,9 @@ class World:
         item = lvl.items.get((p.x, p.y))
         if item is None:
             return False
-        stack = next((i for i in p.pack if i.stacks and i.kind == item.kind), None)
         if item.category == "gold":
             p.gold += item.count
-        elif stack is not None:
-            stack.count += item.count
-        elif len(p.pack) < PACK_SIZE:
-            p.pack.append(item)
-        else:
+        elif not self._stash(p, item):
             self.tell(p, f"Your pack is full. {item.label.capitalize()} lies here.", GRAY)
             return False
         del lvl.items[(p.x, p.y)]
@@ -552,6 +585,50 @@ class World:
         self.tell(p, f"You pick up {self._a(item)}.", GOLD)
         self._narrate(lvl, [(p.x, p.y)], set(), lambda v: (f"{p.name} picks up {self._a(item)}.", GRAY), exclude=p)
         return True
+
+    @staticmethod
+    def _stash(p: Player, item: Item) -> bool:
+        """Puts an item in the pack. False if there's no room."""
+        stack = next((i for i in p.pack if i.stacks and i.kind == item.kind), None)
+        if stack is not None:
+            stack.count += item.count
+        elif len(p.pack) < PACK_SIZE:
+            p.pack.append(item)
+        else:
+            return False
+        return True
+
+    def _shop_msg(self, m: Merchant) -> dict:
+        stock = [{"id": i, "name": item.label, "g": item.glyph, "c": list(item.color), "info": item.info,
+                  "price": item.price} for i, item in m.stock.items()]
+        return {"t": "shop", "name": m.name, "x": m.x, "y": m.y, "stock": stock}
+
+    def _buy(self, p: Player, lvl: Level, stock_id: int) -> int:
+        m = lvl.merchant
+        if m is None or cheb(p, m) > 1:
+            self.tell(p, "There's nobody here to buy from.", GRAY)
+            return 0
+        item = m.stock.get(stock_id)
+        if item is None:
+            self.tell(p, "That's already been sold.", GRAY)
+            return 0
+        if p.gold < item.price:
+            self.tell(p, f"You can't afford that. It's {item.price} and you have {p.gold}.", GRAY)
+            return 0
+        if not self._stash(p, item):
+            self.tell(p, "Your pack is full.", GRAY)
+            return 0
+        del m.stock[stock_id]
+        p.gold -= item.price
+        p.pack_dirty = True
+        self.tell(p, f"You buy {self._a(item)} for {item.price}.", GOLD)
+        for q in self._living_on(p.depth):  # everyone at the shop sees it sell out
+            if cheb(q, m) <= 1:
+                self.outbox.append((q.id, self._shop_msg(m)))
+        return TICKS_PER_TURN
+
+    def _levitating(self, p: Player) -> bool:
+        return p.levitate_until > self.clock
 
     @staticmethod
     def _a(item: Item) -> str:
@@ -572,7 +649,10 @@ class World:
             p.hp = min(p.max_hp, p.hp + item.heal)
             if item.haste:
                 p.haste_until = self.clock + int(item.haste * TICKS_PER_SECOND)
-            self.tell(p, "You feel better." if item.heal else "Everything around you slows down.", GOLD)
+            if item.levitate:
+                p.levitate_until = self.clock + int(item.levitate * TICKS_PER_SECOND)
+            self.tell(p, "You feel better." if item.heal else "You rise off the ground!" if item.levitate
+                      else "Everything around you slows down.", GOLD)
             self._take_one(p, item)
             return TICKS_PER_TURN
         apply_gear(p)
@@ -638,6 +718,8 @@ class World:
         lvl.place(p, *lvl.free_near(*(lvl.up_front if step > 0 else lvl.down_front)))
         p.needs_level = True
         self.tell(p, f"You {'descend' if step > 0 else 'ascend'} to depth {new_depth}.", WHITE)
+        if lvl.merchant is not None:
+            self.tell(p, f"You hear a {lvl.merchant.name} calling out somewhere on this floor.", GOLD)
         return p.move_cost
 
     def _regen(self, p: Player, cost: int) -> None:
@@ -660,6 +742,10 @@ class World:
             self._note_fight(att, dfn)
         elif dfn.is_player:
             self._note_fight(dfn, att)
+            if self._levitating(dfn):
+                self._narrate(lvl, [(att.x, att.y), (dfn.x, dfn.y)], {dfn}, lambda v: (
+                    f"{self._n(att, v, True)} can't reach {self._n(dfn, v)}.", GRAY))
+                return
         sneak = isinstance(dfn, Monster) and dfn.state != "hunting"
         prob = 100.0 if sneak else att.accuracy * DEFENSE_FACTOR ** dfn.defense
         where = [(att.x, att.y), (dfn.x, dfn.y)]
@@ -703,6 +789,7 @@ class World:
             ("You are down..." if revivable else "You die...") if v is victim
             else f"{victim.name} {'is down' if revivable else 'dies'}!", RED))
         victim.alive, victim.hp, victim.pending, victim.hold = False, 0, None, None
+        victim.levitate_until = 0
         victim.final_gold = victim.gold
         victim.death = f"Killed by {_article(killer.name)} on depth {victim.depth}." if killer else "Died."
         lvl.remove(victim)
@@ -853,7 +940,8 @@ class World:
             if seen or a.is_player:  # allies on your depth are always shown
                 ents.append({"id": a.id, "g": a.glyph, "c": list(a.color), "x": a.x, "y": a.y,
                              "name": a.name, "hp": a.hp, "mhp": a.max_hp, "p": a.is_player,
-                             "seen": seen, "st": getattr(a, "state", ""), "kind": getattr(a, "kind", "")})
+                             "seen": seen, "st": "merchant" if isinstance(a, Merchant) else getattr(a, "state", ""),
+                             "kind": getattr(a, "kind", ""), "lev": a.is_player and self._levitating(a)})
         for a in lvl.downed:
             ents.append({"id": a.id, "g": BONES_GLYPH, "c": list(BONE), "x": a.x, "y": a.y, "name": a.name,
                          "hp": 0, "mhp": a.max_hp, "p": True, "seen": bool(vis[a.x, a.y]), "st": "down"})
@@ -870,6 +958,7 @@ class World:
                 "visible": protocol.pack_bool(vis), "ents": ents, "items": items, "party": party,
                 "time": (self.clock - self.run_start) / TICKS_PER_SECOND,
                 "haste": p.haste_until > self.clock, "stealth": int(p.stealth), "downed": p.downed,
+                "levitate": self._levitating(p),
                 "detect": round(self._notice_range(p, NOTICE_RANGE_AWAKE)),
                 "status": status, "turns": p.turns, "kills": p.kills, "death": p.death,
                 "score": self.score_of(p), "score_gold": self.carried_gold(p), "tally": p.kill_tally,

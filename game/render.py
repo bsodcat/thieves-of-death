@@ -7,6 +7,7 @@ without a window.
 """
 from __future__ import annotations
 
+import math
 import textwrap
 import time
 from collections import deque
@@ -43,6 +44,8 @@ HELP_TIP = "Stand still to build stealth. Attacks empty it; gear limits it."
 
 LOOK_HINT = "Point the mouse at the map to identify what's there."
 HOVER_BG = (70, 70, 100)
+FLOAT_DIM, FLOAT_BRIGHT, FLOAT_SHADOW = (30, 50, 110), (90, 150, 240), (6, 6, 14)
+FLOAT_TEXT = (190, 170, 255)
 STATE_NAMES = {"sleeping": "Asleep", "wandering": "Wandering", "hunting": "Hunting you"}
 
 STATUS_COLORS = {"go": (140, 230, 140), "revive": (255, 215, 90), "dead": (255, 100, 100)}
@@ -79,6 +82,10 @@ class ClientView:
         self.show_help = False
         self.show_tally = False
         self.season = None
+        self.shop: list | None = None             # the merchant's stock while you're at the shop
+        self.shop_name = ""
+        self.shop_pos = (0, 0)
+        self.levitate = False
         self.score = self.score_gold = 0
         self.tally: dict = {}                     # monster name -> kills
         self.hardest = ""
@@ -125,6 +132,9 @@ class ClientView:
             for item in msg.get("items", ()):
                 memory[(item["x"], item["y"])] = item
             self.ents, self.party, self.status = msg["ents"], msg["party"], msg["status"]
+            me = self.me()
+            if me is not None and max(abs(me["x"] - self.shop_pos[0]), abs(me["y"] - self.shop_pos[1])) > 1:
+                self.shop = None  # walked away
             self.alive, self.death = msg["alive"], msg.get("death", "")
             self.downed = msg.get("downed", False)
             self.turns, self.kills = msg.get("turns", 0), msg.get("kills", 0)
@@ -132,8 +142,12 @@ class ClientView:
             self.score, self.score_gold = msg.get("score", 0), msg.get("score_gold", 0)
             self.tally, self.hardest = msg.get("tally", {}), msg.get("hardest", "")
             self.season = msg.get("season")
+            self.levitate = msg.get("levitate", False)
             self.detect = msg.get("detect", 0)
             self.clock_base, self.clock_at = msg.get("time", 0.0), time.monotonic()
+        elif t == "shop":
+            self.shop, self.shop_name, self.shop_pos = msg["stock"], msg["name"], (msg["x"], msg["y"])
+            self.show_pack = self.drop_mode = self.show_help = self.show_tally = False
         elif t == "reject":
             self.messages.append((msg["text"], (255, 90, 90)))
         elif t == "pack":
@@ -181,6 +195,8 @@ class ClientView:
             self._draw_pack(f)
         if not self.alive:
             self._draw_death(f)
+        if self.shop is not None:
+            self._draw_shop(f)
         if self.show_tally:
             self._draw_tally(f)
         if self.show_help:
@@ -245,10 +261,21 @@ class ClientView:
                 continue
             f["ch"][MAP_X + e["x"], MAP_Y + e["y"]] = ord(e["g"])
             f["fg"][MAP_X + e["x"], MAP_Y + e["y"]] = color
+            if e.get("lev"):
+                self._draw_float(f, e)
 
         hover = self.hovered()
         if hover is not None:
             f["bg"][MAP_X + hover[0], MAP_Y + hover[1]] = HOVER_BG
+
+    @staticmethod
+    def _draw_float(f, e: dict) -> None:
+        """A levitating player: a slow blue pulse, and a shadow on the ground below them."""
+        pulse = (math.sin(time.monotonic() * 5) + 1) / 2
+        f["bg"][MAP_X + e["x"], MAP_Y + e["y"]] = tuple(int(a + (b - a) * pulse)
+                                                        for a, b in zip(FLOAT_DIM, FLOAT_BRIGHT))
+        if e["y"] + 1 < MAP_H:
+            f["bg"][MAP_X + e["x"], MAP_Y + e["y"] + 1] = FLOAT_SHADOW
 
     # --------------------------------------------------------------- look
 
@@ -261,6 +288,8 @@ class ClientView:
 
     def _describe_actor(self, e: dict) -> list:
         color = tuple(e["c"])
+        if e["st"] == "merchant":
+            return [(f"{e['g']} {e['name'].capitalize()}", color), ("Walk into them to see what's for sale.", TEXT)]
         if e["st"] == "down":
             if e["id"] == self.my_id:
                 return [(f"{e['g']} Your bones", color), ("A teammate can stand here to revive you.", TEXT)]
@@ -268,7 +297,10 @@ class ClientView:
                     (f"Stand next to them for {REVIVE_SECONDS:.0f} seconds to revive them.", TEXT)]
         if e["p"]:
             name = "You" if e["id"] == self.my_id else e["name"]
-            return [(f"{e['g']} {name}", color), (f"Health {e['hp']}/{e['mhp']}", TEXT)]
+            lines = [(f"{e['g']} {name}", color), (f"Health {e['hp']}/{e['mhp']}", TEXT)]
+            if e.get("lev"):
+                lines.append(("Levitating", FLOAT_TEXT))
+            return lines
         lines = [(f"{e['g']} {e['name'].capitalize()}", color),
                  (f"Health {e['hp']}/{e['mhp']}", TEXT),
                  (STATE_NAMES.get(e["st"], ""), (255, 170, 80) if e["st"] == "hunting" else DIM)]
@@ -354,7 +386,10 @@ class ClientView:
             y += 1
             self.text(f, 1, y, f"Moves {self.turns}  Kills {self.kills}", DIM, width=w - 1)
             y += 1
-            self.text(f, 1, y, f"Score {self.score}", (255, 215, 90), width=w - 1)
+            score = f"Score {self.score}"
+            self.text(f, 1, y, score, (255, 215, 90), width=w - 1)
+            if self.levitate:
+                self.text(f, max(len(score) + 2, 13), y, "Float", FLOAT_TEXT)
             y += 2
 
         if self.party:
@@ -386,7 +421,8 @@ class ClientView:
             self.text(f, 1, y, e["g"], tuple(e["c"]))
             self.text(f, 3, y, e["name"], TEXT, width=w - 3)
             y += 1
-            self.bar(f, 0, y, w, e["hp"] / e["mhp"], "asleep" if e["st"] == "sleeping" else "", (130, 40, 40))
+            label = {"sleeping": "asleep", "merchant": "shop"}.get(e["st"], "")
+            self.bar(f, 0, y, w, e["hp"] / e["mhp"], label, (130, 100, 30) if e["st"] == "merchant" else (130, 40, 40))
             y += 1
 
     def _draw_messages(self, f) -> None:
@@ -464,6 +500,27 @@ class ClientView:
         for j, (name, count) in enumerate(kills[:rows - 5]):
             self.text(f, x0 + 4, y0 + 4 + j, f"{name}", TEXT)
             self.text(f, x0 + 24, y0 + 4 + j, f"{count}", (255, 255, 255))
+
+    def _draw_shop(self, f) -> None:
+        bw, rows = 62, len(self.shop) + 4 if self.shop else 5
+        x0, y0 = self._panel_pos(bw, rows)
+        for j in range(rows):
+            self.text(f, x0, y0 + j, " " * bw, TEXT, PANEL_BG)
+        self.text(f, x0 + 2, y0, f"{self.shop_name.capitalize()}: 1-0 buy, Esc closes", HEADING, width=bw - 4)
+        if not self.shop:
+            self.text(f, x0 + 2, y0 + 2, "Sold out.", DIM)
+        for i, item in enumerate(self.shop[:10]):
+            y = y0 + 1 + i
+            affordable = self.gold >= item["price"]
+            self.text(f, x0 + 2, y, str((i + 1) % 10), DIM)
+            self.text(f, x0 + 4, y, item["g"], tuple(item["c"]))
+            self.text(f, x0 + 6, y, item["name"], TEXT if affordable else DIM, width=21)
+            self.text(f, x0 + 28, y, item["info"], DIM)
+            price = str(item["price"])
+            self.text(f, x0 + bw - 2 - len(price), y, price, (255, 215, 90) if affordable else (200, 80, 80))
+        self.text(f, x0 + 2, y0 + rows - 1, f"{self.gold} {seasons.gold_name(self.season)}", (255, 215, 90))
+        note = "Spending lowers your score"
+        self.text(f, x0 + bw - 2 - len(note), y0 + rows - 1, note, DIM)
 
     def _draw_help(self, f) -> None:
         bw, key_w = 68, 26

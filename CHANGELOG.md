@@ -2,6 +2,18 @@
 
 Versions are MAJOR.MINOR.PATCH. See "Versions" in the README for what each number means.
 
+## 1.2.0 - October 31, 2026
+
+### Added
+
+- Merchants: every 5th floor has a 60% chance of one selling weapons and armor. Spending gold
+  lowers your score.
+- Potion of levitation: rare, and 600 gold when a merchant has one. For 9 seconds ground monsters
+  can't reach you and moving doesn't use up stealth, with a floating effect on your character.
+
+Players need 1.2.0 or newer to join each other's games. The same seed now builds a slightly
+different dungeon, because of the new potion.
+
 ## 1.1.0 - October 31, 2026
 
 ### Added

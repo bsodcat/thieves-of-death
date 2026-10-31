@@ -28,6 +28,13 @@ RESET_DELAY = 4.0
 PACK_SIZE = 10             # slots, one per number key; potions of a kind share a slot
 GOLD_DROP = 25             # gold dropped at a time
 
+# Merchants. Each MERCHANT_EVERY floors, one may be waiting. The levitation potion
+# shows up in LEVITATION_STOCK_CHANCE of their shops.
+MERCHANT_EVERY = 5
+MERCHANT_CHANCE = 0.6
+MERCHANT_STOCK = (3, 5)
+LEVITATION_STOCK_CHANCE = 0.3
+
 # Stealth. The bar fills while you stand still and drains as you move; attacking
 # empties it. A full bar shrinks monster detection range to STEALTH_RANGE_MIN of normal.
 # Equipped gear makes noise (see items.py), which lowers how far the bar can fill.
@@ -54,5 +61,5 @@ DEFENSE_FACTOR = 0.987     # hit% = accuracy * DEFENSE_FACTOR ** defense
 NOTICE_RANGE_SLEEPING = 7
 NOTICE_RANGE_AWAKE = 14
 
-PROTOCOL_VERSION = 11
+PROTOCOL_VERSION = 12
 DEFAULT_PORT = 5555
