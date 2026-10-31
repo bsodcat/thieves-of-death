@@ -163,6 +163,27 @@ ping. Ping is the round trip to the server in milliseconds, measured once a seco
 smoothed. It shows '--' until the first measurement. The green bar behind each name is
 that player's health.
 
+## Terrain
+
+Some floors have lakes or a river running through them, across rock as well as rooms. You can wade
+through shallow water (`~`), but deep water can't be crossed on foot, and monsters stay out of it
+too. Where water cuts a floor in two it leaves a shallow ford, so the stairs up and down and every
+part of the floor can always be reached on foot.
+
+Walking into a pit drops you to the floor below, close to the same spot, for 3 to 6 damage. A fall
+can't kill you. Auto-walk goes around pits, but holding a direction doesn't.
+
+A potion of levitation carries you over water and pits, though not through walls. If it runs out
+over water you scramble to the nearest shore, and if it runs out over a pit you fall. The chances
+are in `game/constants.py`.
+
+## Locked rooms
+
+Each of floors 4 to 14 has a 15% chance of a locked room, in red, blue, green or yellow. Its key is
+the same color and lies exactly 2 floors above or below, so you may have to come back for it. Press
+`g` to pick up a key, then walk into the door. Anyone in the party can use it, and it's used up.
+Inside are two pieces of gear from deeper down, a potion and a big pile of gold.
+
 ## Merchants
 
 Every 5th floor has a 60% chance of a merchant ('$'), and you'll hear them when you arrive. Walk

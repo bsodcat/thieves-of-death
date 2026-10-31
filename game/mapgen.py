@@ -6,6 +6,10 @@ start with one big room, then repeatedly generate a random room shape
 wall of what already exists, connected by a single doorway. Afterwards it
 adds loops by knocking through walls that separate two areas which are
 far apart by foot. This module follows that recipe.
+
+Water and pits go in last, over the finished level. Lakes and rivers run through
+rock as well as rooms, so they can cut the level in two; wherever they do, a ford
+is left across. The stairs and every walkable tile stay reachable on foot.
 """
 from __future__ import annotations
 
@@ -15,8 +19,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .constants import MAP_H, MAP_W
-from .tiles import DOOR, FLOOR, STAIRS_DOWN, STAIRS_UP, WALL
+from .constants import LAKE_CHANCE, MAP_H, MAP_W, PIT_CHANCE, PIT_COUNT, RIVER_CHANCE
+from .tiles import DEEP, DOOR, FLOOR, PIT, SHALLOW, STAIRS_DOWN, STAIRS_UP, WALL
 
 DIRS4 = ((0, -1), (1, 0), (0, 1), (-1, 0))
 Point = tuple[int, int]
@@ -29,6 +33,8 @@ class GeneratedLevel:
     up_front: Point    # floor cell in front of the up staircase
     down: Point
     down_front: Point
+    vault: np.ndarray | None = None   # the floor of the locked room, if there is one
+    lock: Point | None = None         # its door
 
 
 # --------------------------------------------------------------- helpers
@@ -86,6 +92,12 @@ def _largest_component(m: np.ndarray) -> np.ndarray:
     for x, y in best:
         out[x, y] = True
     return out
+
+
+def _cell(p: Point) -> np.ndarray:
+    m = np.zeros((MAP_W, MAP_H), bool)
+    m[p] = True
+    return m
 
 
 def _crop(m: np.ndarray) -> np.ndarray:
@@ -295,9 +307,137 @@ def _stair_sites(fl: np.ndarray, doors: set) -> list[tuple[Point, Point]]:
     return sites
 
 
+# ---------------------------------------------------------------- locked room
+
+def _add_vault(rng: random.Random, fl: np.ndarray) -> tuple[np.ndarray, Point] | None:
+    """Fits a dead-end room into the rock. `_try_attach` leaves a wall all round it, so the
+    door is the only way in. Returns its floor and its door."""
+    before = fl.copy()
+    for size in (rng.randint(4, 6), rng.randint(3, 4)), (rng.randint(3, 4), rng.randint(2, 3)), (3, 2):
+        dirs = list(DIRS4)
+        rng.shuffle(dirs)
+        for d in dirs:
+            piece, site = _make_piece(rng, np.ones(size, bool), d, 0)
+            door = _try_attach(rng, fl, piece, site, d, tries=400)
+            if door:
+                vault = fl & ~before
+                fl[door] = True
+                return vault, door
+    return None
+
+
+# ---------------------------------------------------------- water and pits
+
+def _lake(rng: random.Random) -> np.ndarray:
+    blob = _room_cave(rng, rng.randint(14, 28), rng.randint(8, 14))
+    m = np.zeros((MAP_W, MAP_H), bool)
+    pw, ph = blob.shape
+    ox, oy = rng.randint(1, MAP_W - pw - 1), rng.randint(1, MAP_H - ph - 1)
+    m[ox:ox + pw, oy:oy + ph] = blob
+    return m
+
+
+def _river(rng: random.Random) -> np.ndarray:
+    """A band that wanders from one side of the map to the other."""
+    m = np.zeros((MAP_W, MAP_H), bool)
+    across = rng.random() < 0.6
+    length, span = (MAP_W, MAP_H) if across else (MAP_H, MAP_W)
+    middle = rng.randint(span // 4, span * 3 // 4)
+    width = rng.randint(1, 2)
+    for along in range(1, length - 1):
+        middle = min(max(2, middle + rng.choice((-1, 0, 0, 1))), span - 4)
+        cells = range(middle, middle + width + 1)
+        if across:
+            m[along, cells] = True
+        else:
+            m[cells, along] = True
+    return m
+
+
+def _pits(rng: random.Random) -> np.ndarray:
+    m = np.zeros((MAP_W, MAP_H), bool)
+    for _ in range(rng.randint(*PIT_COUNT)):
+        hole = _room_circle(rng) if rng.random() < 0.3 else np.ones((rng.randint(1, 3), rng.randint(1, 3)), bool)
+        pw, ph = hole.shape
+        ox, oy = rng.randint(1, MAP_W - pw - 1), rng.randint(1, MAP_H - ph - 1)
+        m[ox:ox + pw, oy:oy + ph] |= hole
+    return m
+
+
+def _rejoin(ground: np.ndarray, cuts: np.ndarray, start: Point) -> set:
+    """The cells to clear to link one cut-off patch of ground back to `start`, or nothing if
+    all of it is connected. It's the shortest crossing, so a river gets a narrow ford."""
+    reached = _bfs(ground, start) >= 0
+    if not (ground & ~reached).any():
+        return set()
+    w, h = ground.shape
+    came: dict[Point, Point | None] = {(int(x), int(y)): None for x, y in np.argwhere(reached)}
+    queue = deque(came)
+    while queue:
+        x, y = queue.popleft()
+        for dx, dy in DIRS4:
+            n = (x + dx, y + dy)
+            if not (0 <= n[0] < w and 0 <= n[1] < h) or n in came:
+                continue
+            if ground[n]:  # reached the cut-off patch: walk back over what was crossed
+                path, at = set(), (x, y)
+                while at is not None and cuts[at]:
+                    path.add(at)
+                    at = came[at]
+                return path
+            if cuts[n]:
+                came[n] = (x, y)
+                queue.append(n)
+    raise AssertionError("cut-off ground with no way across")
+
+
+def _corners(ground: np.ndarray, cuts: np.ndarray, keep: np.ndarray) -> set | None:
+    """A cell to clear so no two tiles of ground touch only diagonally: water or a pit if it
+    can be, or else rock beside a ford. None if neither can be cleared."""
+    w, h = ground.shape
+    for x in range(w - 1):
+        for y in range(h - 1):
+            a, b, c, d = ground[x, y], ground[x + 1, y], ground[x, y + 1], ground[x + 1, y + 1]
+            if (a and d and not b and not c) or (b and c and not a and not d):
+                pair = ((x + 1, y), (x, y + 1)) if a and d else ((x, y), (x + 1, y + 1))
+                free = sorted((p for p in pair if not keep[p]), key=lambda p: not cuts[p])
+                return set(free[:1]) or None
+    return set()
+
+
+def _add_terrain(rng: random.Random, fl: np.ndarray, doors: set, keep: np.ndarray, start: Point):
+    """Returns the deep, shallow and pit masks, or None if this level can't be made whole.
+    Nothing is put on the `keep` cells."""
+    deep = np.zeros_like(fl)
+    if rng.random() < LAKE_CHANCE:
+        deep |= _lake(rng)
+    if rng.random() < RIVER_CHANCE:
+        deep |= _river(rng)
+    deep &= ~keep
+    pits = _pits(rng) & fl & ~keep & ~deep if rng.random() < PIT_CHANCE else np.zeros_like(fl)
+    for x, y in doors:
+        pits[x, y] = False
+    doors -= {p for p in doors if deep[p]}
+    _clean_doors(fl | deep, doors)
+
+    while True:
+        ground = fl & ~deep & ~pits
+        clear = _rejoin(ground, deep | pits, start) or _corners(ground, deep | pits, keep)
+        if clear is None:
+            return None
+        if not clear:
+            break
+        for p in clear:
+            deep[p] = pits[p] = False
+            fl[p] = True
+    _clean_doors(ground, doors)  # a door opening onto water is just a gap in the wall
+    shallow = _dilate(deep)[1:-1, 1:-1] & fl & ~deep & ~pits & ~keep
+    return deep, shallow, pits
+
+
 # ------------------------------------------------------------------ main
 
-def _try_generate(rng: random.Random) -> GeneratedLevel | None:
+def _try_generate(rng: random.Random, lock_tile: int | None = None) -> GeneratedLevel | None:
     w, h = MAP_W, MAP_H
     fl = np.zeros((w, h), bool)
     doors: set[Point] = set()
@@ -325,7 +465,15 @@ def _try_generate(rng: random.Random) -> GeneratedLevel | None:
     _fix_diagonals(rng, fl)
     _clean_doors(fl, doors)
 
-    sites = _stair_sites(fl, doors)
+    vault, lock = None, None
+    if lock_tile is not None:
+        found = _add_vault(rng, fl)
+        if found is None:
+            return None
+        vault, lock = found
+
+    taken = doors | ({lock} if lock else set())
+    sites = [s for s in _stair_sites(fl, taken) if vault is None or not vault[s[1]]]
     if len(sites) < 2:
         return None
     up, up_front = rng.choice(sites)
@@ -335,20 +483,39 @@ def _try_generate(rng: random.Random) -> GeneratedLevel | None:
         return None
     down, down_front = rng.choice(far[len(far) * 3 // 4:])
 
+    # The stairs and the locked room keep their surroundings, so nothing floods them.
+    keep = np.zeros((w, h), bool)
+    for x, y in (up, up_front, down, down_front):
+        keep[max(0, x - 1):x + 2, max(0, y - 1):y + 2] = True
+    if vault is not None:
+        keep |= _dilate(vault | _cell(lock))[1:-1, 1:-1]
+    sealed = fl.copy()  # the level without the locked room, which gets no water or pits
+    if vault is not None:
+        sealed[vault], sealed[lock] = False, False
+    terrain = _add_terrain(rng, sealed, doors, keep, up_front)
+    if terrain is None:
+        return None
+    deep, shallow, pits = terrain
+
     tiles = np.full((w, h), WALL, np.uint8)
-    tiles[fl] = FLOOR
+    tiles[fl | sealed] = FLOOR
+    tiles[shallow] = SHALLOW
+    tiles[deep] = DEEP
+    tiles[pits] = PIT
     for p in doors:
         tiles[p] = DOOR
     tiles[up] = STAIRS_UP
     tiles[down] = STAIRS_DOWN
-    return GeneratedLevel(tiles, up, up_front, down, down_front)
+    if lock:
+        tiles[lock] = lock_tile
+    return GeneratedLevel(tiles, up, up_front, down, down_front, vault, lock)
 
 
-def generate(seed: int, depth: int) -> GeneratedLevel:
-    """Same seed and depth always give the same level."""
+def generate(seed: int, depth: int, lock_tile: int | None = None) -> GeneratedLevel:
+    """Same seed and depth always give the same level. `lock_tile` adds a locked room."""
     rng = random.Random(f"{seed}:{depth}")
     for _ in range(50):
-        level = _try_generate(rng)
+        level = _try_generate(rng, lock_tile)
         if level is not None:
             return level
     raise RuntimeError("level generation failed")

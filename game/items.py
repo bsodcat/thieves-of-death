@@ -4,8 +4,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .constants import TICKS_PER_TURN
+from .tiles import LOCK_COLORS
 
-GLYPHS = {"potion": "!", "weapon": ")", "armor": "[", "gold": "*"}
+GLYPHS = {"potion": "!", "weapon": ")", "armor": "[", "gold": "*", "key": "\u2640"}
 AUTO_PICKUP = ("potion", "gold")   # collected by walking over them; the rest wait for a key press
 
 
@@ -13,7 +14,7 @@ AUTO_PICKUP = ("potion", "gold")   # collected by walking over them; the rest wa
 class Item:
     kind: str
     name: str
-    category: str               # potion / weapon / armor / gold
+    category: str               # potion / weapon / armor / gold / key
     color: tuple
     count: int = 1              # stack size, or the amount for gold
     heal: int = 0
@@ -25,6 +26,7 @@ class Item:
     armor: int = 0
     move_cost: int = TICKS_PER_TURN
     noise: int = 0              # lowers the stealth cap while equipped
+    opens: int = 0              # the floor whose locked door this key fits
 
     @property
     def glyph(self) -> str:
@@ -54,6 +56,8 @@ class Item:
             return f"speed for {self.haste:.0f}s"
         if self.levitate:
             return f"float for {self.levitate:.0f}s"
+        if self.category == "key":
+            return f"opens a door on floor {self.opens}"
         return ""
 
 
@@ -86,6 +90,10 @@ GOLD_COLOR = (255, 215, 90)
 def make_item(kind: str) -> Item:
     fields = {k: v for k, v in ITEMS[kind].items() if k not in ("depths", "weight")}
     return Item(kind=kind, **fields)
+
+
+def make_key(color: str, depth: int) -> Item:
+    return Item(kind=f"{color}_key", name=f"{color} key", category="key", color=LOCK_COLORS[color], opens=depth)
 
 
 def make_gold(amount: int) -> Item:

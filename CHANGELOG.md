@@ -2,6 +2,19 @@
 
 Versions are MAJOR.MINOR.PATCH. See "Versions" in the README for what each number means.
 
+## 1.3.0 - October 31, 2026
+
+### Added
+
+- Lakes and rivers that run through rooms and rock. Deep water stops you on foot, and a shallow
+  ford is left wherever water would cut a floor in two, so the stairs can always be reached.
+- Pits that drop you a floor for 3 to 6 damage. A fall can't kill you.
+- Locked rooms on floors 4 to 14, with a matching key exactly 2 floors above or below.
+- A potion of levitation now carries you over water and pits.
+
+Players need 1.3.0 or newer to join each other's games. The same seed now builds a different
+dungeon.
+
 ## 1.2.2 - October 31, 2026
 
 ### Fixed

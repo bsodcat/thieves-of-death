@@ -1,0 +1,384 @@
+"""Lakes, rivers, pits and locked rooms."""
+import random
+import unittest
+
+import numpy as np
+
+from game import mapgen
+from game.constants import FALL_DAMAGE, KEY_DISTANCE, LOCKED_ROOM_FLOORS, MAP_H, MAP_W, TICKS_PER_SECOND
+from game.items import make_key
+from game.pathing import next_step
+from game.render import ClientView
+from game.tiles import (DEEP, DESCRIPTIONS, DOOR, FG, FLOOR, GLYPH, HOVER, LOCK_COLORS, LOCKED, NAMES, PIT, SHALLOW,
+                        WALKABLE, BG, TRANSPARENT)
+from game.world import Level, LockedRoom, World, plan_locked_rooms
+
+DIRS4 = ((1, 0), (-1, 0), (0, 1), (0, -1))
+
+
+def reachable(walk, start):
+    seen, stack = {start}, [start]
+    while stack:
+        x, y = stack.pop()
+        for dx, dy in DIRS4:
+            n = (x + dx, y + dy)
+            if 0 <= n[0] < MAP_W and 0 <= n[1] < MAP_H and walk[n] and n not in seen:
+                seen.add(n)
+                stack.append(n)
+    return seen
+
+
+def world_with(*tiles, seed=1):
+    """A world whose first floor has these (x offset, tile) next to the start, and a player."""
+    w = World(seed)
+    gen = mapgen.generate(seed, 1)
+    gen.tiles[gen.tiles > 2] = np.where(gen.tiles[gen.tiles > 2] >= 5, FLOOR, gen.tiles[gen.tiles > 2])
+    lvl = w.levels[1] = Level(1, gen)
+    p = w.join("A")
+    for m in list(lvl.occupant.values()):
+        if m is not p:
+            lvl.remove(m)
+    lvl.monsters.clear()
+    lvl.items.clear()
+    # somewhere with a clear row to the right
+    x, y = next((x, y) for x, y in lvl.floor_cells
+                if all(lvl.tiles[x + i, y] == FLOOR and lvl.tiles[x + i, y + 1] == FLOOR for i in range(6)))
+    lvl.move(p, x, y)
+    for offset, tile in tiles:
+        gen.tiles[x + offset, y] = tile
+    lvl.walkable, lvl.hover = WALKABLE[gen.tiles], HOVER[gen.tiles]
+    lvl._base_transparent = TRANSPARENT[gen.tiles]
+    lvl.door_version += 1
+    return w, lvl, p
+
+
+def step(w, p, dx=1, dy=0):
+    w.advance(100)
+    w.submit(p, {"a": "move", "dx": dx, "dy": dy})
+    w.advance(100)
+
+
+class TileTableTests(unittest.TestCase):
+    def test_tables_match(self):
+        n = len(NAMES)
+        for table in (DESCRIPTIONS, WALKABLE, HOVER, TRANSPARENT, GLYPH, FG, BG):
+            self.assertEqual(len(table), n)
+
+    def test_new_glyphs_are_in_the_game_font(self):
+        import tcod.tileset
+        for code in GLYPH.tolist() + [0x2640]:
+            self.assertIn(code, tcod.tileset.CHARMAP_CP437)
+
+
+class GenerationTests(unittest.TestCase):
+    def sound(self, g):
+        walk = WALKABLE[g.tiles].copy()
+        if g.lock:
+            walk[g.vault] = False
+        everywhere = reachable(walk, g.up_front)
+        self.assertEqual(len(everywhere), int(walk.sum()))
+        self.assertIn(g.down_front, everywhere)
+
+    def test_stairs_and_all_ground_stay_reachable_on_foot(self):
+        for seed in range(150):
+            self.sound(mapgen.generate(seed, 1 + seed % 26))
+
+    def test_stairs_survive_with_a_locked_room_too(self):
+        for seed in range(100):
+            g = mapgen.generate(seed, 6, LOCKED["red"])
+            self.sound(g)
+            self.assertEqual(g.tiles[g.lock], LOCKED["red"])
+
+    def test_every_kind_of_terrain_turns_up(self):
+        found = np.concatenate([mapgen.generate(seed, 2).tiles.ravel() for seed in range(60)])
+        for tile in (SHALLOW, DEEP, PIT):
+            self.assertTrue((found == tile).any(), NAMES[tile])
+
+    def test_water_goes_through_rock(self):
+        for seed in range(40):
+            river = mapgen._river(random.Random(seed))
+            across = river[1:-1].any(axis=1).all()
+            down = river[:, 1:-1].any(axis=0).all()
+            self.assertTrue(across or down, seed)   # edge to edge, whatever's in the way
+
+    def test_a_locked_room_is_only_reached_through_its_door(self):
+        for seed in range(100):
+            g = mapgen.generate(seed, 8, LOCKED["blue"])
+            self.assertGreaterEqual(int(g.vault.sum()), 6)
+            inside = {(int(x), int(y)) for x, y in np.argwhere(g.vault)}
+            for x, y in inside:
+                for dx in (-1, 0, 1):
+                    for dy in (-1, 0, 1):
+                        n = (x + dx, y + dy)
+                        if n not in inside and n != g.lock:
+                            self.assertFalse(TRANSPARENT[g.tiles[n]] or WALKABLE[g.tiles[n]], (seed, n))
+
+    def test_levels_stay_deterministic(self):
+        a, b = mapgen.generate(9, 7, LOCKED["green"]), mapgen.generate(9, 7, LOCKED["green"])
+        self.assertTrue(np.array_equal(a.tiles, b.tiles))
+
+
+class WaterTests(unittest.TestCase):
+    def test_deep_water_stops_you_for_free(self):
+        w, lvl, p = world_with((1, DEEP))
+        before = (p.x, p.y)
+        turns = p.turns
+        step(w, p)
+        self.assertEqual((p.x, p.y), before)
+        self.assertEqual(p.turns, turns)
+        self.assertIn("too deep", str(w.drain_outbox()))
+
+    def test_shallow_water_is_just_ground(self):
+        w, lvl, p = world_with((1, SHALLOW))
+        x = p.x
+        step(w, p)
+        self.assertEqual(p.x, x + 1)
+
+    def test_you_can_see_across_water(self):
+        w, lvl, p = world_with((1, DEEP), (2, DEEP))
+        self.assertTrue(w.fov(p)[p.x + 3, p.y])
+
+    def test_monsters_never_enter(self):
+        w = World(4)
+        lvl = w.level(3)
+        for m in lvl.monsters:
+            self.assertTrue(lvl.walkable[m.x, m.y])
+        self.assertTrue(all(lvl.walkable[c] for c in lvl.items))
+
+    def test_levitation_crosses_water_diagonally_too(self):
+        w, lvl, p = world_with((1, DEEP), (2, DEEP))
+        lvl.tiles[p.x + 1, p.y + 1] = DEEP
+        lvl.walkable[p.x + 1, p.y + 1] = False
+        lvl.hover[p.x + 1, p.y + 1] = True
+        p.levitate_until = w.clock + 100000
+        x, y = p.x, p.y
+        step(w, p, 1, 1)
+        self.assertEqual((p.x, p.y), (x + 1, y + 1))
+
+    def test_levitation_ending_over_water_puts_you_ashore(self):
+        w, lvl, p = world_with((1, DEEP))
+        p.levitate_until = w.clock + 100000
+        step(w, p)
+        self.assertEqual(lvl.tiles[p.x, p.y], DEEP)
+        p.levitate_until = w.clock + 1
+        w.advance(10)
+        self.assertTrue(lvl.walkable[p.x, p.y])
+        self.assertEqual(lvl.occupant[(p.x, p.y)], p)
+
+    def test_drops_over_water_land_on_ground(self):
+        w, lvl, p = world_with((1, DEEP))
+        p.gold = 50
+        p.levitate_until = w.clock + 100000
+        step(w, p)
+        w.submit(p, {"a": "dropgold"})
+        w.advance(100)
+        self.assertTrue(lvl.items)
+        self.assertTrue(all(lvl.walkable[c] for c in lvl.items))
+
+    def test_dying_over_water_leaves_bones_on_land(self):
+        w, lvl, p = world_with((1, DEEP))
+        w.mode = "Revive"
+        p.levitate_until = w.clock + 100000
+        step(w, p)
+        w._kill(p, None)
+        self.assertTrue(lvl.walkable[p.x, p.y])
+
+    def test_cant_swap_an_ally_into_the_water(self):
+        w, lvl, p = world_with((1, DEEP))
+        q = w.join("B")
+        lvl.move(q, p.x + 1, p.y)  # floating over the water
+        q.levitate_until = w.clock + 100000
+        here = (p.x, p.y)
+        step(w, p)
+        self.assertEqual((p.x, p.y), here)
+
+
+class PitTests(unittest.TestCase):
+    def test_walking_in_drops_you_a_floor(self):
+        w, lvl, p = world_with((1, PIT))
+        hp, x, y = p.hp, p.x, p.y
+        step(w, p)
+        self.assertEqual(p.depth, 2)
+        self.assertTrue(w.levels[2].walkable[p.x, p.y])
+        self.assertLessEqual(hp - p.hp, FALL_DAMAGE[1])
+        self.assertGreaterEqual(hp - p.hp, FALL_DAMAGE[0] - 1)   # a little comes back by itself
+        self.assertTrue(p.needs_level)
+        self.assertNotIn(p, lvl.occupant.values())
+
+    def test_a_fall_cant_kill(self):
+        w, lvl, p = world_with((1, PIT))
+        p.hp = 1
+        step(w, p)
+        self.assertTrue(p.alive)
+        self.assertGreaterEqual(p.hp, 1)
+
+    def test_a_held_direction_stops_after_the_fall(self):
+        w, lvl, p = world_with((1, PIT))
+        w.advance(100)
+        w.submit(p, {"a": "hold", "dx": 1, "dy": 0, "press": True})
+        w.advance(100)
+        self.assertEqual(p.depth, 2)
+        self.assertIsNone(p.hold)
+
+    def test_you_land_near_where_you_fell(self):
+        w = World(3)
+        below = w.level(2)
+        x, y = below.floor_cells[len(below.floor_cells) // 2]
+        self.assertEqual(below.landing(x, y), (x, y))
+
+    def test_you_never_land_in_a_locked_room(self):
+        w = World(3)
+        w.locked_rooms = {2: LockedRoom(2, 4, "red")}
+        below = w.level(2)
+        for x, y in np.argwhere(below.vault):
+            spot = below.landing(int(x), int(y))
+            self.assertFalse(below.vault[spot])
+
+    def test_levitation_floats_over_until_it_ends(self):
+        w, lvl, p = world_with((1, PIT))
+        p.levitate_until = w.clock + 100000
+        step(w, p)
+        self.assertEqual(p.depth, 1)
+        self.assertEqual(lvl.tiles[p.x, p.y], PIT)
+        p.levitate_until = w.clock + 1
+        w.advance(10)
+        self.assertEqual(p.depth, 2)
+
+    def test_auto_walk_goes_around(self):
+        w, lvl, p = world_with((1, PIT))
+        step_taken = next_step(WALKABLE[lvl.tiles], (p.x, p.y), (p.x + 2, p.y))
+        self.assertNotEqual(step_taken, (1, 0))
+
+
+class LockedRoomTests(unittest.TestCase):
+    def locked_world(self, key_above=True):
+        for seed in range(1, 400):
+            w = World(seed)
+            rooms = [r for r in w.locked_rooms.values() if (r.key_depth < r.depth) == key_above]
+            if rooms:
+                return w, rooms[0]
+        raise AssertionError("no seed with a locked room")
+
+    def test_the_plan_follows_the_rules(self):
+        counts = []
+        for seed in range(2000):
+            rooms = plan_locked_rooms(seed)
+            counts.append(len(rooms))
+            self.assertEqual(len({r.color for r in rooms.values()}), len(rooms))
+            for r in rooms.values():
+                self.assertTrue(LOCKED_ROOM_FLOORS[0] <= r.depth <= LOCKED_ROOM_FLOORS[1])
+                self.assertEqual(abs(r.key_depth - r.depth), KEY_DISTANCE)
+        self.assertTrue(1.2 < sum(counts) / len(counts) < 2.1, sum(counts) / len(counts))
+        self.assertIn(0, counts)
+        self.assertGreater(max(counts), 1)
+
+    def test_the_plan_comes_from_the_seed(self):
+        self.assertEqual(plan_locked_rooms(77), plan_locked_rooms(77))
+
+    def test_key_and_door_match(self):
+        for key_above in (True, False):
+            w, room = self.locked_world(key_above)
+            door = w.level(room.depth)
+            self.assertEqual(door.tiles[door.lock], LOCKED[room.color])
+            keys = [i for i in w.level(room.key_depth).items.values() if i.category == "key" and i.opens == room.depth]
+            self.assertEqual(len(keys), 1)
+            self.assertEqual(keys[0].color, LOCK_COLORS[room.color])
+            self.assertEqual(tuple(int(c) for c in FG[door.tiles[door.lock]]), keys[0].color)
+
+    def test_nothing_spawns_or_wanders_inside_but_the_treasure(self):
+        w, room = self.locked_world()
+        lvl = w.level(room.depth)
+        inside = [c for c in lvl.items if lvl.vault[c]]
+        self.assertEqual(len(inside), 4)
+        self.assertFalse(any(lvl.vault[m.x, m.y] for m in lvl.monsters))
+        self.assertFalse(any(lvl.vault[c] for c in lvl.floor_cells))
+
+    def next_to_lock(self):
+        w, room = self.locked_world()
+        lvl = w.level(room.depth)
+        p = w.join("A")
+        lvl1 = w.levels[p.depth]
+        lvl1.remove(p)
+        x, y = lvl.lock
+        front = next((x + dx, y + dy) for dx, dy in DIRS4 if lvl.walkable[x + dx, y + dy]
+                     and not lvl.vault[x + dx, y + dy])
+        lvl.place(p, *lvl.free_near(*front))
+        lvl.monsters.clear()
+        for m in list(lvl.occupant.values()):
+            if m is not p:
+                lvl.remove(m)
+        if (p.x, p.y) != front:
+            lvl.move(p, *front)
+        return w, room, lvl, p, (x - front[0], y - front[1])
+
+    def test_no_key_no_entry(self):
+        w, room, lvl, p, (dx, dy) = self.next_to_lock()
+        here = (p.x, p.y)
+        step(w, p, dx, dy)
+        self.assertEqual((p.x, p.y), here)
+        self.assertIsNotNone(lvl.lock)
+        self.assertIn("2 floors away", str(w.drain_outbox()))
+
+    def test_the_wrong_key_doesnt_fit(self):
+        w, room, lvl, p, (dx, dy) = self.next_to_lock()
+        p.pack.append(make_key(room.color, room.depth + 1))
+        step(w, p, dx, dy)
+        self.assertIsNotNone(lvl.lock)
+
+    def test_the_key_opens_the_door_for_everyone(self):
+        w, room, lvl, p, (dx, dy) = self.next_to_lock()
+        spot = lvl.lock
+        p.pack.append(make_key(room.color, room.depth))
+        p.needs_level = False
+        step(w, p, dx, dy)
+        self.assertEqual(lvl.tiles[spot], DOOR)
+        self.assertEqual(p.pack, [])
+        self.assertTrue(p.needs_level)
+        self.assertIsNone(lvl.lock)
+        step(w, p, dx, dy)
+        self.assertEqual((p.x, p.y), spot)
+        step(w, p, dx, dy)
+        self.assertTrue(lvl.vault[p.x, p.y])
+
+    def test_keys_do_nothing_from_the_pack(self):
+        w, room, lvl, p, _ = self.next_to_lock()
+        p.pack.append(make_key(room.color, room.depth))
+        w.submit(p, {"a": "use", "slot": 0})
+        w.advance(100)
+        self.assertEqual(len(p.pack), 1)
+
+    def test_keys_arent_picked_up_by_walking(self):
+        w, room = self.locked_world()
+        lvl = w.level(room.key_depth)
+        spot, key = next((c, i) for c, i in lvl.items.items() if i.category == "key")
+        p = w.join("A")
+        w.levels[p.depth].remove(p)
+        lvl.place(p, *spot)
+        w._step_onto(p, lvl)
+        self.assertEqual(p.pack, [])
+        self.assertTrue(w._pick_up(p, lvl))
+        self.assertEqual(p.pack, [key])
+
+    def test_a_new_run_plans_new_rooms(self):
+        w = World(5)
+        w.join("A")
+        seed = w.seed
+        w.reset_run()
+        self.assertNotEqual(seed, w.seed)
+        self.assertEqual(w.locked_rooms, plan_locked_rooms(w.seed))
+
+    def test_the_client_can_look_at_all_of_it(self):
+        v = ClientView()
+        tiles = np.zeros((MAP_W, MAP_H), np.uint8)
+        for t in range(len(NAMES)):
+            tiles[t, 0] = t
+        v.levels[1], v.depth = tiles, 1
+        v.seen[1] = np.ones((MAP_W, MAP_H), bool)
+        v.visible = np.ones((MAP_W, MAP_H), bool)
+        for t in range(len(NAMES)):
+            self.assertEqual(v.describe(t, 0)[0][0], NAMES[t].capitalize())
+        v.draw()
+
+
+if __name__ == "__main__":
+    unittest.main()

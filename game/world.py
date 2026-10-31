@@ -15,6 +15,11 @@ them back; see `_tick_revives`.
 Monsters only run on levels with a living player. The rest stay frozen until
 someone arrives.
 
+Lakes and pits aren't `walkable`, so monsters and the party's items stay out of them.
+A levitating player can cross anything in `Level.hover`. Walking into a pit drops you
+a floor; see `_fall`. A locked room's floor isn't in `floor_cells`, so nothing spawns
+or lands there, and its key is placed by `_place_keys`.
+
 The server is single-threaded: call `submit`, `chat`, `join`, `leave` and
 `advance`, then drain `outbox` and send `state_for(player)` to everyone.
 """
@@ -24,11 +29,13 @@ import itertools
 import random
 import time
 from collections import deque
+from dataclasses import dataclass
 
 import numpy as np
 
 from . import algo, mapgen, protocol, seasons
-from .constants import (BONES_GLYPH, DEEPEST_TABLE, DEFENSE_FACTOR, GOLD_DROP, LEVITATION_STOCK_CHANCE, MAP_H, MAP_W,
+from .constants import (BONES_GLYPH, DEEPEST_TABLE, DEFENSE_FACTOR, FALL_DAMAGE, GOLD_DROP, KEY_DISTANCE,
+                        LEVITATION_STOCK_CHANCE, LOCKED_ROOM_CHANCE, LOCKED_ROOM_FLOORS, MAP_H, MAP_W,
                         MERCHANT_CHANCE, MERCHANT_EVERY, MERCHANT_STOCK, MONSTER_TIME, NOTICE_RANGE_AWAKE,
                         NOTICE_RANGE_SLEEPING, PACK_SIZE, REGEN_TURNS, RESET_DELAY, REVIVE_HEALTH,
                         REVIVE_SECONDS, SCORE_PER_GOLD, SCORE_PER_MOVE, STEALTH_FILL_SECONDS,
@@ -36,8 +43,8 @@ from .constants import (BONES_GLYPH, DEEPEST_TABLE, DEFENSE_FACTOR, GOLD_DROP, L
                         TICKS_PER_TURN)
 from .entities import (MONSTERS, PLAYER_COLOR_NAMES, PLAYER_COLORS, PLAYER_GLYPHS, Merchant, Monster, Player, apply_gear,
                        danger, make_merchant, make_monster, make_player, reset_player)
-from .items import AUTO_PICKUP, ITEMS, Item, make_gold, make_item
-from .tiles import DOOR, FLOOR, STAIRS_DOWN, STAIRS_UP, TRANSPARENT, WALKABLE
+from .items import AUTO_PICKUP, ITEMS, Item, make_gold, make_item, make_key
+from .tiles import (DEEP, DOOR, FLOOR, HOVER, LOCK_COLORS, LOCKED, PIT, STAIRS_DOWN, STAIRS_UP, TRANSPARENT, WALKABLE)
 
 DIRS8 = [(dx, dy) for dx in (-1, 0, 1) for dy in (-1, 0, 1) if dx or dy]
 
@@ -57,6 +64,25 @@ def _article(name: str) -> str:
     return ("an " if name[:1] in "aeiou" else "a ") + name
 
 
+@dataclass
+class LockedRoom:
+    depth: int
+    key_depth: int
+    color: str
+
+
+def plan_locked_rooms(seed: int) -> dict[int, LockedRoom]:
+    """Settled for the whole run up front, because a key can be found before its door."""
+    rng = random.Random(f"{seed}:locked")
+    colors = list(LOCK_COLORS)
+    rng.shuffle(colors)
+    rooms = {}
+    for depth in range(LOCKED_ROOM_FLOORS[0], LOCKED_ROOM_FLOORS[1] + 1):
+        if colors and rng.random() < LOCKED_ROOM_CHANCE:
+            rooms[depth] = LockedRoom(depth, depth + rng.choice((-KEY_DISTANCE, KEY_DISTANCE)), colors.pop())
+    return rooms
+
+
 class Level:
     def __init__(self, depth: int, gen: mapgen.GeneratedLevel):
         self.depth = depth
@@ -64,9 +90,12 @@ class Level:
         self.up, self.up_front = gen.up, gen.up_front
         self.down, self.down_front = gen.down, gen.down_front
         self.walkable = WALKABLE[self.tiles]
+        self.hover = HOVER[self.tiles]
         self.is_door = self.tiles == DOOR
         self._base_transparent = TRANSPARENT[self.tiles]
-        self.floor_cells = [(int(x), int(y)) for x, y in np.argwhere(self.walkable)]
+        self.vault, self.lock = gen.vault, gen.lock
+        open_floor = self.walkable if gen.vault is None else self.walkable & ~gen.vault
+        self.floor_cells = [(int(x), int(y)) for x, y in np.argwhere(open_floor)]
         self.occupant: dict[tuple[int, int], object] = {}
         self.monsters: list[Monster] = []
         self.items: dict[tuple[int, int], Item] = {}   # one item per tile
@@ -109,10 +138,10 @@ class Level:
         return self._transparent
 
     def diagonal_blocked(self, x: int, y: int, nx: int, ny: int) -> bool:
-        """Brogue rule: no cutting diagonally past a wall corner."""
+        """Brogue rule: no cutting diagonally past a wall corner. Water and pits aren't corners."""
         if x == nx or y == ny:
             return False
-        return not self.walkable[nx, y] or not self.walkable[x, ny]
+        return not self.hover[nx, y] or not self.hover[x, ny]
 
     def free_near(self, x: int, y: int) -> tuple[int, int]:
         queue, seen = deque([(x, y)]), {(x, y)}
@@ -122,7 +151,7 @@ class Level:
                 return cx, cy
             for dx, dy in DIRS8:
                 n = (cx + dx, cy + dy)
-                if self.in_bounds(*n) and n not in seen and (self.walkable[n] or n == (x, y)):
+                if self.in_bounds(*n) and n not in seen and self.hover[n]:
                     seen.add(n)
                     queue.append(n)
         return x, y
@@ -136,13 +165,24 @@ class Level:
                 return cx, cy
             for dx, dy in DIRS8:
                 n = (cx + dx, cy + dy)
-                if self.in_bounds(*n) and n not in seen and self.walkable[n]:
+                if self.in_bounds(*n) and n not in seen and self.hover[n]:
                     seen.add(n)
                     queue.append(n)
         return x, y
 
     def random_floor(self, rng: random.Random) -> tuple[int, int]:
         return rng.choice(self.floor_cells)
+
+    def landing(self, x: int, y: int) -> tuple[int, int]:
+        """The open floor tile closest to (x, y), for someone falling in from above."""
+        spots = [c for c in self.floor_cells if c not in self.occupant]
+        return min(spots, key=lambda c: (max(abs(c[0] - x), abs(c[1] - y)), c))
+
+    def unlock(self) -> None:
+        self.tiles[self.lock] = DOOR
+        self.walkable[self.lock] = self.hover[self.lock] = self.is_door[self.lock] = True
+        self.lock = None
+        self.door_version += 1
 
 
 class World:
@@ -154,6 +194,7 @@ class World:
         self.season_fn = season_fn             # checked once a run, so looks never change mid-dungeon
         self.season = season_fn()
         self.rng = random.Random(self.seed * 7919 + 1)
+        self.locked_rooms = plan_locked_rooms(self.seed)
         self.levels: dict[int, Level] = {}
         self.players: dict[int, Player] = {}   # connected players
         self.offline: dict[str, Player] = {}   # disconnected, keyed by name, restored on rejoin
@@ -170,7 +211,8 @@ class World:
     def level(self, depth: int) -> Level:
         lvl = self.levels.get(depth)
         if lvl is None:
-            lvl = Level(depth, mapgen.generate(self.seed, depth))
+            room = self.locked_rooms.get(depth)
+            lvl = Level(depth, mapgen.generate(self.seed, depth, LOCKED[room.color] if room else None))
             self.levels[depth] = lvl
             self._populate(lvl)
         return lvl
@@ -190,6 +232,8 @@ class World:
             lvl.place(m, x, y)
             lvl.monsters.append(m)
         self._add_items(lvl)
+        self._stock_vault(lvl)
+        self._place_keys(lvl)
         if lvl.depth % MERCHANT_EVERY == 0:
             self._add_merchant(lvl)
 
@@ -223,6 +267,31 @@ class World:
             lvl.items[spots.pop()] = self._item(kind)
         for _ in range(2 + rng.randint(0, 2)):
             lvl.items[spots.pop()] = self._gold(rng.randint(5, 15) * lvl.depth + 5)
+
+    def _stock_vault(self, lvl: Level) -> None:
+        """Better gear than the floor it's on, a potion and a good pile of gold."""
+        if lvl.vault is None:
+            return
+        rng = random.Random(f"{self.seed}:{lvl.depth}:vault")
+        cells = [(int(x), int(y)) for x, y in np.argwhere(lvl.vault)]
+        rng.shuffle(cells)
+        depth = min(lvl.depth + 3, DEEPEST_TABLE)
+        gear = [k for k, t in ITEMS.items()
+                if t["category"] in ("weapon", "armor") and t["depths"][0] <= depth <= t["depths"][1]]
+        potions = [k for k, t in ITEMS.items() if t["category"] == "potion" and t["depths"][0] <= depth]
+        for kind in rng.sample(gear, 2) + [rng.choice(potions)]:
+            lvl.items[cells.pop()] = self._item(kind)
+        lvl.items[cells.pop()] = self._gold(rng.randint(30, 60) * lvl.depth)
+
+    def _place_keys(self, lvl: Level) -> None:
+        rng = random.Random(f"{self.seed}:{lvl.depth}:keys")
+        for room in self.locked_rooms.values():
+            if room.key_depth == lvl.depth:
+                spots = [c for c in lvl.floor_cells if c not in lvl.items and c not in lvl.occupant]
+                lvl.items[rng.choice(spots)] = self._key(room)
+
+    def _key(self, room: LockedRoom) -> Item:
+        return seasons.dress_item(make_key(room.color, room.depth), self.season)
 
     def _item(self, kind: str) -> Item:
         return seasons.dress_item(make_item(kind), self.season)
@@ -436,8 +505,19 @@ class World:
                     if p.levitate_until and self.clock >= p.levitate_until:
                         p.levitate_until = 0
                         self.dirty = True
-                        self.tell(p, "You drift back down to the ground.", GRAY)
+                        self._touch_down(p)
             self._tick_revives(ticks)
+
+    def _touch_down(self, p: Player) -> None:
+        lvl = self.levels[p.depth]
+        if lvl.tiles[p.x, p.y] == PIT:
+            self._fall(p, lvl)
+            return
+        if not lvl.walkable[p.x, p.y]:
+            lvl.move(p, *lvl.free_near(p.x, p.y))
+            self.tell(p, "You splash down and scramble ashore.", GRAY)
+            return
+        self.tell(p, "You drift back down to the ground.", GRAY)
 
     def _player_turn(self, p: Player) -> None:
         act, p.pending = p.pending, None
@@ -544,6 +624,8 @@ class World:
                 return 0
             if other.is_player:  # swap places with an ally, as in Brogue
                 ox, oy = p.x, p.y
+                if not (self._can_be_at(p, lvl, nx, ny) and self._can_be_at(other, lvl, ox, oy)):
+                    return 0
                 lvl.remove(p)
                 lvl.remove(other)
                 lvl.place(p, nx, ny)
@@ -553,11 +635,52 @@ class World:
                 return p.move_cost
             self._attack(p, other)
             return p.attack_cost
-        if not lvl.walkable[nx, ny]:
+        if tile == PIT and not self._levitating(p):
+            self._fall(p, lvl, (nx, ny))
+            return p.move_cost
+        if tile == DEEP and not self._levitating(p):
+            self.tell(p, "That water is too deep to wade through.", GRAY)
+            return 0
+        if (nx, ny) == lvl.lock:
+            return self._open_lock(p, lvl)
+        if not self._can_be_at(p, lvl, nx, ny):
             return 0  # bumping a wall costs no time
         lvl.move(p, nx, ny)
         self._step_onto(p, lvl)
         return p.move_cost
+
+    def _can_be_at(self, p: Player, lvl: Level, x: int, y: int) -> bool:
+        return bool(lvl.walkable[x, y] or (self._levitating(p) and lvl.hover[x, y]))
+
+    def _open_lock(self, p: Player, lvl: Level) -> int:
+        room = self.locked_rooms[lvl.depth]
+        key = next((i for i in p.pack if i.opens == lvl.depth), None)
+        if key is None:
+            self.tell(p, f"The {room.color} door is locked. Its key is {KEY_DISTANCE} floors away.", GRAY)
+            return 0
+        self._take_one(p, key)
+        lvl.unlock()
+        for q in self._living_on(lvl.depth):
+            q.needs_level = True
+        self.dirty = True
+        self.tell(p, f"The {room.color} key turns, and the door swings open.", GOLD)
+        return TICKS_PER_TURN
+
+    def _fall(self, p: Player, lvl: Level, at: tuple[int, int] | None = None) -> None:
+        """Drops a player to the floor below, near the same spot. It hurts but can't kill."""
+        x, y = at or (p.x, p.y)
+        self._narrate(lvl, [(p.x, p.y)], set(), lambda v: (f"{p.name} falls into the pit!", ORANGE), exclude=p)
+        lvl.remove(p)
+        below = self.level(p.depth + 1)
+        below.place(p, *below.landing(x, y))
+        p.hp = max(1, p.hp - self.rng.randint(*FALL_DAMAGE))
+        p.pending, p.hold, p.needs_level = None, None, True
+        self.tell(p, f"You fall into the pit and land hard on depth {p.depth}!", ORANGE)
+        self._hear_merchant(p, below)
+
+    def _hear_merchant(self, p: Player, lvl: Level) -> None:
+        if lvl.merchant is not None:
+            self.tell(p, f"You hear a {lvl.merchant.name} calling out somewhere on this floor.", GOLD)
 
     # -------------------------------------------------------------- items
 
@@ -638,6 +761,9 @@ class World:
         if slot >= len(p.pack):
             return 0
         item = p.pack[slot]
+        if item.category == "key":
+            self.tell(p, f"Walk into the {item.name.replace(' key', '')} locked door to use it.", GRAY)
+            return 0
         if item.category == "weapon":
             p.weapon = None if p.weapon is item else item
         elif item.category == "armor":
@@ -718,8 +844,7 @@ class World:
         lvl.place(p, *lvl.free_near(*(lvl.up_front if step > 0 else lvl.down_front)))
         p.needs_level = True
         self.tell(p, f"You {'descend' if step > 0 else 'ascend'} to depth {new_depth}.", WHITE)
-        if lvl.merchant is not None:
-            self.tell(p, f"You hear a {lvl.merchant.name} calling out somewhere on this floor.", GOLD)
+        self._hear_merchant(p, lvl)
         return p.move_cost
 
     def _regen(self, p: Player, cost: int) -> None:
@@ -790,6 +915,8 @@ class World:
             else f"{victim.name} {'is down' if revivable else 'dies'}!", RED))
         victim.alive, victim.hp, victim.pending, victim.hold = False, 0, None, None
         victim.levitate_until = 0
+        if not lvl.walkable[victim.x, victim.y]:  # shot down over water: land where the party can reach
+            lvl.move(victim, *lvl.free_near(victim.x, victim.y))
         victim.final_gold = victim.gold
         victim.death = f"Killed by {_article(killer.name)} on depth {victim.depth}." if killer else "Died."
         lvl.remove(victim)
@@ -822,6 +949,7 @@ class World:
     def reset_run(self) -> None:
         self.seed = random.randrange(1, 2 ** 31)
         self.rng = random.Random(self.seed * 7919 + 1)
+        self.locked_rooms = plan_locked_rooms(self.seed)
         self.levels, self.offline = {}, {}
         self.season = self.season_fn()
         self.run += 1

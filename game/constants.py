@@ -35,6 +35,19 @@ MERCHANT_CHANCE = 0.6
 MERCHANT_STOCK = (3, 5)
 LEVITATION_STOCK_CHANCE = 0.3
 
+# Terrain. The chance of each on a floor, and how many pits a floor with them gets.
+LAKE_CHANCE = 0.4
+RIVER_CHANCE = 0.35
+PIT_CHANCE = 0.35
+PIT_COUNT = (1, 3)
+FALL_DAMAGE = (3, 6)       # a fall can't kill you; it leaves you on 1 health at worst
+
+# Locked rooms. Each floor in the range has LOCKED_ROOM_CHANCE of one, and its key lies
+# KEY_DISTANCE floors above or below. There's one room per color in tiles.LOCK_COLORS at most.
+LOCKED_ROOM_FLOORS = (4, 14)
+LOCKED_ROOM_CHANCE = 0.15
+KEY_DISTANCE = 2
+
 # Stealth. The bar fills while you stand still and drains as you move; attacking
 # empties it. A full bar shrinks monster detection range to STEALTH_RANGE_MIN of normal.
 # Equipped gear makes noise (see items.py), which lowers how far the bar can fill.
@@ -61,5 +74,5 @@ DEFENSE_FACTOR = 0.987     # hit% = accuracy * DEFENSE_FACTOR ** defense
 NOTICE_RANGE_SLEEPING = 7
 NOTICE_RANGE_AWAKE = 14
 
-PROTOCOL_VERSION = 12
+PROTOCOL_VERSION = 13
 DEFAULT_PORT = 5555
