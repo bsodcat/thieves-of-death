@@ -27,7 +27,7 @@ from collections import deque
 
 import numpy as np
 
-from . import algo, mapgen, protocol
+from . import algo, mapgen, protocol, seasons
 from .constants import (BONES_GLYPH, DEEPEST_TABLE, DEFENSE_FACTOR, GOLD_DROP, MAP_H, MAP_W, MONSTER_TIME, NOTICE_RANGE_AWAKE,
                         NOTICE_RANGE_SLEEPING, PACK_SIZE, REGEN_TURNS, RESET_DELAY, REVIVE_HEALTH,
                         REVIVE_SECONDS, SCORE_PER_GOLD, SCORE_PER_MOVE, STEALTH_FILL_SECONDS,
@@ -144,10 +144,13 @@ class Level:
 
 
 class World:
-    def __init__(self, seed: int | None = None, monster_time: float = MONSTER_TIME, mode: str = "Classic"):
+    def __init__(self, seed: int | None = None, monster_time: float = MONSTER_TIME, mode: str = "Classic",
+                 season_fn=lambda: None):
         self.seed = seed if seed is not None else random.randrange(1, 2 ** 31)
         self.monster_time = monster_time
         self.mode = mode
+        self.season_fn = season_fn             # checked once a run, so looks never change mid-dungeon
+        self.season = season_fn()
         self.rng = random.Random(self.seed * 7919 + 1)
         self.levels: dict[int, Level] = {}
         self.players: dict[int, Player] = {}   # connected players
@@ -179,7 +182,7 @@ class World:
         rng.shuffle(spots)
         for x, y in spots[:4 + lvl.depth // 2 + rng.randint(0, 3)]:
             kind = rng.choices([k for k, _ in kinds], [w for _, w in kinds])[0]
-            m = make_monster(kind, next(self._ids))
+            m = seasons.dress_monster(make_monster(kind, next(self._ids)), self.season)
             m.state = "sleeping" if rng.random() < 0.6 else "wandering"
             m.lag = m.next_time = rng.randrange(TICKS_PER_TURN)
             lvl.place(m, x, y)
@@ -193,9 +196,15 @@ class World:
         kinds = [(k, t["weight"]) for k, t in ITEMS.items() if t["depths"][0] <= depth <= t["depths"][1]]
         for _ in range(3 + rng.randint(0, 2)):
             kind = rng.choices([k for k, _ in kinds], [w for _, w in kinds])[0]
-            lvl.items[spots.pop()] = make_item(kind)
+            lvl.items[spots.pop()] = self._item(kind)
         for _ in range(2 + rng.randint(0, 2)):
-            lvl.items[spots.pop()] = make_gold(rng.randint(5, 15) * lvl.depth + 5)
+            lvl.items[spots.pop()] = self._gold(rng.randint(5, 15) * lvl.depth + 5)
+
+    def _item(self, kind: str) -> Item:
+        return seasons.dress_item(make_item(kind), self.season)
+
+    def _gold(self, amount: int) -> Item:
+        return seasons.dress_item(make_gold(amount), self.season)
 
     # ----------------------------------------------------------- players
 
@@ -251,6 +260,8 @@ class World:
         self.players[p.id] = p
         self.dirty = True
         self.broadcast(f"{p.name} enters the dungeon.", p.color)
+        if self.season:
+            self.tell(p, seasons.joined_message(self.season), GOLD)
         return p
 
     def leave(self, p: Player) -> None:
@@ -575,7 +586,7 @@ class World:
         p.pack_dirty = True
         if item.count > 1:
             item.count -= 1
-            return make_item(item.kind)
+            return self._item(item.kind)
         p.pack.remove(item)
         if item is p.weapon:
             p.weapon = None
@@ -600,14 +611,15 @@ class World:
             return 0
         p.gold -= amount
         p.pack_dirty = True
-        lvl.items[lvl.free_item_spot(p.x, p.y)] = make_gold(amount)
-        self.tell(p, f"You drop {amount} gold.", WHITE)
-        self._narrate(lvl, [(p.x, p.y)], set(), lambda v: (f"{p.name} drops {amount} gold.", GRAY), exclude=p)
+        item = self._gold(amount)
+        lvl.items[lvl.free_item_spot(p.x, p.y)] = item
+        self.tell(p, f"You drop {item.label}.", WHITE)
+        self._narrate(lvl, [(p.x, p.y)], set(), lambda v: (f"{p.name} drops {item.label}.", GRAY), exclude=p)
         return TICKS_PER_TURN
 
     def _scatter_belongings(self, p: Player, lvl: Level) -> None:
         """A fallen player's gear lands around them for the party to collect."""
-        loot = p.pack + ([make_gold(p.gold)] if p.gold else [])
+        loot = p.pack + ([self._gold(p.gold)] if p.gold else [])
         for item in loot:
             lvl.items[lvl.free_item_spot(p.x, p.y)] = item
         p.pack, p.gold, p.weapon, p.armor, p.pack_dirty = [], 0, None, None, True
@@ -724,6 +736,7 @@ class World:
         self.seed = random.randrange(1, 2 ** 31)
         self.rng = random.Random(self.seed * 7919 + 1)
         self.levels, self.offline = {}, {}
+        self.season = self.season_fn()
         self.run += 1
         self.run_start = self.clock
         self.reset_at = None
@@ -820,6 +833,11 @@ class World:
                 return ["revive", f"Reviving {other.name}... {self._revive_percent(other)}%"]
         return ["go", ""]
 
+    def _hardest_name(self, p: Player) -> str:
+        if not p.hardest:
+            return ""
+        return seasons.monster_name(p.hardest, self.season, MONSTERS[p.hardest]["name"])
+
     def pack_msg(self, p: Player) -> dict:
         pack = [{"name": i.label, "g": i.glyph, "c": list(i.color), "info": i.info,
                  "eq": i is p.weapon or i is p.armor} for i in p.pack]
@@ -835,7 +853,7 @@ class World:
             if seen or a.is_player:  # allies on your depth are always shown
                 ents.append({"id": a.id, "g": a.glyph, "c": list(a.color), "x": a.x, "y": a.y,
                              "name": a.name, "hp": a.hp, "mhp": a.max_hp, "p": a.is_player,
-                             "seen": seen, "st": getattr(a, "state", "")})
+                             "seen": seen, "st": getattr(a, "state", ""), "kind": getattr(a, "kind", "")})
         for a in lvl.downed:
             ents.append({"id": a.id, "g": BONES_GLYPH, "c": list(BONE), "x": a.x, "y": a.y, "name": a.name,
                          "hp": 0, "mhp": a.max_hp, "p": True, "seen": bool(vis[a.x, a.y]), "st": "down"})
@@ -855,4 +873,4 @@ class World:
                 "detect": round(self._notice_range(p, NOTICE_RANGE_AWAKE)),
                 "status": status, "turns": p.turns, "kills": p.kills, "death": p.death,
                 "score": self.score_of(p), "score_gold": self.carried_gold(p), "tally": p.kill_tally,
-                "hardest": p.hardest}
+                "hardest": self._hardest_name(p), "season": self.season}

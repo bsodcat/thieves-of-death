@@ -2,6 +2,17 @@
 
 Versions are MAJOR.MINOR.PATCH. See "Versions" in the README for what each number means.
 
+## 0.2.0 - October 31, 2026
+
+### Added
+
+- Holiday themes: monsters and items get Halloween names from October 24 to 31 and Christmas
+  names from December 18 to 26, by the system clock. They only change how things look.
+- Holiday greetings on the title screen and when joining.
+- `--season` option on `server.py`, to preview a theme.
+
+Players need 0.2.0 or newer to join each other's games; 0.1.x copies are refused.
+
 ## 0.1.1 - October 31, 2026
 
 ### Fixed

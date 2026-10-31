@@ -13,7 +13,7 @@ from collections import deque
 
 import numpy as np
 
-from . import protocol
+from . import protocol, seasons
 from .constants import (BONES_GLYPH, LOOK_Y, MAP_H, MAP_W, MAP_X, MAP_Y, MSG_LINES, PACK_SIZE, REVIVE_SECONDS,
                         SCREEN_H, SCREEN_W, SCORE_PER_GOLD, SIDEBAR_W, STEALTH_MAX, TICKS_PER_TURN)
 from .entities import MONSTERS
@@ -78,6 +78,7 @@ class ClientView:
         self.detect = 0                           # how far away monsters can notice you, in tiles
         self.show_help = False
         self.show_tally = False
+        self.season = None
         self.score = self.score_gold = 0
         self.tally: dict = {}                     # monster name -> kills
         self.hardest = ""
@@ -130,6 +131,7 @@ class ClientView:
             self.haste, self.stealth = msg.get("haste", False), msg.get("stealth", 0)
             self.score, self.score_gold = msg.get("score", 0), msg.get("score_gold", 0)
             self.tally, self.hardest = msg.get("tally", {}), msg.get("hardest", "")
+            self.season = msg.get("season")
             self.detect = msg.get("detect", 0)
             self.clock_base, self.clock_at = msg.get("time", 0.0), time.monotonic()
         elif t == "reject":
@@ -255,11 +257,13 @@ class ClientView:
         lines = [(f"{e['g']} {e['name'].capitalize()}", color),
                  (f"Health {e['hp']}/{e['mhp']}", TEXT),
                  (STATE_NAMES.get(e["st"], ""), (255, 170, 80) if e["st"] == "hunting" else DIM)]
-        t = MONSTERS.get(e["name"])
+        kind = e.get("kind") or e["name"]
+        t = MONSTERS.get(kind)
         if t:
             speed = " Fast." if t["move"] < TICKS_PER_TURN else ""
             speed += " Slow hits." if t["attack"] > TICKS_PER_TURN else ""
-            lines.append((f"{t['desc']} Hits for {t['damage'][0]}-{t['damage'][1]}.{speed}", TEXT))
+            desc = seasons.monster_description(kind, self.season, t["desc"])
+            lines.append((f"{desc} Hits for {t['damage'][0]}-{t['damage'][1]}.{speed}", TEXT))
         return lines
 
     @staticmethod
@@ -412,7 +416,7 @@ class ClientView:
             self.text(f, x0 + 6, y, item["name"], (255, 255, 255) if item["eq"] else TEXT, width=26)
             note = item["info"] + (" (on)" if item["eq"] else "")
             self.text(f, x0 + bw - 2 - len(note), y, note, DIM)
-        self.text(f, x0 + 2, y0 + rows - 1, f"{self.gold} gold", (255, 215, 90))
+        self.text(f, x0 + 2, y0 + rows - 1, f"{self.gold} {seasons.gold_name(self.season)}", (255, 215, 90))
         note = f"Equipped gear limits stealth to {self.stealth_cap}%"
         self.text(f, x0 + bw - 2 - len(note), y0 + rows - 1, note, DIM)
 

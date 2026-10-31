@@ -145,6 +145,15 @@ hit, players, bones, items and terrain. It only tells you what your character kn
 unexplored tiles stay unknown and remembered items are marked as remembered. Add
 descriptions in `MONSTERS` in `game/entities.py` and `DESCRIPTIONS` in `game/tiles.py`.
 
+## Holidays
+
+From October 24 to 31 and December 18 to 26, monsters and items get Halloween or Christmas names,
+descriptions and colors, and the title screen says so. It's purely cosmetic: every stat stays
+the same. The date comes from the clock of the computer running the server, so everyone in a
+game sees the same thing, and it's checked at the start of each run so nothing changes partway
+through. Change the dates and names in `game/seasons.py`. To preview one, use
+`python server.py --season christmas`.
+
 ## Players list
 
 The sidebar lists everyone connected, including you, with the floor they're on and their
@@ -205,6 +214,7 @@ game/world.py      game state, real-time clock, combat, monster AI   <- most of 
 game/mapgen.py     level generator
 game/entities.py   players and the monster list (add monsters here)
 game/items.py      the item list (add items here)
+game/seasons.py    holiday names, descriptions, colors and dates
 game/render.py     everything the client draws, without tcod
 game/algo.py       field of view and pathfinding (tcod, or pure-Python fallback)
 game/fon.py        reader for Windows .fon bitmap fonts

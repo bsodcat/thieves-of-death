@@ -11,7 +11,7 @@ Client -> server
     {"t": "pong", "n": 7}    answers a ping straight away
 
 Server -> client
-    {"t": "welcome", "id": 3, "name": "Alice", "version": 10}
+    {"t": "welcome", "id": 3, "name": "Alice", "version": 11}
     {"t": "level", "depth": 1, "run": 1, "w": 79, "h": 29, "tiles": <base64 uint8>}
     {"t": "state", ...}      see World.state_for
     {"t": "pack", ...}       see World.pack_msg; sent only when it changes

@@ -11,7 +11,7 @@ import time
 import tcod.event
 
 import client
-from game import settings
+from game import seasons, settings
 from game.constants import GAME_MODES, MONSTER_TIME, REVIVE_SECONDS
 from game.entities import PLAYER_COLOR_NAMES, PLAYER_GLYPHS
 from game.menu import DIM, GREEN, TEXT, WHITE, Form, Row
@@ -137,7 +137,7 @@ class App:
     # ------------------------------------------------------------ screens
 
     def main_menu(self) -> None:
-        form = Form("", [Row("Host Game", action="host"), Row("Join Game", action="join"),
+        form = Form(seasons.greeting(seasons.current()), [Row("Host Game", action="host"), Row("Join Game", action="join"),
                          Row("Character", action="character"), Row("Server Tool", action="tool"),
                          Row("Options", action="options"), Row("Quit", action="quit")])
         form.footer = title_footer()

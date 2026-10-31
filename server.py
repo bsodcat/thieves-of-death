@@ -14,7 +14,7 @@ import threading
 import time
 from collections import deque
 
-from game import algo, protocol
+from game import algo, protocol, seasons
 from game.constants import (DEFAULT_PORT, GAME_MODES, MONSTER_TIME, PING_SECONDS, PING_TIMEOUT, PROTOCOL_VERSION,
                             TICK_RATE, TICKS_PER_SECOND)
 from game.version import VERSION
@@ -180,9 +180,9 @@ class ServerRunner:
     """Runs a server on a background thread, for the app's Host Game and Server Tool."""
 
     def __init__(self, port: int, seed: int | None = None, monster_time: float = MONSTER_TIME,
-                 host: str = "0.0.0.0", mode: str = "Classic"):
+                 host: str = "0.0.0.0", mode: str = "Classic", season_fn=seasons.current):
         self.host, self.port = host, port
-        self.world = World(seed, monster_time, mode)
+        self.world = World(seed, monster_time, mode, season_fn)
         self.game = GameServer(self.world)
         self.log: deque = deque(maxlen=200)
         self.loop = asyncio.new_event_loop()
@@ -222,6 +222,8 @@ class ServerRunner:
             return
         self.port = server.sockets[0].getsockname()[1]
         log.info("Server started on port %d (seed %d)", self.port, self.world.seed)
+        if self.world.season:
+            log.info("%s", seasons.greeting(self.world.season))
         self._ready.set()
         self.loop.run_forever()
         server.close()
@@ -237,10 +239,13 @@ async def main() -> None:
     ap.add_argument("--port", type=int, default=DEFAULT_PORT)
     ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("--mode", choices=GAME_MODES, default="Classic")
+    ap.add_argument("--season", choices=("auto", "none", *seasons.SEASONS), default="auto",
+                    help="auto follows the date; the others are for previewing a season")
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 
-    world = World(args.seed, mode=args.mode)
+    fixed = None if args.season == "none" else args.season
+    world = World(args.seed, mode=args.mode, season_fn=seasons.current if args.season == "auto" else lambda: fixed)
     game = GameServer(world)
     server = await game.start(args.host, args.port)
     log.info("listening on %s:%d (seed %d, %s FOV/pathing)", args.host, args.port, world.seed, algo.BACKEND)

@@ -35,7 +35,7 @@ class Item:
     @property
     def label(self) -> str:
         if self.category == "gold":
-            return f"{self.count} gold"
+            return f"{self.count} {self.name}"
         return f"{self.name} x{self.count}" if self.count > 1 else self.name
 
     @property
