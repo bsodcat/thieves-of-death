@@ -364,11 +364,10 @@ class ClientView:
         for e in mons:
             if y >= LOOK_Y - 2:
                 break
-            name = e["name"] + (" (asleep)" if e["st"] == "sleeping" else "")
             self.text(f, 1, y, e["g"], tuple(e["c"]))
-            self.text(f, 3, y, name, TEXT, width=w - 4)
+            self.text(f, 3, y, e["name"], TEXT, width=w - 3)
             y += 1
-            self.bar(f, 0, y, w, e["hp"] / e["mhp"], "", (130, 40, 40))
+            self.bar(f, 0, y, w, e["hp"] / e["mhp"], "asleep" if e["st"] == "sleeping" else "", (130, 40, 40))
             y += 1
 
     def _draw_messages(self, f) -> None:

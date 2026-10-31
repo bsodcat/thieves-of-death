@@ -2,6 +2,13 @@
 
 Versions are MAJOR.MINOR.PATCH. See "Versions" in the README for what each number means.
 
+## 0.1.1 - October 31, 2026
+
+### Fixed
+
+- Long monster names were cut off in the sidebar when "(asleep)" was added to them. "asleep" now
+  appears on the monster's health bar.
+
 ## 0.1.0 - October 31, 2026
 
 The first numbered version.

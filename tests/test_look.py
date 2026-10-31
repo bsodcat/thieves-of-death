@@ -193,6 +193,20 @@ class ItemTests(unittest.TestCase):
         self.assertIn("Sword", text)
 
 
+class SidebarListTests(unittest.TestCase):
+    def test_asleep_sits_on_the_health_bar_so_long_names_fit(self):
+        w, lvl, a = setup_world()
+        rat = make_monster("rat", 900)
+        rat.state = "sleeping"
+        lvl.place(rat, *nearby_floor(lvl, w, a))
+        lvl.monsters.append(rat)
+        frame = view_of(w, a).draw()
+        sidebar = "\n".join("".join(chr(c) for c in frame["ch"][:SIDEBAR_W, y]) for y in range(LOOK_Y))
+        self.assertIn("r rat", sidebar)
+        self.assertIn("asleep", sidebar)
+        self.assertNotIn("(asleep)", sidebar)
+
+
 class PanelTests(unittest.TestCase):
     def test_reserved_area_is_at_the_bottom_left(self):
         self.assertEqual(SCREEN_H - LOOK_Y, 10)
