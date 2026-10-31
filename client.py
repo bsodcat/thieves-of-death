@@ -46,6 +46,9 @@ CHAR_ACTIONS = {">": "descend", "<": "ascend", "g": "pickup", "Q": "quit"}
 # Two fingers never leave a diagonal at the same moment. Waiting this long before acting
 # on a partial release stops the last key from stepping you along it by accident.
 RELEASE_GRACE = 0.05
+# The server drops a held direction that hits something. While auto-walking, it's sent again
+# after this long with no new position, so a blocked route recovers by itself.
+AUTO_RESEND = 0.3
 
 
 def build_keymap() -> dict:
@@ -194,6 +197,10 @@ def play(context, console, net: Net, leave_note: str = "", intro: tuple = ()) ->
     held: dict = {}   # movement keys currently down, oldest first
     sent_dir = None   # the direction the server thinks is held
     settle_at = 0.0   # when a partial release takes effect
+    auto_walk = False   # right mouse button is held
+    auto_press = False  # the walk has only just started
+    auto_depth = 0      # the floor it started on; it ends if that changes
+    last_hold_at = 0.0
 
     def send_hold(direction, press=False):
         dx, dy = direction or (0, 0)
@@ -214,11 +221,16 @@ def play(context, console, net: Net, leave_note: str = "", intro: tuple = ()) ->
                 return False
             if isinstance(event, tcod.event.WindowEvent) and event.type == "WindowFocusLost":
                 held.clear()  # the key-up would go to the other window
+                auto_walk = False
             if isinstance(event, tcod.event.WindowEvent) and event.type == "WindowLeave":
                 view.mouse = None
-            if isinstance(event, tcod.event.MouseMotion):
+            if isinstance(event, (tcod.event.MouseMotion, tcod.event.MouseButtonDown)):
                 tile = context.convert_event(event).position
                 view.mouse = (int(tile[0]), int(tile[1]))
+            if isinstance(event, tcod.event.MouseButtonDown) and event.button == tcod.event.MouseButton.RIGHT:
+                auto_walk, auto_press, auto_depth = True, True, view.depth
+            if isinstance(event, tcod.event.MouseButtonUp) and event.button == tcod.event.MouseButton.RIGHT:
+                auto_walk = False
             if isinstance(event, tcod.event.KeyUp):
                 held.pop(event.sym, None)
                 settle_at = time.monotonic() + RELEASE_GRACE
@@ -240,6 +252,7 @@ def play(context, console, net: Net, leave_note: str = "", intro: tuple = ()) ->
                 if event.sym in enter_keys:
                     view.chat_mode, view.chat_buf = True, ""
                     held.clear()
+                    auto_walk = False
                     continue
                 if event.sym in escape_keys:
                     if not view.connected:
@@ -286,10 +299,20 @@ def play(context, console, net: Net, leave_note: str = "", intro: tuple = ()) ->
             elif action:
                 net.send({"t": "act", "a": action})
 
-        wanted = held_direction(held) if held else None
-        if wanted != sent_dir and (wanted is None or time.monotonic() >= settle_at):
+        if view.depth != auto_depth:
+            auto_walk = False  # took the stairs; don't wander off on the new floor
+        target = view.hovered() if auto_walk else None
+        auto_dir = view.walk_step(*target) if target else None
+        wanted = held_direction(held) if held else auto_dir
+        now = time.monotonic()
+        if wanted != sent_dir and (wanted is None or auto_press or now >= settle_at):
             sent_dir = wanted
+            send_hold(sent_dir, press=auto_press and wanted is not None)
+            last_hold_at = now
+        elif auto_dir is not None and wanted == sent_dir and now - last_hold_at >= AUTO_RESEND:
             send_hold(sent_dir)
+            last_hold_at = now
+        auto_press = False
 
         time.sleep(1 / 120)  # in case vsync isn't available
 

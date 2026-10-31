@@ -2,6 +2,16 @@
 
 Versions are MAJOR.MINOR.PATCH. See "Versions" in the README for what each number means.
 
+## 1.1.0 - October 31, 2026
+
+### Added
+
+- Hold right click to walk toward the pointer, around walls and along the way you've explored.
+  Point at a monster to chase and attack it, or at stairs to take them. Letting go stops you
+  at once, and a movement key takes over.
+
+Only the client changed, so 1.1.0 and 1.0.0 can play together.
+
 ## 1.0.0 - October 31, 2026
 
 The first full release. There are no gameplay changes from 0.2.0, and the two can play together.

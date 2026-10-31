@@ -87,6 +87,7 @@ On Windows the client uses the classic Terminal font (`8514oem.fon`, 10x20), rea
 | `g` | Pick up what you're standing on |
 | `?` or F1 | Show or hide the controls |
 | Mouse | Point at the map to identify what's there |
+| Hold right click | Walk toward the pointer, around walls. On a monster, chase and attack it. On stairs, take them |
 | Esc | Close a panel or cancel a drop |
 | Enter | Chat (Enter sends, Esc cancels) |
 | `Q` or close the window | Quit |
@@ -236,6 +237,7 @@ game/seasons.py    holiday names, descriptions, colors and dates
 game/render.py     everything the client draws, without tcod
 game/algo.py       field of view and pathfinding (tcod, or pure-Python fallback)
 game/fon.py        reader for Windows .fon bitmap fonts
+game/pathing.py    route finding for auto-walking
 game/menu.py       menu forms, without tcod
 game/settings.py   saved settings
 game/protocol.py   message format

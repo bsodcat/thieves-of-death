@@ -13,11 +13,11 @@ from collections import deque
 
 import numpy as np
 
-from . import protocol, seasons
+from . import pathing, protocol, seasons
 from .constants import (BONES_GLYPH, LOOK_Y, MAP_H, MAP_W, MAP_X, MAP_Y, MSG_LINES, PACK_SIZE, REVIVE_SECONDS,
                         SCREEN_H, SCREEN_W, SCORE_PER_GOLD, SIDEBAR_W, STEALTH_MAX, TICKS_PER_TURN)
 from .entities import MONSTERS
-from .tiles import BG, DESCRIPTIONS, FG, GLYPH, NAMES
+from .tiles import BG, DESCRIPTIONS, FG, GLYPH, NAMES, STAIRS_DOWN, STAIRS_UP, WALKABLE
 
 FRAME_DTYPE = np.dtype([("ch", np.int32), ("fg", "3u1"), ("bg", "3u1")])
 
@@ -32,7 +32,7 @@ HELP_LINES = (
     ("1-9, 0", "Use the item in that pack slot"),
     ("i or t", "Show or hide your pack, or your tally"),
     ("d, then 1-0 or $", "Drop an item, or 25 gold"),
-    ("Mouse", "Point at the map to identify it"),
+    ("Mouse", "Point to identify, hold right to walk"),
     ("g", "Pick up what you're standing on"),
     ("Enter", "Chat"),
     ("? or F1", "Show or hide this help"),
@@ -147,6 +147,21 @@ class ClientView:
 
     def me(self) -> dict | None:
         return next((e for e in self.ents if e["id"] == self.my_id), None)
+
+    def walk_step(self, x: int, y: int) -> tuple[int, int] | None:
+        """The next step of an auto-walk to map tile (x, y), using only what this player knows."""
+        me = self.me()
+        tiles = self.levels.get(self.depth)
+        if me is None or tiles is None or not self.alive:
+            return None
+        goal, start = (x, y), (me["x"], me["y"])
+        if goal == start:
+            return None
+        seen = self.seen[self.depth]
+        others = {(e["x"], e["y"]) for e in self.ents
+                  if e["id"] != self.my_id and e["st"] != "down" and (e["seen"] or e["p"])}
+        stairs = tiles[x, y] == STAIRS_DOWN or (tiles[x, y] == STAIRS_UP and self.depth > 1)
+        return pathing.next_step(WALKABLE[tiles] & seen, start, goal, others, bool(stairs and seen[x, y]))
 
     def clock(self) -> float:
         """Run time in seconds. Counts on smoothly between states from the server."""
