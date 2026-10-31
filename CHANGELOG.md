@@ -2,6 +2,19 @@
 
 Versions are MAJOR.MINOR.PATCH. See "Versions" in the README for what each number means.
 
+## 1.4.0 - October 31, 2026
+
+### Added
+
+- Torches on the walls, with flickering light that stops at walls. Monsters notice you from up to
+  75% further away in their light.
+- A stamina bar. Hold Shift to sprint. Sprinting and attacking spend it, and with too little left
+  your attacks take twice as long.
+- A different tip each time you open the help.
+
+Players need 1.4.0 or newer to join each other's games. The same seed now builds a slightly
+different dungeon.
+
 ## 1.3.0 - October 31, 2026
 
 ### Added

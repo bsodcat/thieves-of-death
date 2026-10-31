@@ -34,7 +34,9 @@ from dataclasses import dataclass
 import numpy as np
 
 from . import algo, mapgen, protocol, seasons
-from .constants import (BONES_GLYPH, DEEPEST_TABLE, DEFENSE_FACTOR, FALL_DAMAGE, GOLD_DROP, KEY_DISTANCE,
+from .constants import (ATTACK_STAMINA, BONES_GLYPH, DEEPEST_TABLE, DEFENSE_FACTOR, FALL_DAMAGE, GOLD_DROP,
+                        KEY_DISTANCE, SPRINT_MOVE_COST, SPRINT_STAMINA, STAMINA_FILL_SECONDS, STAMINA_MAX,
+                        STAMINA_REST_SECONDS, TIRED_ATTACK, TORCH_NOTICE, TORCH_RADIUS,
                         LEVITATION_STOCK_CHANCE, LOCKED_ROOM_CHANCE, LOCKED_ROOM_FLOORS, MAP_H, MAP_W,
                         MERCHANT_CHANCE, MERCHANT_EVERY, MERCHANT_STOCK, MONSTER_TIME, NOTICE_RANGE_AWAKE,
                         NOTICE_RANGE_SLEEPING, PACK_SIZE, REGEN_TURNS, RESET_DELAY, REVIVE_HEALTH,
@@ -96,6 +98,8 @@ class Level:
         self.vault, self.lock = gen.vault, gen.lock
         open_floor = self.walkable if gen.vault is None else self.walkable & ~gen.vault
         self.floor_cells = [(int(x), int(y)) for x, y in np.argwhere(open_floor)]
+        self.torch_light = [self._torch_map(*t) for t in gen.torches]  # one brightness map, 0 to 1, per torch
+        self.light = np.max(self.torch_light, axis=0) if self.torch_light else np.zeros((MAP_W, MAP_H))
         self.occupant: dict[tuple[int, int], object] = {}
         self.monsters: list[Monster] = []
         self.items: dict[tuple[int, int], Item] = {}   # one item per tile
@@ -104,6 +108,14 @@ class Level:
         self.door_version = 0  # bumps whenever someone enters or leaves a doorway
         self._transparent = None
         self._transparent_version = -1
+
+    def _torch_map(self, torch: tuple[int, int], front: tuple[int, int]) -> np.ndarray:
+        """Bright at the torch and fading to nothing at its radius. Walls and shut doors stop it."""
+        reach = algo.compute_fov(self._base_transparent, front[0], front[1], TORCH_RADIUS)
+        xs, ys = np.indices((MAP_W, MAP_H))
+        glow = reach * np.clip(1 - np.hypot(xs - torch[0], ys - torch[1]) / TORCH_RADIUS, 0, 1)
+        glow[torch] = 1.0
+        return glow
 
     def in_bounds(self, x: int, y: int) -> bool:
         return 0 <= x < MAP_W and 0 <= y < MAP_H
@@ -374,9 +386,12 @@ class World:
     def submit(self, p: Player, msg: dict) -> None:
         """Queue a player's action (replacing any earlier queued one). It runs now, or
         when their cooldown ends."""
+        a = msg.get("a")
+        if a == "sprint":  # kept even while down, or a held Shift would be lost on revival
+            p.sprinting = bool(msg.get("on"))
+            return
         if not p.alive or not p.connected:
             return
-        a = msg.get("a")
         if a in ("move", "hold"):
             try:
                 dx, dy = int(msg.get("dx", 0)), int(msg.get("dy", 0))
@@ -502,6 +517,7 @@ class World:
                 if p.alive:
                     self._regen(p, ticks)
                     self._fill_stealth(p, ticks)
+                    self._fill_stamina(p, ticks)
                     if p.levitate_until and self.clock >= p.levitate_until:
                         p.levitate_until = 0
                         self.dirty = True
@@ -560,6 +576,33 @@ class World:
         p.stealth = min(p.stealth_cap, p.stealth + ticks * rate)
         if int(p.stealth) != before:
             self.dirty = True
+
+    def _fill_stamina(self, p: Player, ticks: int) -> None:
+        if self.clock < p.stamina_rest:
+            return
+        before = int(p.stamina)
+        p.stamina = min(STAMINA_MAX, p.stamina + ticks * STAMINA_MAX / (STAMINA_FILL_SECONDS * TICKS_PER_SECOND))
+        if int(p.stamina) != before:
+            self.dirty = True
+
+    def _spend_stamina(self, p: Player, amount: int) -> None:
+        p.stamina = max(0.0, p.stamina - amount)
+        p.stamina_rest = self.clock + int(STAMINA_REST_SECONDS * TICKS_PER_SECOND)
+
+    def _stride(self, p: Player) -> int:
+        """What a step costs: less while sprinting, which also uses up stealth twice as fast."""
+        if not p.sprinting or p.stamina < SPRINT_STAMINA:
+            return p.move_cost
+        self._spend_stamina(p, SPRINT_STAMINA)
+        if not self._levitating(p):
+            p.stealth = max(0.0, p.stealth - STEALTH_MOVE_DRAIN)
+        return int(p.move_cost * SPRINT_MOVE_COST)
+
+    def _swing_cost(self, p: Player) -> int:
+        """What an attack costs: stamina, or twice the time if there's too little of it."""
+        tired = p.stamina < ATTACK_STAMINA
+        self._spend_stamina(p, ATTACK_STAMINA)
+        return p.attack_cost * TIRED_ATTACK if tired else p.attack_cost
 
     def check_reset(self, now: float) -> bool:
         """Start a fresh dungeon once the wipe delay is over. Returns True if it did."""
@@ -632,9 +675,9 @@ class World:
                 lvl.place(other, ox, oy)
                 self.tell(other, f"{p.name} swaps places with you.", GRAY)
                 self._step_onto(p, lvl)
-                return p.move_cost
+                return self._stride(p)
             self._attack(p, other)
-            return p.attack_cost
+            return self._swing_cost(p)
         if tile == PIT and not self._levitating(p):
             self._fall(p, lvl, (nx, ny))
             return p.move_cost
@@ -647,7 +690,7 @@ class World:
             return 0  # bumping a wall costs no time
         lvl.move(p, nx, ny)
         self._step_onto(p, lvl)
-        return p.move_cost
+        return self._stride(p)
 
     def _can_be_at(self, p: Player, lvl: Level, x: int, y: int) -> bool:
         return bool(lvl.walkable[x, y] or (self._levitating(p) and lvl.hover[x, y]))
@@ -968,10 +1011,12 @@ class World:
     def _hunt(self, m: Monster, target) -> None:
         m.state, m.target_id, m.last_seen = "hunting", target.id, (target.x, target.y)
 
-    @staticmethod
-    def _notice_range(p: Player, base: int) -> float:
-        """How far away a monster can notice this player; stealth shrinks it."""
-        return base * (1 - (1 - STEALTH_RANGE_MIN) * p.stealth / STEALTH_MAX)
+    def _lit(self, p: Player) -> float:
+        return float(self.levels[p.depth].light[p.x, p.y])
+
+    def _notice_range(self, p: Player, base: int) -> float:
+        """How far away a monster can notice this player: stealth shrinks it, torchlight widens it."""
+        return base * (1 - (1 - STEALTH_RANGE_MIN) * p.stealth / STEALTH_MAX) * (1 + TORCH_NOTICE * self._lit(p))
 
     def _monster_act(self, m: Monster) -> None:
         cost = max(1, self._monster_turn(m, self.levels[m.depth]))
@@ -1034,7 +1079,8 @@ class World:
     def level_msg(self, depth: int) -> dict:
         lvl = self.level(depth)
         return {"t": "level", "depth": depth, "run": self.run, "w": MAP_W, "h": MAP_H,
-                "tiles": protocol.pack_u8(lvl.tiles)}
+                "tiles": protocol.pack_u8(lvl.tiles),
+                "lights": [protocol.pack_u8(m * 255) for m in lvl.torch_light]}
 
     def _status(self, p: Player) -> list[str]:
         if p.downed:
@@ -1086,7 +1132,7 @@ class World:
                 "visible": protocol.pack_bool(vis), "ents": ents, "items": items, "party": party,
                 "time": (self.clock - self.run_start) / TICKS_PER_SECOND,
                 "haste": p.haste_until > self.clock, "stealth": int(p.stealth), "downed": p.downed,
-                "levitate": self._levitating(p),
+                "levitate": self._levitating(p), "stamina": int(p.stamina), "lit": self._lit(p) > 0,
                 "detect": round(self._notice_range(p, NOTICE_RANGE_AWAKE)),
                 "status": status, "turns": p.turns, "kills": p.kills, "death": p.death,
                 "score": self.score_of(p), "score_gold": self.carried_gold(p), "tally": p.kill_tally,

@@ -8,6 +8,7 @@ without a window.
 from __future__ import annotations
 
 import math
+import random
 import textwrap
 import time
 from collections import deque
@@ -15,8 +16,9 @@ from collections import deque
 import numpy as np
 
 from . import pathing, protocol, seasons
-from .constants import (BONES_GLYPH, LOOK_Y, MAP_H, MAP_W, MAP_X, MAP_Y, MSG_LINES, PACK_SIZE, REVIVE_SECONDS,
-                        SCREEN_H, SCREEN_W, SCORE_PER_GOLD, SIDEBAR_W, STEALTH_MAX, TICKS_PER_TURN)
+from .constants import (ATTACK_STAMINA, BONES_GLYPH, LOOK_Y, MAP_H, MAP_W, MAP_X, MAP_Y, MSG_LINES, PACK_SIZE,
+                        REVIVE_SECONDS, SCREEN_H, SCREEN_W, SCORE_PER_GOLD, SIDEBAR_W, STAMINA_MAX, STEALTH_MAX,
+                        TICKS_PER_TURN)
 from .entities import MONSTERS
 from .tiles import BG, DESCRIPTIONS, FG, GLYPH, NAMES, STAIRS_DOWN, STAIRS_UP, WALKABLE
 
@@ -29,6 +31,7 @@ HEADING = (180, 170, 140)
 HELP_LINES = (
     ("Arrows, numpad, hjklyubn", "Move or attack; hold to keep going"),
     ("Two arrows together", "Move diagonally"),
+    ("Hold Shift", "Sprint, while you have the stamina"),
     ("> or <", "Take the stairs, or walk into them"),
     ("1-9, 0", "Use the item in that pack slot"),
     ("i or t", "Show or hide your pack, or your tally"),
@@ -36,14 +39,34 @@ HELP_LINES = (
     ("Mouse", "Point to identify, hold right to walk"),
     ("g", "Pick up what you're standing on"),
     ("Enter", "Chat"),
-    ("? or F1", "Show or hide this help"),
-    ("Esc", "Close a panel or cancel"),
+    ("? or F1, Esc", "Show or hide this help, or close a panel"),
     ("Q twice", "Leave the game"),
 )
-HELP_TIP = "Stand still to build stealth. Attacks empty it; gear limits it."
+HELP_TIPS = (
+    "Stand still to build stealth. Attacks empty it; gear limits it.",
+    "Monsters notice you from further away in torchlight.",
+    "Hold Shift to sprint. It burns stamina and drains stealth fast.",
+    "With too little stamina, your attacks take twice as long.",
+    "Stamina only refills once you stop spending it.",
+    "A sneak attack on an unaware monster does triple damage.",
+    "Walking over potions and gold collects them. Gear needs g.",
+    "A key always lies 2 floors from its door, above or below.",
+    "A pit is a quick way down, but the fall hurts.",
+    "Levitation carries you over water and pits, but not forever.",
+    "Deep water stops monsters too. Put a lake between you.",
+    "Merchants can turn up on every 5th floor.",
+    "Spending gold lowers your score, but it might keep you alive.",
+    "Health comes back by itself, so a quiet corner can save you.",
+    "In Revive mode, stand by a teammate's bones for 3 seconds.",
+    "Walk into an ally to swap places with them.",
+    "Hold right click to walk to the pointer, around walls.",
+    "Only equipped gear makes noise. Carrying it is free.",
+)
 
 LOOK_HINT = "Point the mouse at the map to identify what's there."
 HOVER_BG = (70, 70, 100)
+TORCH_GLOW = np.array((70, 38, 8), np.float32)    # added to the background at full brightness
+TORCH_TEXT = (255, 180, 70)
 FLOAT_DIM, FLOAT_BRIGHT, FLOAT_SHADOW = (30, 50, 110), (90, 150, 240), (6, 6, 14)
 FLOAT_TEXT = (190, 170, 255)
 STATE_NAMES = {"sleeping": "Asleep", "wandering": "Wandering", "hunting": "Hunting you"}
@@ -79,6 +102,11 @@ class ClientView:
         self.stealth = 0
         self.stealth_cap = STEALTH_MAX
         self.detect = 0                           # how far away monsters can notice you, in tiles
+        self.stamina = STAMINA_MAX
+        self.lit = False                          # standing in torchlight
+        self.lights: dict[int, np.ndarray] = {}   # depth -> brightness 0 to 1, [torch, x, y]
+        self.tips: list[str] = []                 # the tips still to come, so none repeats early
+        self.tip = HELP_TIPS[0]
         self.show_help = False
         self.show_tally = False
         self.season = None
@@ -118,8 +146,10 @@ class ClientView:
                 self.levels.clear()
                 self.seen.clear()
                 self.item_memory.clear()
+                self.lights.clear()
             shape = (msg["w"], msg["h"])
             self.levels[msg["depth"]] = protocol.unpack_u8(msg["tiles"], shape)
+            self.lights[msg["depth"]] = [protocol.unpack_u8(m, shape) / 255 for m in msg.get("lights", ())]
             self.seen.setdefault(msg["depth"], np.zeros(shape, dtype=bool))
         elif t == "state":
             self.depth = msg["depth"]
@@ -143,6 +173,7 @@ class ClientView:
             self.tally, self.hardest = msg.get("tally", {}), msg.get("hardest", "")
             self.season = msg.get("season")
             self.levitate = msg.get("levitate", False)
+            self.stamina, self.lit = msg.get("stamina", STAMINA_MAX), msg.get("lit", False)
             self.detect = msg.get("detect", 0)
             self.clock_base, self.clock_at = msg.get("time", 0.0), time.monotonic()
         elif t == "shop":
@@ -158,6 +189,15 @@ class ClientView:
         elif t == "_disconnected":
             self.connected = False
             self.messages.append(("Disconnected from the server.", (255, 90, 90)))
+
+    def toggle_help(self) -> None:
+        """Each time the help opens it shows the next tip, in a shuffled order."""
+        self.show_help = not self.show_help
+        self.show_pack = self.drop_mode = self.show_tally = False
+        if self.show_help:
+            if not self.tips:
+                self.tips = random.sample([t for t in HELP_TIPS if t != self.tip], len(HELP_TIPS) - 1)
+            self.tip = self.tips.pop()
 
     def me(self) -> dict | None:
         return next((e for e in self.ents if e["id"] == self.my_id), None)
@@ -240,8 +280,13 @@ class ClientView:
         mem_fg = fg.mean(axis=-1, keepdims=True) * 0.32 + np.array([12, 14, 34], np.float32)
         mem_bg = bg * 0.22 + np.array([0, 0, 10], np.float32)
         v, s = vis[..., None], seen[..., None]
-        out_fg = np.where(v, fg * light, np.where(s, mem_fg, 0))
-        out_bg = np.where(v, bg * light, np.where(s, mem_bg, 0))
+        lit_fg, lit_bg = fg * light, bg * light
+        glow = self._torchlight()
+        if glow is not None:
+            lit_fg = lit_fg * (1 + 0.6 * glow)
+            lit_bg = lit_bg * (1 + 0.8 * glow) + glow * TORCH_GLOW
+        out_fg = np.where(v, lit_fg, np.where(s, mem_fg, 0))
+        out_bg = np.where(v, lit_bg, np.where(s, mem_bg, 0))
         area = (slice(MAP_X, MAP_X + MAP_W), slice(MAP_Y, MAP_Y + MAP_H))
         f["ch"][area] = np.where(vis | seen, ch, ord(" "))
         f["fg"][area] = np.clip(out_fg, 0, 255).astype(np.uint8)
@@ -267,6 +312,15 @@ class ClientView:
         hover = self.hovered()
         if hover is not None:
             f["bg"][MAP_X + hover[0], MAP_Y + hover[1]] = HOVER_BG
+
+    def _torchlight(self) -> np.ndarray | None:
+        """How brightly torches light each tile right now, with each one flickering by itself."""
+        maps = self.lights.get(self.depth)
+        if not maps:
+            return None
+        t = time.monotonic()
+        glow = sum(m * (0.8 + 0.12 * math.sin(t * 9 + i * 2.1) + 0.08 * math.sin(t * 23 + i)) for i, m in enumerate(maps))
+        return np.clip(glow, 0, 1.2)[..., None]
 
     @staticmethod
     def _draw_float(f, e: dict) -> None:
@@ -373,6 +427,9 @@ class ClientView:
             self.bar(f, 0, y, w, self.stealth / STEALTH_MAX, label, (60, 70, 170))
             f["bg"][round(w * cap / STEALTH_MAX):w, y] = (70, 24, 24)  # out of reach in this gear
             y += 1
+            tired = " Tired" if self.stamina < ATTACK_STAMINA else ""
+            self.bar(f, 0, y, w, self.stamina / STAMINA_MAX, f"Stamina {self.stamina}%{tired}", (150, 120, 30))
+            y += 1
             clock = f"Time {format_clock(self.clock())}"
             self.text(f, 1, y, clock, (255, 255, 255))
             if self.haste:
@@ -382,7 +439,10 @@ class ClientView:
             y += 1
             self.text(f, 1, y, f"Dmg {self.dmg}  Armor {self.defense}", TEXT, width=w - 1)
             y += 1
-            self.text(f, 1, y, f"Detection {self.detect} tiles", TEXT, width=w - 1)
+            if self.lit:
+                self.text(f, 1, y, f"Torchlit: {self.detect} tiles", TORCH_TEXT, width=w - 1)
+            else:
+                self.text(f, 1, y, f"Detection {self.detect} tiles", TEXT, width=w - 1)
             y += 1
             self.text(f, 1, y, f"Moves {self.turns}  Kills {self.kills}", DIM, width=w - 1)
             y += 1
@@ -390,7 +450,7 @@ class ClientView:
             self.text(f, 1, y, score, (255, 215, 90), width=w - 1)
             if self.levitate:
                 self.text(f, max(len(score) + 2, 13), y, "Float", FLOAT_TEXT)
-            y += 2
+            y += 1
 
         if self.party:
             self.text(f, 1, y, "Players", HEADING)
@@ -532,7 +592,7 @@ class ClientView:
         for j, (keys, what) in enumerate(HELP_LINES):
             self.text(f, x0 + 2, y0 + 1 + j, keys, (255, 215, 90))
             self.text(f, x0 + 2 + key_w, y0 + 1 + j, what, TEXT)
-        self.text(f, x0 + 2, y0 + rows - 1, HELP_TIP, DIM)
+        self.text(f, x0 + 2, y0 + rows - 1, self.tip, DIM)
 
     def _draw_death(self, f) -> None:
         if self.downed:

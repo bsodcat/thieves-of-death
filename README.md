@@ -87,6 +87,7 @@ On Windows the client uses the classic Terminal font ('8514oem.fon', 10x20), rea
 | 'g' | Pick up what you're standing on |
 | '?' or F1 | Show or hide the controls |
 | Mouse | Point at the map to identify what's there |
+| Hold Shift | Sprint, using stamina |
 | Hold right click | Walk toward the pointer, around walls. On a monster, chase and attack it. On stairs, take them |
 | Esc | Close a panel or cancel a drop |
 | Enter | Chat (Enter sends, Esc cancels) |
@@ -162,6 +163,20 @@ The sidebar lists everyone connected, including you, with the floor they're on a
 ping. Ping is the round trip to the server in milliseconds, measured once a second and
 smoothed. It shows '--' until the first measurement. The green bar behind each name is
 that player's health.
+
+## Stamina
+
+The yellow bar under stealth. Hold Shift to sprint: each step takes 60% of the time and costs 5
+stamina, and uses up stealth twice as fast. Each attack costs 8. Below that your attacks take twice
+as long, and with under 5 you can't sprint. It starts refilling 0.75 seconds after you last spent
+any, and fills from empty in 6 seconds. The numbers are in `game/constants.py`.
+
+## Torches
+
+Each floor has 1 to 3 torches on its walls, far apart and away from the stairs. Their light flickers
+and stops at walls and doors. Standing in it makes you easier to notice: up to 75% further away right
+beside a torch, fading to nothing 9 tiles out. The sidebar's Detection line turns orange and says
+Torchlit while you're in it.
 
 ## Terrain
 

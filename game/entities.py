@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .constants import STEALTH_MAX, TICKS_PER_TURN
+from .constants import STAMINA_MAX, STEALTH_MAX, TICKS_PER_TURN
 from .items import Item
 
 
@@ -46,6 +46,9 @@ class Player(Actor):
     levitate_until: int = 0      # tick when they come back down
     stealth: float = 0.0         # 0 to stealth_cap
     stealth_cap: int = STEALTH_MAX   # lowered by the noise of equipped gear
+    stamina: float = STAMINA_MAX
+    stamina_rest: int = 0        # tick when stamina starts refilling
+    sprinting: bool = False      # Shift is held down
     ping: float | None = None    # smoothed round trip in ms; None until measured
     downed: bool = False         # Revive mode: fallen, but can be brought back
     final_gold: int | None = None  # gold carried when they fell; Classic scatters the real gold
@@ -118,6 +121,7 @@ def reset_player(p: Player) -> None:
     p.hp = p.max_hp = s["hp"]
     p.accuracy = s["accuracy"]
     p.alive, p.pending, p.hold, p.death, p.stealth = True, None, None, "", 0.0
+    p.stamina, p.stamina_rest = STAMINA_MAX, 0
     p.downed, p.revive_ticks = False, 0
     p.final_gold, p.kill_tally, p.hardest = None, {}, ""
     p.turns = p.kills = p.regen_acc = p.next_time = p.haste_until = p.levitate_until = 0

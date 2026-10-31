@@ -6,7 +6,7 @@ from game.constants import (MAP_H, MAP_W, MAP_X, MAP_Y, NOTICE_RANGE_AWAKE, SCRE
                             STEALTH_MAX, STEALTH_RANGE_MIN, TICKS_PER_SECOND, TICKS_PER_TURN)
 from game.entities import make_monster
 from game.items import ITEMS, make_item
-from game.render import HELP_LINES, HELP_TIP, ClientView
+from game.render import HELP_LINES, ClientView
 from game.world import World, cheb
 
 FILL = int(STEALTH_FILL_SECONDS * TICKS_PER_SECOND)
@@ -205,7 +205,7 @@ class HelpTests(unittest.TestCase):
         for keys, what in HELP_LINES:
             self.assertIn(keys, text)
             self.assertIn(what, text)
-        self.assertIn(HELP_TIP, text)
+        self.assertIn(v.tip, text)
 
     def test_every_control_in_the_real_key_handling_is_listed(self):
         keys = " ".join(k for k, _ in HELP_LINES)
@@ -223,7 +223,7 @@ class HelpTests(unittest.TestCase):
             frame = v.draw()
             self.assertEqual(frame.shape, (SCREEN_W, SCREEN_H))
             text = screen(v)
-            self.assertIn(HELP_TIP, text)
+            self.assertIn(v.tip, text)
             for keys, what in HELP_LINES:
                 self.assertIn(what, text)
 

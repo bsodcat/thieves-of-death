@@ -194,6 +194,7 @@ def play(context, console, net: Net, leave_note: str = "", intro: tuple = ()) ->
     escape_keys = key_set("ESCAPE")
     backspace_keys = key_set("BACKSPACE")
     help_keys = key_set("F1")
+    sprint_keys = key_set("LSHIFT", "RSHIFT")
     held: dict = {}   # movement keys currently down, oldest first
     sent_dir = None   # the direction the server thinks is held
     settle_at = 0.0   # when a partial release takes effect
@@ -201,6 +202,13 @@ def play(context, console, net: Net, leave_note: str = "", intro: tuple = ()) ->
     auto_press = False  # the walk has only just started
     auto_depth = 0      # the floor it started on; it ends if that changes
     last_hold_at = 0.0
+    sprinting = False
+
+    def send_sprint(on):
+        nonlocal sprinting
+        if on != sprinting:
+            sprinting = on
+            net.send({"t": "act", "a": "sprint", "on": on})
 
     def send_hold(direction, press=False):
         dx, dy = direction or (0, 0)
@@ -222,6 +230,7 @@ def play(context, console, net: Net, leave_note: str = "", intro: tuple = ()) ->
             if isinstance(event, tcod.event.WindowEvent) and event.type == "WindowFocusLost":
                 held.clear()  # the key-up would go to the other window
                 auto_walk = False
+                send_sprint(False)
             if isinstance(event, tcod.event.WindowEvent) and event.type == "WindowLeave":
                 view.mouse = None
             if isinstance(event, (tcod.event.MouseMotion, tcod.event.MouseButtonDown)):
@@ -232,6 +241,8 @@ def play(context, console, net: Net, leave_note: str = "", intro: tuple = ()) ->
             if isinstance(event, tcod.event.MouseButtonUp) and event.button == tcod.event.MouseButton.RIGHT:
                 auto_walk = False
             if isinstance(event, tcod.event.KeyUp):
+                if event.sym in sprint_keys:
+                    send_sprint(False)
                 held.pop(event.sym, None)
                 settle_at = time.monotonic() + RELEASE_GRACE
             action = None
@@ -249,10 +260,13 @@ def play(context, console, net: Net, leave_note: str = "", intro: tuple = ()) ->
                         view.chat_buf = view.chat_buf[:-1]
                 continue
             if isinstance(event, tcod.event.KeyDown):
+                if event.sym in sprint_keys:
+                    send_sprint(True)
                 if event.sym in enter_keys:
                     view.chat_mode, view.chat_buf = True, ""
                     held.clear()
                     auto_walk = False
+                    send_sprint(False)
                     continue
                 if event.sym in escape_keys:
                     if not view.connected:
@@ -261,8 +275,7 @@ def play(context, console, net: Net, leave_note: str = "", intro: tuple = ()) ->
                     view.shop = None
                     view.leave_prompt = ""
                 elif event.sym in help_keys and not event.repeat:
-                    view.show_help = not view.show_help
-                    view.show_pack = view.drop_mode = view.show_tally = False
+                    view.toggle_help()
                 elif event.sym in keymap and not event.repeat:
                     held[event.sym] = keymap[event.sym]
                     sent_dir = held_direction(held)
@@ -283,8 +296,7 @@ def play(context, console, net: Net, leave_note: str = "", intro: tuple = ()) ->
                         return True
                     view.leave_prompt = ""
                 elif event.text == "?":
-                    view.show_help = not view.show_help
-                    view.show_pack = view.drop_mode = view.show_tally = False
+                    view.toggle_help()
                 elif event.text == "t":
                     view.show_tally = not view.show_tally
                     view.show_pack = view.drop_mode = view.show_help = False

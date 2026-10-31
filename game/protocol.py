@@ -13,7 +13,8 @@ Client -> server
 
 Server -> client
     {"t": "welcome", "id": 3, "name": "Alice", "version": 12}
-    {"t": "level", "depth": 1, "run": 1, "w": 79, "h": 29, "tiles": <base64 uint8>}
+    {"t": "level", "depth": 1, "run": 1, "w": 79, "h": 29, "tiles": <base64 uint8>,
+     "lights": [<base64 uint8>, ...]}   one brightness map per torch
     {"t": "state", ...}      see World.state_for
     {"t": "pack", ...}       see World.pack_msg; sent only when it changes
     {"t": "msg", "text": "...", "c": [r, g, b]}

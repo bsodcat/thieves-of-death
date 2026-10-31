@@ -19,8 +19,9 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .constants import LAKE_CHANCE, MAP_H, MAP_W, PIT_CHANCE, PIT_COUNT, RIVER_CHANCE
-from .tiles import DEEP, DOOR, FLOOR, PIT, SHALLOW, STAIRS_DOWN, STAIRS_UP, WALL
+from .constants import (LAKE_CHANCE, MAP_H, MAP_W, PIT_CHANCE, PIT_COUNT, RIVER_CHANCE, TORCH_COUNT, TORCH_RADIUS,
+                        TORCH_SPACING)
+from .tiles import DEEP, DOOR, FLOOR, PIT, SHALLOW, STAIRS_DOWN, STAIRS_UP, TORCH, WALL
 
 DIRS4 = ((0, -1), (1, 0), (0, 1), (-1, 0))
 Point = tuple[int, int]
@@ -35,6 +36,7 @@ class GeneratedLevel:
     down_front: Point
     vault: np.ndarray | None = None   # the floor of the locked room, if there is one
     lock: Point | None = None         # its door
+    torches: tuple = ()               # (torch, the floor cell in front of it)
 
 
 # --------------------------------------------------------------- helpers
@@ -435,6 +437,31 @@ def _add_terrain(rng: random.Random, fl: np.ndarray, doors: set, keep: np.ndarra
     return deep, shallow, pits
 
 
+# ------------------------------------------------------------------ torches
+
+def _add_torches(rng: random.Random, tiles: np.ndarray, vault, stairs: tuple) -> list[tuple[Point, Point]]:
+    """Picks wall cells beside bare floor, far from the stairs and from each other."""
+    w, h = tiles.shape
+    spots = []
+    for x in range(1, w - 1):
+        for y in range(1, h - 1):
+            fronts = [(x + dx, y + dy) for dx, dy in DIRS4 if tiles[x + dx, y + dy] == FLOOR]
+            if tiles[x, y] == WALL and len(fronts) == 1 and (vault is None or not vault[fronts[0]]):
+                spots.append(((x, y), fronts[0]))
+    rng.shuffle(spots)
+    torches: list[tuple[Point, Point]] = []
+    wanted = rng.randint(*TORCH_COUNT)
+
+    def apart(a: Point, b: Point, gap: int) -> bool:
+        return max(abs(a[0] - b[0]), abs(a[1] - b[1])) > gap
+
+    for torch, front in spots:
+        if len(torches) < wanted and all(apart(torch, s, TORCH_RADIUS) for s in stairs) \
+                and all(apart(torch, t, TORCH_SPACING) for t, _ in torches):
+            torches.append((torch, front))
+    return torches
+
+
 # ------------------------------------------------------------------ main
 
 def _try_generate(rng: random.Random, lock_tile: int | None = None) -> GeneratedLevel | None:
@@ -508,7 +535,10 @@ def _try_generate(rng: random.Random, lock_tile: int | None = None) -> Generated
     tiles[down] = STAIRS_DOWN
     if lock:
         tiles[lock] = lock_tile
-    return GeneratedLevel(tiles, up, up_front, down, down_front, vault, lock)
+    torches = _add_torches(rng, tiles, vault, (up, down))
+    for torch, _ in torches:
+        tiles[torch] = TORCH
+    return GeneratedLevel(tiles, up, up_front, down, down_front, vault, lock, tuple(torches))
 
 
 def generate(seed: int, depth: int, lock_tile: int | None = None) -> GeneratedLevel:

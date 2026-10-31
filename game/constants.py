@@ -42,6 +42,13 @@ PIT_CHANCE = 0.35
 PIT_COUNT = (1, 3)
 FALL_DAMAGE = (3, 6)       # a fall can't kill you; it leaves you on 1 health at worst
 
+# Torches. Each floor gets a few, kept apart and away from the stairs. Standing in full
+# torchlight multiplies how far off monsters notice you by 1 + TORCH_NOTICE; it fades with distance.
+TORCH_COUNT = (1, 3)
+TORCH_RADIUS = 9
+TORCH_SPACING = 16
+TORCH_NOTICE = 0.75
+
 # Locked rooms. Each floor in the range has LOCKED_ROOM_CHANCE of one, and its key lies
 # KEY_DISTANCE floors above or below. There's one room per color in tiles.LOCK_COLORS at most.
 LOCKED_ROOM_FLOORS = (4, 14)
@@ -55,6 +62,16 @@ STEALTH_MAX = 100
 STEALTH_FILL_SECONDS = 3.0 # empty to full
 STEALTH_MOVE_DRAIN = 20    # lost per step
 STEALTH_RANGE_MIN = 0.3
+
+# Stamina. Sprinting and attacking spend it, and it refills after STAMINA_REST_SECONDS
+# without spending any. Below ATTACK_STAMINA your attacks take TIRED_ATTACK times as long.
+STAMINA_MAX = 100
+STAMINA_FILL_SECONDS = 6.0 # empty to full
+STAMINA_REST_SECONDS = 0.75
+SPRINT_STAMINA = 5         # spent per step
+SPRINT_MOVE_COST = 0.6     # a sprinting step takes this share of a normal one
+ATTACK_STAMINA = 8         # spent per attack
+TIRED_ATTACK = 2
 
 # Game modes. In Revive, a fallen player stays on the map as bones until a teammate
 # stands next to them for REVIVE_SECONDS. Classic is permanent until the next run.
@@ -74,5 +91,5 @@ DEFENSE_FACTOR = 0.987     # hit% = accuracy * DEFENSE_FACTOR ** defense
 NOTICE_RANGE_SLEEPING = 7
 NOTICE_RANGE_AWAKE = 14
 
-PROTOCOL_VERSION = 13
+PROTOCOL_VERSION = 14
 DEFAULT_PORT = 5555
