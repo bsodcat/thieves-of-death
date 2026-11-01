@@ -207,7 +207,7 @@ class PotionTests(unittest.TestCase):
         w, lvl, p, (dx, dy) = self.water_world()
         self.drink(w, p, "waterwalking")
         step(w, p, dx, dy)
-        w.advance(int(16 * TICKS_PER_SECOND))
+        w.advance(int(61 * TICKS_PER_SECOND))
         self.assertTrue(lvl.walkable[p.x, p.y])
         self.assertTrue(p.alive)
 
@@ -222,7 +222,7 @@ class PotionTests(unittest.TestCase):
         step(w, p, dx, dy)
         self.assertEqual(lvl.tiles[p.x, p.y], LAVA)
         self.assertEqual(p.hp, p.max_hp)
-        w.advance(int(16 * TICKS_PER_SECOND))
+        w.advance(int(61 * TICKS_PER_SECOND))
         self.assertLess(p.hp, p.max_hp)
         self.assertTrue(lvl.walkable[p.x, p.y])
 

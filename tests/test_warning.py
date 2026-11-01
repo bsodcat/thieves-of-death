@@ -1,8 +1,9 @@
 """The blink before a monster's melee hit, the red of a player's, and glows on players."""
+import math
 import unittest
 from unittest import mock
 
-from game.constants import MONSTER_SWING
+from game.constants import MONSTER_SWING, TICKS_PER_SECOND
 from game.entities import make_monster
 from game.items import make_item
 from game.render import ClientView
@@ -216,7 +217,7 @@ class GlowTests(unittest.TestCase):
 
     def glow_at(self, v, p, dx, dy, channel=2):
         with_glow = v.draw()["bg"][21 + p.x + dx, 3 + p.y + dy]
-        ents, v.ents = v.ents, [{k: val for k, val in e.items() if k not in ("wet", "aura")} for e in v.ents]
+        ents, v.ents = v.ents, [{k: val for k, val in e.items() if k not in ("wet", "hot", "aura")} for e in v.ents]
         without = v.draw()["bg"][21 + p.x + dx, 3 + p.y + dy]
         v.ents = ents
         return int(with_glow[channel]) - int(without[channel])
@@ -227,17 +228,68 @@ class GlowTests(unittest.TestCase):
         v.apply(w.state_for(p))
         v.visible[:] = True
         with mock.patch("game.render.time.monotonic", return_value=0.0):
-            glow = [self.glow_at(v, p, dx, 0) for dx in (0, 1, 2, 3, 4)]
+            glow = [self.glow_at(v, p, dx, 0) for dx in (0, 1, 2, 3, 4, 5)]
             outside = self.glow_at(v, p, 6, 0)
         self.assertEqual(glow, sorted(glow, reverse=True))
         self.assertGreater(glow[0], 100)
-        self.assertGreater(glow[4], 0)
+        self.assertGreater(glow[5], 20)
         self.assertEqual(outside, 0)
 
     def test_it_ends_with_the_potion(self):
         w, lvl, p, v = self.player_view()
         v.apply(w.state_for(p))
         self.assertFalse(next(e for e in v.ents if e["id"] == p.id)["wet"])
+
+    def test_it_holds_for_5_seconds_then_fades_until_the_potion_ends(self):
+        w, lvl, p, v = self.player_view()
+        p.waterwalk_until = w.clock + int(make_item("waterwalking").waterwalk * TICKS_PER_SECOND)
+        v.apply(w.state_for(p))
+        v.visible[:] = True
+        v.clock_at = 1000.0
+
+        def brightness(t):
+            with mock.patch("game.render.time.monotonic", return_value=1000.0 + t):
+                return self.glow_at(v, p, 0, 0)
+        # Multiples of pi land on the same point of its pulse, so only the fade differs.
+        start, held, midway, late = (brightness(math.pi * n) for n in (0, 1, 10, 17))
+        self.assertAlmostEqual(start, held, delta=2)
+        self.assertLess(midway, held * 0.6)
+        self.assertLess(late, midway * 0.3)
+        self.assertGreater(late, 0)
+        self.assertEqual(brightness(60.0), 0)
+
+    def test_the_potion_lasts_a_minute(self):
+        self.assertEqual(make_item("waterwalking").waterwalk, 60.0)
+
+    def test_lava_walking_glows_orange_out_to_5_tiles_and_fades(self):
+        w, lvl, p, v = self.player_view()
+        p.lavawalk_until = w.clock + int(make_item("lavawalking").lavawalk * TICKS_PER_SECOND)
+        v.apply(w.state_for(p))
+        v.visible[:] = True
+        v.clock_at = 1000.0
+
+        with mock.patch("game.render.time.monotonic", return_value=1000.0):
+            r, g, b = (self.glow_at(v, p, 0, 0, channel) for channel in (0, 1, 2))
+            glow = [self.glow_at(v, p, dx, 0, 0) for dx in (0, 1, 2, 3, 4, 5)]
+            outside = self.glow_at(v, p, 6, 0, 0)
+        self.assertGreater(r, g * 1.5)
+        self.assertGreater(g, b * 3)
+        self.assertEqual(glow, sorted(glow, reverse=True))
+        self.assertGreater(glow[5], 20)
+        self.assertEqual(outside, 0)
+        start, held, midway, late = (self.lava_glow(v, p, math.pi * n) for n in (0, 1, 10, 17))
+        self.assertAlmostEqual(start, held, delta=2)
+        self.assertLess(midway, held * 0.6)
+        self.assertLess(late, midway * 0.3)
+        self.assertGreater(late, 0)
+        self.assertEqual(self.lava_glow(v, p, 60.0), 0)
+
+    def lava_glow(self, v, p, t):
+        with mock.patch("game.render.time.monotonic", return_value=1000.0 + t):
+            return self.glow_at(v, p, 0, 0, 0)
+
+    def test_lava_walking_lasts_a_minute(self):
+        self.assertEqual(make_item("lavawalking").lavawalk, 60.0)
 
     def test_magic_armor_glows_3x3_with_a_gradient(self):
         w, lvl, p, v = self.player_view()
@@ -263,6 +315,8 @@ class GlowTests(unittest.TestCase):
                 return self.glow_at(v, p, 0, 0)
         self.assertLess(abs(brightness(0.0) - brightness(0.1)), 25)
         self.assertGreater(max(brightness(t / 2) for t in range(11)) - min(brightness(t / 2) for t in range(11)), 40)
+        self.assertLess(brightness(0.0), brightness(1.0))
+        self.assertLess(brightness(1.0), brightness(2.0))
 
     def test_magic_armor_doesnt_sparkle(self):
         w, lvl, p, v = self.player_view()

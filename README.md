@@ -382,8 +382,8 @@ doesn't pause while the pack is open; the panel opens on the far side of the map
 | Potion of haste | `!` | Double speed for 10 seconds | |
 | Potion of levitation | `!` | Float for 9 seconds, out of reach of ground monsters | |
 | Potion of teleportation | `!` | Jump to a random spot on a random floor, anywhere from 1 to 99. A real gamble | |
-| Potion of water walking | `!` | Walk on deep water for 15 seconds, in a blue glow reaching 5 tiles. Floors 18 to 42 | |
-| Potion of lava walking | `!` | Walk on lava for 15 seconds. Floors 18 to 42 | |
+| Potion of water walking | `!` | Walk on deep water for 1 minute, in a blue glow reaching 5 tiles that fades away as it runs out. Floors 18 to 42 | |
+| Potion of lava walking | `!` | Walk on lava for 1 minute, in an orange glow reaching 5 tiles that fades away as it runs out. Floors 18 to 42 | |
 | Dagger | `)` | 3-5 damage | 5 |
 | Sword | `)` | 5-9 damage | 15 |
 | Mace | `)` | 12-18 damage, attacks take twice as long | 20 |

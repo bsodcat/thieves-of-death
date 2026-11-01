@@ -117,8 +117,11 @@ WARNING_DIM = 0.45        # how bright a monster stays in the dark part of a bli
 HIT_RED = np.array((230, 35, 25), np.float32)     # at the center of a blow
 HIT_RADIUS, HIT_SECONDS = 2.5, 0.35
 WATER_GLOW = np.array((30, 95, 190), np.float32)
-WATER_GLOW_RADIUS = 5.0
+LAVA_GLOW = np.array((190, 85, 15), np.float32)
+WALK_GLOW_RADIUS = 6.0    # fades out here, so the 5th tile away is the last one lit
+WALK_GLOW_FADE = 55.0     # the seconds left on the potion when the glow starts to fade
 ARMOR_GLOW = np.array((50, 110, 240), np.float32)
+ARMOR_PULSE = 0.7         # how fast magic armor pulses: 0.7 is one pulse in about 9 seconds
 WARD_GLOW = np.array((35, 90, 235), np.float32)   # a pond's ward
 WARD_GLOW_RADIUS = 3.5
 MARK_MONSTER, MARK_ITEM = (150, 30, 45), (125, 105, 15)   # behind whatever reveal is showing you
@@ -527,16 +530,19 @@ class ClientView:
         """Light that moves with people, and the red that shows where a player struck."""
         now = time.monotonic()
         for e in self.ents:
-            if e.get("wet"):
-                reach = np.clip(1 - np.hypot(XS - e["x"], YS - e["y"]) / WATER_GLOW_RADIUS, 0, 1) ** 1.5
-                bg = bg + (reach * (0.85 + 0.15 * math.sin(now * 2)))[..., None] * WATER_GLOW
+            for potion, color in (("wet", WATER_GLOW), ("hot", LAVA_GLOW)):
+                if e.get(potion):
+                    left = e[potion] - (now - self.clock_at)
+                    reach = np.clip(1 - np.hypot(XS - e["x"], YS - e["y"]) / WALK_GLOW_RADIUS, 0, 1)
+                    reach = reach * min(max(left, 0.0) / WALK_GLOW_FADE, 1.0)
+                    bg = bg + (reach * (0.85 + 0.15 * math.sin(now * 2)))[..., None] * color
             if e.get("ward"):
                 reach = np.clip(1 - np.hypot(XS - e["x"], YS - e["y"]) / WARD_GLOW_RADIUS, 0, 1) ** 1.5
                 bg = bg + (reach * (0.8 + 0.2 * math.sin(now * 1.5)))[..., None] * WARD_GLOW
             if e.get("aura"):
                 near = np.maximum(abs(XS - e["x"]), abs(YS - e["y"])) <= 1
                 reach = near * (1 - np.hypot(XS - e["x"], YS - e["y"]) / 2)
-                bg = bg + (reach * (0.7 + 0.3 * math.sin(now * 1.2)))[..., None] * ARMOR_GLOW
+                bg = bg + (reach * (0.7 + 0.3 * math.sin(now * ARMOR_PULSE)))[..., None] * ARMOR_GLOW
         self.hits = [h for h in self.hits if now - h[2] < HIT_SECONDS]
         for x, y, struck in self.hits:
             reach = np.clip(1 - np.hypot(XS - x, YS - y) / HIT_RADIUS, 0, 1)

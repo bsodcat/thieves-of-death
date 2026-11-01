@@ -2,6 +2,28 @@
 
 Versions are MAJOR.MINOR.PATCH. See "Versions" in the README for what each number means.
 
+## 2.7.8 - November 1, 2026
+
+### Changed
+
+- Potions of lava walking last 1 minute instead of 15 seconds.
+- Lava walking now gives you an orange glow reaching 5 tiles, which holds for 5 seconds, then
+  fades slowly until the potion runs out.
+
+## 2.7.7 - November 1, 2026
+
+### Changed
+
+- Potions of water walking last 1 minute instead of 15 seconds.
+- Their glow now holds for 5 seconds, then fades slowly until the potion runs out.
+
+## 2.7.6 - November 1, 2026
+
+### Changed
+
+- The water walking glow now fades evenly and really reaches 5 tiles, where it used to stop short.
+- Magic armor's glow pulses about half as fast, once every 9 seconds.
+
 ## 2.7.5 - November 1, 2026
 
 ### Changed

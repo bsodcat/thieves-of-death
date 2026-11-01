@@ -1888,6 +1888,10 @@ class World:
                 return ["revive", f"Reviving {other.name}... {self._revive_percent(other)}%"]
         return ["go", ""]
 
+    def _potion_left(self, a, until: str) -> float:
+        """Seconds a player has left of walking on water or lava, which their glow fades away with."""
+        return max(0.0, (getattr(a, until) - self.clock) / TICKS_PER_SECOND) if a.is_player else 0.0
+
     def _windup(self, m, lvl: Level) -> dict:
         """For a monster about to land a melee hit: seconds until it can, and how long its
         swing takes. The client turns these into a warning, so it stays smooth between states."""
@@ -1926,7 +1930,8 @@ class World:
                              "frozen": getattr(a, "frozen_until", 0) > self.clock,
                              "ward": a.is_player and a.reflect_until > self.clock,
                              "aura": a.is_player and a.armor is not None and a.armor.reflect,
-                             "wet": a.is_player and a.waterwalk_until > self.clock, **self._windup(a, lvl)})
+                             "wet": self._potion_left(a, "waterwalk_until"), "hot": self._potion_left(a, "lavawalk_until"),
+                             **self._windup(a, lvl)})
         for a in lvl.downed:
             ents.append({"id": a.id, "g": BONES_GLYPH, "c": list(BONE), "x": a.x, "y": a.y, "name": a.name,
                          "hp": 0, "mhp": a.max_hp, "p": True, "seen": bool(vis[a.x, a.y]), "st": "down"})
