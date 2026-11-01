@@ -2,6 +2,13 @@
 
 Versions are MAJOR.MINOR.PATCH. See "Versions" in the README for what each number means.
 
+## 2.7.0 - October 31, 2026
+
+### Added
+
+- Ghosts that pass through walls. One comes for you 2 floors after you use an altar.
+- Weapons enhanced at an altar do 1.5 times the damage to the undead.
+
 ## 2.6.0 - October 31, 2026
 
 ### Added

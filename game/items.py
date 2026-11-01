@@ -59,7 +59,7 @@ class Item:
     def info(self) -> str:
         if self.category == "weapon":
             speed = ", slow" if self.attack_cost > TICKS_PER_TURN else ""
-            extras = "".join(f", {spell}" for spell in self.magic)
+            extras = "".join(f", {spell}" for spell in self.magic) + (", bane of undead" if self.enhanced else "")
             return f"dmg {self.damage[0]}-{self.damage[1]}{speed}, noise {self.noise}{extras}"
         if self.category == "armor":
             speed = ", heavy" if self.move_cost > TICKS_PER_TURN else ""

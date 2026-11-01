@@ -29,6 +29,7 @@ SEASONS = {
             "skeleton_archer": ("rattling archer", (225, 220, 195), "Its bones click as it aims."),
             "skeleton_warrior": ("grave knight", (190, 190, 200), "It has been waiting."),
             "slime": ("ectoplasm", (170, 240, 200), "Left behind by something."),
+            "ghost": ("wailing spirit", (170, 240, 200), "It knows what you took."),
             "dragon": ("bone wyrm", (225, 220, 195), "All teeth and old fire."),
             "cultist": ("hooded ghoul", (150, 120, 170), "Chants at the dark."),
             "cult_leader": ("grave priest", (200, 90, 220), "Its wand smolders."),
@@ -76,6 +77,7 @@ SEASONS = {
             "skeleton_archer": ("toy archer", (230, 215, 120), "Wound up, and aiming."),
             "skeleton_warrior": ("toy soldier", (230, 60, 60), "Marching out of step."),
             "slime": ("eggnog spill", (240, 230, 190), "Sticky, and it's moving."),
+            "ghost": ("christmas past", (200, 230, 255), "It has come to collect."),
             "dragon": ("ghost of yule", (200, 230, 255), "Past, present and hungry."),
             "cultist": ("carol singer", (200, 60, 70), "Sings without stopping."),
             "cult_leader": ("choir master", (240, 90, 80), "Its wand glows like a coal.")

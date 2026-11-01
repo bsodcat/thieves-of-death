@@ -283,6 +283,7 @@ fall and can kill you. If you live, you end up on the nearest ground.
   touch poisons you for 1 damage a second for 6 seconds, with no healing meanwhile, and halves your
   speed for 3 seconds, and so
   does walking on the green trail they leave, which lasts 15 seconds. Levitating avoids the trail.
+- **Ghosts** (`G`): only appear after you've used an altar. See Altars.
 - **Zombies** (`z`): slow, and only raised by the necromancer.
 
 ## Ponds of healing
@@ -310,6 +311,11 @@ a weapon and it asks whether you'd like to enhance your weapon. Say yes and that
 good, in one random way: more damage, better aim, faster attacks, less noise, or a spell that burns,
 sometimes freezes, or heals you as you hit. Each altar works once, then goes cold. The improvement
 stays with the weapon, whoever carries it, until the run ends, and a weapon can take several.
+
+Any enhanced weapon also does 1.5 times the damage to the undead: zombies, skeletons, the skeletal
+dragon, ghosts and the necromancer. But altars have a price. Once you're 2 floors from one you've
+used, a ghost appears on your floor, 10 to 15 tiles away and out of sight. It's the only thing
+that goes through walls, and it always knows where you are. You get one ghost for each altar.
 
 ## Cultists
 

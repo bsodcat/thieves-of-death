@@ -86,6 +86,7 @@ HELP_TIPS = (
     "Magic armor turns up on floors 60 to 70. It reflects magic.",
     "Toxic gas only spreads 4 tiles. Back away, or shut a door.",
     "Cultists guard altars. One use each, and the weapon keeps it.",
+    "An altar's gift hurts the undead more, and an altar's ghost.",
     "Water and lava walking potions turn up around floors 20 to 40.",
 )
 

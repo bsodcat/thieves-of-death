@@ -37,7 +37,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from . import algo, mapgen, protocol, seasons
-from .constants import (ARCHER_RANGE, ARCHER_RELOAD, OGRE_PEAK, OGRE_PEAK_WEIGHT, SLIME_COUNT, SLIME_FLOORS, SLIME_TRAIL,
+from .constants import (GHOST_DISTANCE, GHOST_FLOORS, UNDEAD_BONUS, ARCHER_RANGE, ARCHER_RELOAD, OGRE_PEAK, OGRE_PEAK_WEIGHT, SLIME_COUNT, SLIME_FLOORS, SLIME_TRAIL,
                         SLOW_FACTOR, SLOW_SECONDS, TOXIN_DAMAGE, TOXIN_SECONDS, ARROW_PILE, ATRIUM_FLOOR, ATTACK_STAMINA, BONES_GLYPH, BREATH_DAMAGE, BREATH_RANGE, BREATH_SECONDS,
                         CLOAK_FLOORS, CRIT_DAMAGE, CRIT_STEALTH, CULT_CHANCE, CULT_FIRST,
                         DRAGON_FLOOR, HOARD_GOLD, HOARD_PILES, POTION_ROOM, TOWER_FIRST, TOWER_MONSTERS, GAS_COOLDOWN, GAS_DAMAGE, GAS_REACH, GAS_SECONDS, GAS_TRIGGER, LAST_FLOOR,
@@ -54,7 +54,7 @@ from .constants import (ARCHER_RANGE, ARCHER_RELOAD, OGRE_PEAK, OGRE_PEAK_WEIGHT
                         REVIVE_SECONDS, SCORE_PER_GOLD, STEALTH_FILL_SECONDS,
                         STEALTH_MAX, STEALTH_MOVE_DRAIN, STEALTH_RANGE_MIN, TICKS_PER_SECOND,
                         TICKS_PER_TURN)
-from .entities import (MONSTERS, PLAYER_COLOR_NAMES, PLAYER_COLORS, PLAYER_GLYPHS, Merchant, Monster, Player, apply_gear,
+from .entities import (UNDEAD, MONSTERS, PLAYER_COLOR_NAMES, PLAYER_COLORS, PLAYER_GLYPHS, Merchant, Monster, Player, apply_gear,
                        danger, make_merchant, make_monster, make_player, reset_player)
 from .items import (AUTO_PICKUP, ITEMS, Item, enhance_weapon, make_amulet, make_cloak, make_gold, make_item, make_key,
                     make_wand)
@@ -797,6 +797,7 @@ class World:
             self._tick_revives(ticks)
             self._tick_gas(ticks)
             self._tick_tide()
+            self._tick_haunts()
 
     def _tick_gas(self, ticks: int) -> None:
         for lvl in self.levels.values():
@@ -840,6 +841,30 @@ class World:
             self.tell(p, "Slime clings to you. It burns, and you can hardly move.", ORANGE)
         p.toxin_until = self.clock + int(TOXIN_SECONDS * TICKS_PER_SECOND)
         p.slow_until = self.clock + int(SLOW_SECONDS * TICKS_PER_SECOND)
+
+    def _tick_haunts(self) -> None:
+        """An altar's ghost comes once you're far enough away to think you got off lightly."""
+        for p in self.players.values():
+            due = [floor for floor in p.haunts if abs(p.depth - floor) >= GHOST_FLOORS] if p.alive else []
+            for floor in due:
+                p.haunts.remove(floor)
+                self._raise_ghost(p, self.levels[p.depth])
+
+    def _raise_ghost(self, p: Player, lvl: Level) -> None:
+        """Anywhere out of sight, walls included: it doesn't need to stand on floor."""
+        sight = self.fov(p)
+        spots = [(x, y) for x in range(1, MAP_W - 1) for y in range(1, MAP_H - 1)
+                 if GHOST_DISTANCE[0] <= max(abs(x - p.x), abs(y - p.y)) <= GHOST_DISTANCE[1]
+                 and not sight[x, y] and (x, y) not in lvl.occupant
+                 and lvl.tiles[x, y] not in (STAIRS_DOWN, STAIRS_UP)]
+        if not spots:
+            spots = [c for c in lvl.land_cells if c not in lvl.occupant]
+        g = seasons.dress_monster(make_monster("ghost", next(self._ids)), self.season)
+        g.state, g.next_time = "hunting", self.clock + TICKS_PER_TURN
+        lvl.place(g, *self.rng.choice(spots))
+        lvl.monsters.append(g)
+        self.dirty = True
+        self.tell(p, "A chill runs through you. Something has followed you from the altar.", PURPLE)
 
     def _tick_tide(self) -> None:
         """While the necromancer is awake, the dead keep coming for anyone who ran from it."""
@@ -1052,7 +1077,8 @@ class World:
         return 0
 
     def _enhance(self, p: Player, lvl: Level, x: int, y: int) -> int:
-        """Each altar works once, and what it does is the weapon's for good, whoever holds it."""
+        """Each altar works once, and what it does is the weapon's for good, whoever holds it.
+        The one who used it pays for that later: see _tick_haunts."""
         if lvl.tiles[x, y] != ALTAR or max(abs(p.x - x), abs(p.y - y)) > 1:
             self.tell(p, "There's no altar within reach.", GRAY)
             return 0
@@ -1061,6 +1087,7 @@ class World:
             return 0
         result = enhance_weapon(p.weapon, self.rng)
         lvl.spend_altar(x, y)
+        p.haunts.append(lvl.depth)
         apply_gear(p)
         p.pack_dirty = True
         self.tell(p, f"Purple fire sinks into your {p.weapon.name}: {result}.", PURPLE)
@@ -1507,6 +1534,8 @@ class World:
         where = [(att.x, att.y), (dfn.x, dfn.y)]
         if self.rng.random() * 100 < prob:
             dmg = self.rng.randint(*att.damage) * (CRIT_DAMAGE if crit else SNEAK_DAMAGE if sneak else 1)
+            if att.is_player and att.weapon is not None and att.weapon.enhanced and dfn.kind in UNDEAD:
+                dmg = int(dmg * UNDEAD_BONUS)
             dfn.hp -= dmg
 
             def hit(v):
@@ -1670,6 +1699,24 @@ class World:
             self._narrate(lvl, [(m.x, m.y)], set(), lambda v: (f"The {m.name} bursts into a cloud of toxic gas!", ORANGE))
         return TICKS_PER_TURN
 
+    def _haunt(self, m: Monster, lvl: Level) -> int:
+        """A ghost always knows where you are, and walls are nothing to it."""
+        prey = self._living_on(m.depth)
+        if not prey:
+            return TICKS_PER_TURN
+        t = min(prey, key=lambda p: (cheb(m, p), p.id))
+        if cheb(m, t) == 1:
+            self._attack(m, t)
+            return m.attack_cost * MONSTER_SWING
+        dx, dy = (t.x > m.x) - (t.x < m.x), (t.y > m.y) - (t.y < m.y)
+        for sx, sy in ((dx, dy), (dx, 0), (0, dy)):
+            n = (m.x + sx, m.y + sy)
+            if (sx or sy) and 0 < n[0] < MAP_W - 1 and 0 < n[1] < MAP_H - 1 and n not in lvl.occupant \
+                    and lvl.tiles[n] not in (STAIRS_DOWN, STAIRS_UP):
+                lvl.move(m, *n)
+                return m.move_cost
+        return TICKS_PER_TURN
+
     def _step_away(self, m: Monster, lvl: Level, target: Player) -> int:
         """One step further from someone on foot, if there's anywhere to go."""
         walk = lvl.distances_to(target.x, target.y)
@@ -1746,6 +1793,8 @@ class World:
     def _monster_turn(self, m: Monster, lvl: Level) -> int:
         if m.kind == "mushroom":
             return self._release_gas(m, lvl)
+        if m.kind == "ghost":
+            return self._haunt(m, lvl)
         seen_by = [p for p in self._living_on(m.depth) if self.fov(p)[m.x, m.y]]  # FOV is symmetric
         if m.state == "sleeping":
             for p in sorted(seen_by, key=lambda p: cheb(m, p)):

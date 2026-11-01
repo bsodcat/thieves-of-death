@@ -166,6 +166,14 @@ WEAPON_FREEZE_CHANCE = 0.2
 WEAPON_FREEZE_SECONDS = 3.0
 WEAPON_DRAIN = 4           # a draining weapon heals you for 1 in this many points of damage
 
+# Using an altar has a price. Once you're GHOST_FLOORS floors from it, a ghost appears on
+# whatever floor you're on, GHOST_DISTANCE tiles from you, and comes straight through the walls.
+GHOST_FLOORS = 2
+GHOST_DISTANCE = (10, 15)
+
+# Weapons an altar has enhanced do this many times the damage to the undead.
+UNDEAD_BONUS = 1.5
+
 # Locked rooms. Each floor in the range has LOCKED_ROOM_CHANCE of one, and its key lies
 # KEY_DISTANCE floors above or below. There's one room per color in tiles.LOCK_COLORS at most.
 LOCKED_ROOM_FLOORS = (4, 14)

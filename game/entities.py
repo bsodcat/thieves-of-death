@@ -56,6 +56,7 @@ class Player(Actor):
     can_command: bool = False    # playing on the server's own computer, so the console works
     god: bool = False            # console: takes no damage
     chased: bool = False         # left the necromancer's floor with it awake
+    haunts: list = field(default_factory=list)   # floors of altars whose ghost hasn't come yet
     reflect_until: int = 0       # tick when a pond's ward wears off
     gas_ticks: int = 0           # time in toxic gas, toward the next point of damage
     toxin_until: int = 0         # tick when a slime's poison wears off
@@ -150,7 +151,7 @@ def reset_player(p: Player) -> None:
     p.final_gold, p.kill_tally, p.hardest = None, {}, ""
     p.turns = p.kills = p.regen_acc = p.next_time = p.haste_until = p.levitate_until = 0
     p.waterwalk_until = p.lavawalk_until = p.gas_ticks = 0
-    p.chased, p.reflect_until = False, 0
+    p.chased, p.reflect_until, p.haunts = False, 0, []
     p.toxin_until = p.toxin_ticks = p.slow_until = 0
     p.fov_key, p.fov = None, None
     p.pack, p.gold, p.weapon, p.armor, p.cloak, p.pack_dirty = [], 0, None, None, None, True
@@ -190,6 +191,9 @@ MONSTERS = {
     "slime": dict(name="slime", glyph="b", color=(120, 210, 90), hp=14, accuracy=80, defense=0,
                   damage=(1, 2), move=200, attack=100, depths=(0, 0), weight=0, verbs=("burns", "burn"),
                   desc="Slow. Its touch and its trail poison and slow you."),
+    "ghost": dict(name="ghost", glyph="G", color=(190, 220, 255), hp=30, accuracy=100, defense=20,
+                  damage=(4, 9), move=130, attack=100, depths=(0, 0), weight=0, verbs=("chills", "chill"),
+                  desc="Drifts through walls. An altar's price."),
     "wolf": dict(name="wolf", glyph="w", color=(170, 170, 180), hp=12, accuracy=85, defense=5,
                  damage=(2, 5), move=50, attack=100, depths=(0, 0), weight=0, verbs=("bites", "bite"),
                  desc="Fast, and hunts in packs."),
@@ -209,6 +213,9 @@ MONSTERS = {
                         damage=(3, 7), move=100, attack=100, depths=(0, 0), weight=0, verbs=("strikes", "strike"),
                         desc="Carries a wand of fire."),
 }
+
+
+UNDEAD = ("zombie", "skeleton_archer", "skeleton_warrior", "dragon", "ghost", "necromancer")
 
 
 def danger(kind: str) -> float:
