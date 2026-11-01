@@ -58,6 +58,9 @@ class Player(Actor):
     chased: bool = False         # left the necromancer's floor with it awake
     reflect_until: int = 0       # tick when a pond's ward wears off
     gas_ticks: int = 0           # time in toxic gas, toward the next point of damage
+    toxin_until: int = 0         # tick when a slime's poison wears off
+    toxin_ticks: int = 0         # time poisoned, toward the next point of damage
+    slow_until: int = 0          # tick when they can move normally again
     noclip: bool = False         # console: walks through everything
     bright: bool = False         # console: every floor is drawn fully lit
     reveal: bool = False         # console: every floor is mapped, with all its monsters and items
@@ -148,6 +151,7 @@ def reset_player(p: Player) -> None:
     p.turns = p.kills = p.regen_acc = p.next_time = p.haste_until = p.levitate_until = 0
     p.waterwalk_until = p.lavawalk_until = p.gas_ticks = 0
     p.chased, p.reflect_until = False, 0
+    p.toxin_until = p.toxin_ticks = p.slow_until = 0
     p.fov_key, p.fov = None, None
     p.pack, p.gold, p.weapon, p.armor, p.cloak, p.pack_dirty = [], 0, None, None, None, True
     apply_gear(p)
@@ -171,12 +175,21 @@ MONSTERS = {
                    damage=(2, 5), move=100, attack=100, depths=(3, 12), weight=7, verbs=("slashes", "slash"),
                    desc="A hardened fighter."),
     "ogre": dict(name="ogre", glyph="O", color=(160, 120, 170), hp=55, accuracy=125, defense=60,
-                 damage=(9, 13), move=100, attack=200, depths=(7, 26), weight=4,
+                 damage=(9, 13), move=100, attack=200, depths=(7, 65), weight=4,
                  verbs=("bludgeons", "bludgeon"), desc="Huge. One hit hurts."),
     "mushroom": dict(name="mushroom", glyph="f", color=(200, 170, 120), hp=10, accuracy=0, defense=0,
                      damage=(0, 0), move=100, attack=100, depths=(3, 26), weight=5, verbs=("hits", "hit"),
                      desc="Never moves. Lets out toxic gas when you get near."),
+    "skeleton_archer": dict(name="skeleton archer", glyph="s", color=(215, 210, 190), hp=20, accuracy=90, defense=15,
+                            damage=(3, 7), move=100, attack=100, depths=(70, 90), weight=6, verbs=("claws", "claw"),
+                            desc="Keeps its distance, and shoots."),
+    "skeleton_warrior": dict(name="skeleton warrior", glyph="S", color=(235, 230, 205), hp=60, accuracy=110, defense=40,
+                             damage=(6, 11), move=100, attack=100, depths=(80, 98), weight=10,
+                             verbs=("cleaves", "cleave"), desc="Old armor and a heavy blade."),
     # Everything below turns up in its own way, never from the tables above: see World._populate.
+    "slime": dict(name="slime", glyph="b", color=(120, 210, 90), hp=14, accuracy=80, defense=0,
+                  damage=(1, 2), move=200, attack=100, depths=(0, 0), weight=0, verbs=("burns", "burn"),
+                  desc="Slow. Its touch and its trail poison and slow you."),
     "wolf": dict(name="wolf", glyph="w", color=(170, 170, 180), hp=12, accuracy=85, defense=5,
                  damage=(2, 5), move=50, attack=100, depths=(0, 0), weight=0, verbs=("bites", "bite"),
                  desc="Fast, and hunts in packs."),

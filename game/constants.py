@@ -46,7 +46,26 @@ ATRIUM_FLOOR = 89
 TOWER_FIRST = 90
 
 # The tower has its own monsters, not the ordinary lists: (kind, weight).
-TOWER_MONSTERS = (("zombie", 3), ("cultist", 2), ("wolf", 1))
+TOWER_MONSTERS = (("skeleton_warrior", 6), ("zombie", 3), ("cultist", 2), ("wolf", 1))
+
+# Ogres stop at their last floor in the list, and are this many times as common here.
+OGRE_PEAK = (45, 55)
+OGRE_PEAK_WEIGHT = 3
+
+# Skeleton archers try to stay this many tiles from their target: closer and they back away,
+# further and they come closer. They shoot every ARCHER_RELOAD seconds.
+ARCHER_RANGE = (5, 9)
+ARCHER_RELOAD = 2.5
+
+# Slimes crawl about in numbers on these floors. Their hits, and walking through the trail they
+# leave for SLIME_TRAIL seconds, slow you down and poison you.
+SLIME_FLOORS = (25, 85)
+SLIME_COUNT = (4, 5)
+SLIME_TRAIL = 15.0
+SLOW_SECONDS = 3.0
+SLOW_FACTOR = 2            # a slowed step takes this many times as long
+TOXIN_SECONDS = 6.0
+TOXIN_DAMAGE = 1           # each second it lasts
 
 # The lair's side rooms: one holds a hoard, one holds potions, and the others stand empty.
 HOARD_PILES = 14

@@ -134,7 +134,8 @@ Others see the shape and color you pick, in the dungeon and in the Players list.
 Floor 89 has no monsters: a long pillared hall opens into a round atrium with green walls, and the
 stairs at the far side lead into the tower. Floors 90 to 99 are the tower itself, buried in the rock.
 Its walls glow green, and every floor is a mirror image, with a shaft and central hall and rooms
-down each side. The tower has its own monsters: zombies, cultists and wolves, with no ogres or mushrooms. The last
+down each side. The tower has its own monsters: mostly skeleton warriors, with zombies, cultists and wolves, and no
+ogres or mushrooms. The last
 floor is a great round room with pillars and smaller rooms off it, and nothing lives there but the
 necromancer. One side room holds a hoard of gold, and another a store of potions.
 
@@ -274,6 +275,14 @@ fall and can kill you. If you live, you end up on the nearest ground.
   doors stop it. It thins from the edges inward and is gone
   in 12 seconds. Gas does 2 damage a second, and the mushroom can do it again after 20 seconds. Kill
   it from a distance, or go around.
+- **Ogres** (`O`): from floor 7 to floor 65, and most common on floors 45 to 55.
+- **Skeleton archers** (`s`): floors 70 to 90. They try to stay 5 to 9 tiles from you, backing away if
+  you close in and following if you run, and shoot every 2.5 seconds for 3 to 7 damage.
+- **Skeleton warriors** (`S`): the main enemy from floor 80 down through the tower to floor 98.
+- **Slimes** (`b`): 4 or 5 on every floor from 25 to 85. They're slow and only hit for 1 or 2, but their
+  touch poisons you for 1 damage a second for 6 seconds, with no healing meanwhile, and halves your
+  speed for 3 seconds, and so
+  does walking on the green trail they leave, which lasts 15 seconds. Levitating avoids the trail.
 - **Zombies** (`z`): slow, and only raised by the necromancer.
 
 ## Ponds of healing

@@ -37,7 +37,8 @@ from dataclasses import dataclass
 import numpy as np
 
 from . import algo, mapgen, protocol, seasons
-from .constants import (ARROW_PILE, ATRIUM_FLOOR, ATTACK_STAMINA, BONES_GLYPH, BREATH_DAMAGE, BREATH_RANGE, BREATH_SECONDS,
+from .constants import (ARCHER_RANGE, ARCHER_RELOAD, OGRE_PEAK, OGRE_PEAK_WEIGHT, SLIME_COUNT, SLIME_FLOORS, SLIME_TRAIL,
+                        SLOW_FACTOR, SLOW_SECONDS, TOXIN_DAMAGE, TOXIN_SECONDS, ARROW_PILE, ATRIUM_FLOOR, ATTACK_STAMINA, BONES_GLYPH, BREATH_DAMAGE, BREATH_RANGE, BREATH_SECONDS,
                         CLOAK_FLOORS, CRIT_DAMAGE, CRIT_STEALTH, CULT_CHANCE, CULT_FIRST,
                         DRAGON_FLOOR, HOARD_GOLD, HOARD_PILES, POTION_ROOM, TOWER_FIRST, TOWER_MONSTERS, GAS_COOLDOWN, GAS_DAMAGE, GAS_REACH, GAS_SECONDS, GAS_TRIGGER, LAST_FLOOR,
                         REFLECT_SECONDS, SCORE_STEPS,
@@ -139,6 +140,7 @@ class Level:
         self.plants = (self.tiles == GRASS) | (self.tiles == FOLIAGE)
         self.changes: list[list[int]] = []  # tiles to tell the players about
         self.gas: dict[tuple[int, int], int] = {}  # toxic gas, and the tick each tile clears
+        self.slime: dict[tuple[int, int], int] = {}  # slime trails, the same way
         self.lair, self.side_rooms = gen.lair, gen.side_rooms
         self._base_transparent = TRANSPARENT[self.tiles]
         self.vault, self.lock = gen.vault, gen.lock
@@ -363,8 +365,10 @@ class World:
         if quiet:
             spots = []
         kinds = [(k, t["weight"]) for k, t in MONSTERS.items() if appears_on(t, lvl.depth)]
-        if lvl.depth >= TOWER_FIRST:
-            kinds = list(TOWER_MONSTERS)
+        if lvl.depth >= TOWER_FIRST:  # still has archers at the very top
+            kinds = list(TOWER_MONSTERS) + [(k, w) for k, w in kinds if k == "skeleton_archer"]
+        if OGRE_PEAK[0] <= lvl.depth <= OGRE_PEAK[1]:
+            kinds = [(k, w * OGRE_PEAK_WEIGHT if k == "ogre" else w) for k, w in kinds]
         rng.shuffle(spots)
         for x, y in spots[:4 + lvl.depth // 2 + rng.randint(0, 3)]:
             kind = rng.choices([k for k, _ in kinds], [w for _, w in kinds])[0]
@@ -376,6 +380,7 @@ class World:
         if not quiet:
             self._add_cult(lvl)
             self._add_wolves(lvl)
+            self._add_slimes(lvl)
         if lvl.depth == DRAGON_FLOOR:
             self._add_dragon(lvl)
         self._add_items(lvl)
@@ -400,6 +405,20 @@ class World:
         if lvl.depth < WOLF_FIRST or rng.random() >= WOLF_CHANCE:
             return False
         return self._add_pack(lvl, rng, "wolf", "wolf", WOLF_SIZE)
+
+    def _add_slimes(self, lvl: Level) -> None:
+        """Scattered about, not in a group, and out of reach of the stairs."""
+        if not SLIME_FLOORS[0] <= lvl.depth <= SLIME_FLOORS[1]:
+            return
+        rng = random.Random(f"{self.seed}:{lvl.depth}:slimes")
+        from_stairs = lvl.distances_to(*lvl.up_front)
+        spots = [c for c in lvl.land_cells if c not in lvl.occupant and 24 < from_stairs[c] < algo.INF]
+        for spot in rng.sample(spots, min(len(spots), rng.randint(*SLIME_COUNT))):
+            m = seasons.dress_monster(make_monster("slime", next(self._ids)), self.season)
+            m.state = "wandering"
+            m.lag = m.next_time = rng.randrange(TICKS_PER_TURN)
+            lvl.place(m, *spot)
+            lvl.monsters.append(m)
 
     def _add_pack(self, lvl: Level, rng: random.Random, lead: str, kind: str, size: tuple, altar: bool = False) -> bool:
         """A tight group, well away from the stairs. With an altar, it stands around that."""
@@ -781,12 +800,17 @@ class World:
 
     def _tick_gas(self, ticks: int) -> None:
         for lvl in self.levels.values():
+            if lvl.slime:
+                lvl.slime = {c: end for c, end in lvl.slime.items() if end > self.clock}
+                self.dirty = True
             if lvl.gas:
                 lvl.gas = {c: end for c, end in lvl.gas.items() if end > self.clock}
                 self.dirty = True
                 for p in self._living_on(lvl.depth):
                     if (p.x, p.y) in lvl.gas:
                         self._breathe_gas(p, ticks)
+        for p in [p for p in self.players.values() if p.alive and p.toxin_until > self.clock]:
+            self._suffer_toxin(p, ticks)
 
     def _breathe_gas(self, p: Player, ticks: int) -> None:
         p.gas_ticks += ticks
@@ -797,6 +821,25 @@ class World:
         self.tell(p, "You choke on the gas.", ORANGE)
         if p.hp <= 0:
             self._kill(p, None, f"Choked on toxic gas on depth {p.depth}.")
+
+    def _suffer_toxin(self, p: Player, ticks: int) -> None:
+        p.toxin_ticks += ticks
+        if p.toxin_ticks < TICKS_PER_SECOND or p.god:
+            return
+        p.toxin_ticks -= int(TICKS_PER_SECOND)
+        p.hp -= TOXIN_DAMAGE
+        self.dirty = True
+        if p.hp <= 0:
+            self._kill(p, None, f"Poisoned by a slime on depth {p.depth}.")
+
+    def _slimed(self, p: Player) -> None:
+        """A slime's touch, or stepping in what it left behind."""
+        if p.god or self._levitating(p):
+            return
+        if p.toxin_until <= self.clock:
+            self.tell(p, "Slime clings to you. It burns, and you can hardly move.", ORANGE)
+        p.toxin_until = self.clock + int(TOXIN_SECONDS * TICKS_PER_SECOND)
+        p.slow_until = self.clock + int(SLOW_SECONDS * TICKS_PER_SECOND)
 
     def _tick_tide(self) -> None:
         """While the necromancer is awake, the dead keep coming for anyone who ran from it."""
@@ -888,12 +931,13 @@ class World:
 
     def _stride(self, p: Player) -> int:
         """What a step costs: less while sprinting, which also uses up stealth twice as fast."""
+        cost = p.move_cost * (SLOW_FACTOR if p.slow_until > self.clock else 1)
         if not p.sprinting or p.stamina < SPRINT_STAMINA:
-            return p.move_cost
+            return cost
         self._spend_stamina(p, SPRINT_STAMINA)
         if not self._levitating(p):
             p.stealth = max(0.0, p.stealth - STEALTH_MOVE_DRAIN)
-        return int(p.move_cost * SPRINT_MOVE_COST)
+        return int(cost * SPRINT_MOVE_COST)
 
     def _swing_cost(self, p: Player) -> int:
         """What an attack costs: stamina, or twice the time if there's too little of it."""
@@ -1099,6 +1143,8 @@ class World:
         """Potions and gold are collected on contact; anything else waits for the pickup key."""
         if lvl.tiles[p.x, p.y] == POND and not self._levitating(p):
             self._bathe(p, lvl)
+        if (p.x, p.y) in lvl.slime:
+            self._slimed(p)
         item = lvl.items.get((p.x, p.y))
         if item is None:
             return
@@ -1430,6 +1476,8 @@ class World:
         if p.hp >= p.max_hp:
             p.regen_acc = 0
             return
+        if p.toxin_until > self.clock:  # poison stops you healing
+            return
         p.regen_acc += cost * p.max_hp
         need = REGEN_TURNS * TICKS_PER_TURN
         while p.regen_acc >= need and p.hp < p.max_hp:
@@ -1468,6 +1516,8 @@ class World:
             self._narrate(lvl, where, {att, dfn}, hit)
             if att.is_player and att.weapon is not None:
                 self._weapon_magic(att, dfn, dmg)
+            if isinstance(att, Monster) and att.kind == "slime" and dfn.hp > 0:
+                self._slimed(dfn)
         else:
             self._narrate(lvl, where, {att, dfn}, lambda v: (
                 f"{self._n(att, v, True)} {self._verb(att, v, ('misses', 'miss'))} {self._n(dfn, v)}.", GRAY))
@@ -1518,6 +1568,7 @@ class World:
             else f"{victim.name} {'is down' if revivable else 'dies'}!", RED))
         victim.alive, victim.hp, victim.pending, victim.hold = False, 0, None, None
         victim.levitate_until = victim.waterwalk_until = victim.lavawalk_until = victim.reflect_until = 0
+        victim.toxin_until = victim.slow_until = 0
         if not lvl.mainland[victim.x, victim.y]:  # over water or on an island: land where the party can reach
             lvl.move(victim, *lvl.free_near(victim.x, victim.y))
         victim.final_gold = victim.gold
@@ -1619,6 +1670,50 @@ class World:
             self._narrate(lvl, [(m.x, m.y)], set(), lambda v: (f"The {m.name} bursts into a cloud of toxic gas!", ORANGE))
         return TICKS_PER_TURN
 
+    def _step_away(self, m: Monster, lvl: Level, target: Player) -> int:
+        """One step further from someone on foot, if there's anywhere to go."""
+        walk = lvl.distances_to(target.x, target.y)
+        best, best_d = None, walk[m.x, m.y]
+        dirs = DIRS8[:]
+        self.rng.shuffle(dirs)
+        for dx, dy in dirs:
+            n = (m.x + dx, m.y + dy)
+            if (lvl.in_bounds(*n) and lvl.walkable[n] and n not in lvl.occupant and best_d < walk[n] < algo.INF
+                    and not lvl.diagonal_blocked(m.x, m.y, *n)):
+                best, best_d = n, walk[n]
+        if best is None:
+            return 0
+        lvl.move(m, *best)
+        return m.move_cost
+
+    def _archer(self, m: Monster, lvl: Level, target: Player) -> int:
+        """Holds off at bowshot: backs away from anyone close, and only shoots from the
+        right distance, or when it's cornered."""
+        away = cheb(m, target)
+        if away < ARCHER_RANGE[0]:
+            cost = self._step_away(m, lvl, target)
+            if cost:
+                return cost
+        elif away > ARCHER_RANGE[1]:
+            return self._step_toward(m, lvl, target.x, target.y) or TICKS_PER_TURN
+        if self.clock < m.ready_at:
+            return TICKS_PER_TURN
+        m.ready_at = self.clock + int(ARCHER_RELOAD * TICKS_PER_SECOND)
+        arrow = {"t": "fx", "kind": "bow", "cells": line_between((m.x, m.y), (target.x, target.y))}
+        for v in self._living_on(m.depth):
+            self.outbox.append((v.id, arrow))
+        self._note_fight(target, m)
+        where = [(m.x, m.y), (target.x, target.y)]
+        if self.rng.random() * 100 >= m.accuracy * DEFENSE_FACTOR ** target.defense:
+            self._narrate(lvl, where, {target}, lambda v: (f"The {m.name}'s arrow misses {self._n(target, v)}.", GRAY))
+            return m.attack_cost
+        self._narrate(lvl, where, {target}, lambda v: (f"The {m.name}'s arrow hits {self._n(target, v)}!", RED))
+        if not target.god:
+            target.hp -= self.rng.randint(*m.damage)
+            if target.hp <= 0:
+                self._kill(target, m)
+        return m.attack_cost
+
     def _breathe(self, m: Monster, lvl: Level, target: Player) -> None:
         """Fire along a line. Magic like this comes straight back off anyone warded."""
         m.ready_at = self.clock + int(BREATH_SECONDS * TICKS_PER_SECOND)
@@ -1668,6 +1763,8 @@ class World:
             if m.kind == "necromancer" and self.clock >= m.ready_at:
                 self._summon(m, lvl, t)
                 return m.attack_cost
+            if m.kind == "skeleton_archer":
+                return self._archer(m, lvl, t)
             if m.kind == "dragon" and self.clock >= m.ready_at and 2 <= cheb(m, t) <= BREATH_RANGE:
                 self._breathe(m, lvl, t)
                 return m.attack_cost
@@ -1709,6 +1806,9 @@ class World:
                 best, best_d = (nx, ny), dist[nx, ny]
         if best is None:
             return 0
+        if m.kind == "slime":
+            lvl.slime[(m.x, m.y)] = self.clock + int(SLIME_TRAIL * TICKS_PER_SECOND)
+            self.dirty = True
         lvl.move(m, *best)
         return m.move_cost
 
@@ -1736,6 +1836,7 @@ class World:
         """For a monster about to land a melee hit: seconds until it can, and how long its
         swing takes. The client turns these into a warning, so it stays smooth between states."""
         if (not isinstance(m, Monster) or m.state != "hunting" or not m.damage[1] or m.frozen_until > self.clock
+                or m.kind == "skeleton_archer"  # it shoots rather than swings
                 or not any(cheb(m, p) <= 1 and not lvl.diagonal_blocked(m.x, m.y, p.x, p.y)
                            for p in self._living_on(m.depth))):
             return {}
@@ -1786,7 +1887,8 @@ class World:
                 "visible": protocol.pack_bool(vis), "ents": ents, "items": items, "party": party,
                 "time": (self.clock - self.run_start) / TICKS_PER_SECOND,
                 "haste": p.haste_until > self.clock, "stealth": int(p.stealth), "downed": p.downed,
-                "levitate": self._levitating(p), "victory": self.victory, "bright": p.bright, "reveal": p.reveal,
+                "levitate": self._levitating(p), "victory": self.victory, "slowed": p.slow_until > self.clock,
+                "toxin": p.toxin_until > self.clock, "slime": [c for c in lvl.slime if vis[c]], "bright": p.bright, "reveal": p.reveal,
                 "gas": [[*c, max(1, 9 * (end - self.clock) // gas_span)] for c, end in lvl.gas.items() if vis[c]],
                 "waterwalk": p.waterwalk_until > self.clock,
                 "lavawalk": p.lavawalk_until > self.clock, "stamina": int(p.stamina), "lit": self._lit(p) > 0,

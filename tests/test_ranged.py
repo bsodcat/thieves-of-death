@@ -310,7 +310,7 @@ class TowerMonsterTests(unittest.TestCase):
             self.assertTrue(World(1).level(depth).monsters, depth)
 
     def test_the_floors_above_still_have_them(self):
-        kinds = {m.kind for seed in range(10) for m in World(seed).level(70).monsters}
+        kinds = {m.kind for seed in range(10) for m in World(seed).level(60).monsters}
         self.assertLessEqual({"ogre", "mushroom"}, kinds)
 
 

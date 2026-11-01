@@ -2,6 +2,18 @@
 
 Versions are MAJOR.MINOR.PATCH. See "Versions" in the README for what each number means.
 
+## 2.6.0 - October 31, 2026
+
+### Added
+
+- Skeleton archers on floors 70 to 90, who keep 5 to 9 tiles away and shoot.
+- Skeleton warriors, the main enemy of floors 80 to 98.
+- Slimes on floors 25 to 85, whose touch and trail poison you and slow you down.
+
+### Changed
+
+- Ogres now stop at floor 65, and are most common on floors 45 to 55.
+
 ## 2.5.0 - October 31, 2026
 
 ### Added

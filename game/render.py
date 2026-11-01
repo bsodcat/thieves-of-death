@@ -69,6 +69,8 @@ HELP_TIPS = (
     "Cultists come in packs. Their leader carries a wand of fire.",
     "Ranged weapons aim at the strongest foe. Change it in Options.",
     "A boomerang needs no ammo, but a bow reaches further.",
+    "Skeleton archers back away. Corner them, or block their view.",
+    "Slime trails poison you and slow you down. Step around them.",
     "The necromancer's side rooms hide a hoard and a potion store.",
     "Past floor 50, a pit might drop you straight into lava.",
     "Every move lowers your score. Gold raises it.",
@@ -114,6 +116,8 @@ ARMOR_GLOW = np.array((50, 110, 240), np.float32)
 MARK_MONSTER, MARK_ITEM = (150, 30, 45), (125, 105, 15)   # behind whatever reveal is showing you
 GAS = np.array((50, 120, 30), np.float32)
 WIN_BG = (30, 26, 6)
+SLIME_BG = (32, 70, 26)
+SLOWED_TEXT = (150, 220, 110)
 CONSOLE_WIDTH, CONSOLE_ROWS = 72, 14
 WALK_ON_WATER, WALK_ON_LAVA = (120, 190, 255), (255, 130, 40)
 XS, YS = np.indices((MAP_W, MAP_H))
@@ -170,6 +174,8 @@ class ClientView:
         self.bolts: list[tuple] = []              # (tiles, when, color) of magic still on screen
         self.hits: list[tuple] = []               # (x, y, when) of blows still showing
         self.gas: list = []                       # tiles of toxic gas in sight
+        self.slime: list = []                     # tiles of slime trail in sight
+        self.slowed = self.toxin = False
         self.prompt: dict | None = None           # a yes or no question waiting for an answer
         self.bright = False                       # console: draw the whole floor fully lit
         self.victory = ""                         # who won the run
@@ -251,6 +257,7 @@ class ClientView:
             self.season = msg.get("season")
             self.levitate = msg.get("levitate", False)
             self.gas, self.victory = msg.get("gas", ()), msg.get("victory", "")
+            self.slime, self.slowed, self.toxin = msg.get("slime", ()), msg.get("slowed", False), msg.get("toxin", False)
             self.waterwalk, self.lavawalk = msg.get("waterwalk", False), msg.get("lavawalk", False)
             self.stamina, self.lit = msg.get("stamina", STAMINA_MAX), msg.get("lit", False)
             self.detect = msg.get("detect", 0)
@@ -414,6 +421,9 @@ class ClientView:
         f["ch"][area] = np.where(vis | seen, ch, ord(" "))
         f["fg"][area] = np.clip(out_fg, 0, 255).astype(np.uint8)
         f["bg"][area] = np.clip(out_bg, 0, 255).astype(np.uint8)
+
+        for x, y in self.slime:
+            f["bg"][MAP_X + x, MAP_Y + y] = SLIME_BG
 
         for x, y, thickness in self.gas:  # fades to nothing, and thins to specks on the way
             share = thickness / 9
@@ -634,7 +644,8 @@ class ClientView:
         if me:
             self.text(f, 1, y, me["name"], tuple(me["c"]), width=w - 1)
             y += 1
-            self.bar(f, 0, y, w, me["hp"] / me["mhp"], f"Health {me['hp']}/{me['mhp']}", (160, 30, 30))
+            health = (70, 130, 40) if self.toxin else (160, 30, 30)  # green while poisoned
+            self.bar(f, 0, y, w, me["hp"] / me["mhp"], f"Health {me['hp']}/{me['mhp']}", health)
             y += 1
             cap = self.stealth_cap
             label = f"Stealth {self.stealth}%" + (f" max {cap}" if cap < STEALTH_MAX else "")
@@ -648,6 +659,8 @@ class ClientView:
             self.text(f, 1, y, clock, (255, 255, 255))
             if self.haste:
                 self.text(f, len(clock) + 2, y, "Haste", (120, 220, 255))
+            elif self.slowed:
+                self.text(f, len(clock) + 2, y, "Slowed", SLOWED_TEXT)
             y += 1
             self.text(f, 1, y, f"Depth {self.depth}  Gold {self.gold}", TEXT, width=w - 1)
             y += 1
