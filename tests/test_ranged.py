@@ -8,6 +8,7 @@ from game import commands, settings
 from game.constants import ARROW_PILE, HOARD_PILES, LAST_FLOOR, POTION_ROOM, TOWER_FIRST
 from game.entities import make_monster
 from game.items import AUTO_PICKUP, ITEMS, make_item
+from game.render import SPIN, SPIN_TILE_SECONDS, SPIN_TURN_SECONDS, ClientView
 from game.world import World
 from server import GameServer
 
@@ -191,6 +192,68 @@ class BoomerangTests(unittest.TestCase):
         fire(self.w, self.p, boomerang)
         self.assertIn(boomerang, self.p.pack)
         self.assertEqual(self.p.turns, 1)
+
+
+class SpinTests(unittest.TestCase):
+    def thrown(self):
+        w, lvl, p = player()
+        m = monster(w, lvl, p, "ogre", 5)
+        v = ClientView()
+        v.apply({"t": "welcome", "id": p.id, "name": p.name})
+        v.apply(w.level_msg(1))
+        v.apply(w.state_for(p))
+        w.drain_outbox()
+        fire(w, p, make_item("boomerang"))
+        for _, msg in w.drain_outbox():
+            v.apply(msg)
+        return v, m
+
+    def at(self, v, seconds):
+        """What a flying boomerang looks like this long after it was thrown: (x, y, glyph)."""
+        cells, thrown = v.throws[0]
+        with mock.patch("game.render.time.monotonic", return_value=thrown + seconds):
+            frame = v.draw()
+        found = [(x, y, chr(frame["ch"][21 + x, 3 + y])) for x, y in cells if chr(frame["ch"][21 + x, 3 + y]) in SPIN]
+        return found
+
+    def test_it_makes_no_flash(self):
+        v, m = self.thrown()
+        self.assertEqual(v.bolts, [])
+        self.assertEqual(len(v.throws), 1)
+
+    def test_it_leaves_the_player_and_reaches_the_monster(self):
+        v, m = self.thrown()
+        cells = v.throws[0][0]
+        self.assertEqual(self.at(v, 0)[0][:2], tuple(cells[0]))
+        self.assertEqual(tuple(cells[-1]), (m.x, m.y))
+        self.assertEqual(self.at(v, (len(cells) - 0.5) * SPIN_TILE_SECONDS)[0][:2], tuple(cells[-1]))
+
+    def test_only_one_tile_shows_at_a_time(self):
+        v, m = self.thrown()
+        for i in range(len(v.throws[0][0])):
+            self.assertEqual(len(self.at(v, (i + 0.5) * SPIN_TILE_SECONDS)), 1, i)
+
+    def test_it_spins_through_all_four_glyphs_in_order(self):
+        v, m = self.thrown()
+        cells = v.throws[0][0]
+        self.assertEqual(SPIN, "/-\\|")
+        seen = []
+        for i in range(int(len(cells) * SPIN_TILE_SECONDS / SPIN_TURN_SECONDS)):
+            seen.append(self.at(v, (i + 0.5) * SPIN_TURN_SECONDS)[0][2])
+        self.assertEqual(seen, [SPIN[i % 4] for i in range(len(seen))])
+        self.assertEqual(len(set(seen)), 4)
+
+    def test_it_is_gone_after_it_lands(self):
+        v, m = self.thrown()
+        cells, thrown = v.throws[0]
+        with mock.patch("game.render.time.monotonic", return_value=thrown + len(cells) * SPIN_TILE_SECONDS + 0.01):
+            v.draw()
+        self.assertEqual(v.throws, [])
+
+    def test_the_bow_still_flashes(self):
+        v = ClientView()
+        v.apply({"t": "fx", "kind": "bow", "cells": [(1, 1)]})
+        self.assertEqual((len(v.bolts), v.throws), (1, []))
 
 
 class AimTests(unittest.TestCase):

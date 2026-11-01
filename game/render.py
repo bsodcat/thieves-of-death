@@ -98,7 +98,11 @@ DEATH_BG = (40, 10, 10)
 BOLT_SECONDS = 0.35
 FLAME = (255, 120, 20)
 BOLT_COLORS = {"fire": FLAME, "blink": (230, 120, 255), "frost": (150, 215, 255), "sparkle": (150, 255, 240),
-               "bow": (225, 215, 180), "boomerang": (235, 190, 100)}
+               "bow": (225, 215, 180)}
+SPIN = "/-\\|"               # a thrown boomerang turns through these
+SPIN_COLOR = (235, 190, 100)
+SPIN_TILE_SECONDS = 0.04   # how long it takes to cross a tile
+SPIN_TURN_SECONDS = 0.05   # how long each glyph shows
 SPARKLE = (90, 240, 220)
 # Each animated tile cycles through glyphs that look alike: (tile, glyphs, steps a second).
 RIPPLES = ((DEEP, (0x2248, ord("~"), 0x2248, 0x2248), 3), (SHALLOW, (ord("~"), 0x2248, ord("~"), ord("-")), 2),
@@ -174,6 +178,7 @@ class ClientView:
         self.waterwalk = self.lavawalk = False
         self.bolts: list[tuple] = []              # (tiles, when, color) of magic still on screen
         self.hits: list[tuple] = []               # (x, y, when) of blows still showing
+        self.throws: list[tuple] = []             # (tiles, when) of boomerangs in the air
         self.gas: list = []                       # tiles of toxic gas in sight
         self.slime: list = []                     # tiles of slime trail in sight
         self.slowed = self.toxin = False
@@ -266,6 +271,8 @@ class ClientView:
         elif t == "shop":
             self.shop, self.shop_name, self.shop_pos = msg["stock"], msg["name"], (msg["x"], msg["y"])
             self.show_pack = self.drop_mode = self.show_help = self.show_tally = False
+        elif t == "fx" and msg.get("kind") == "boomerang":
+            self.throws.append((msg["cells"], time.monotonic()))
         elif t == "fx" and msg.get("kind") == "hit":
             self.hits += [(x, y, time.monotonic()) for x, y in msg["cells"]]
         elif t == "fx":
@@ -463,6 +470,7 @@ class ClientView:
             if e.get("ward"):
                 self._draw_sparkle(f, e)
         self._draw_bolts(f)
+        self._draw_throws(f)
 
         hover = self.hovered()
         if hover is not None:
@@ -496,6 +504,16 @@ class ClientView:
             if (tick * 5 + i * 3) % 4 == 0 and 0 <= x < MAP_W and 0 <= y < MAP_H:
                 f["ch"][MAP_X + x, MAP_Y + y] = ord("*")
                 f["fg"][MAP_X + x, MAP_Y + y] = SPARKLE
+
+    def _draw_throws(self, f) -> None:
+        """One tile at a time from the thrower to the target, spinning all the way."""
+        now = time.monotonic()
+        self.throws = [t for t in self.throws if now - t[1] < len(t[0]) * SPIN_TILE_SECONDS]
+        for cells, thrown in self.throws:
+            flown = now - thrown
+            x, y = cells[int(flown / SPIN_TILE_SECONDS)]
+            f["ch"][MAP_X + x, MAP_Y + y] = ord(SPIN[int(flown / SPIN_TURN_SECONDS) % len(SPIN)])
+            f["fg"][MAP_X + x, MAP_Y + y] = SPIN_COLOR
 
     def _draw_bolts(self, f) -> None:
         now = time.monotonic()

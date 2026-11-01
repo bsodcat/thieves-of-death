@@ -2,6 +2,12 @@
 
 Versions are MAJOR.MINOR.PATCH. See "Versions" in the README for what each number means.
 
+## 2.7.1 - October 31, 2026
+
+### Changed
+
+- A thrown boomerang now spins across the map through `/ - \ |` instead of showing as a flash.
+
 ## 2.7.0 - October 31, 2026
 
 ### Added

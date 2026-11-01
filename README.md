@@ -395,7 +395,7 @@ doesn't pause while the pack is open; the panel opens on the far side of the map
 | Cloak | `¶` | Monsters notice you from half as far. Worn alongside weapon and armor | -45 |
 | Bow | `}` | Fires an arrow at a monster up to 12 tiles away, for 4 to 8 damage | |
 | Arrows | `\|` | Found in piles of 20 to 30, and picked up by walking over them | |
-| Boomerang | `}` | Thrown at a monster up to 9 tiles away, for 3 to 6 damage. It comes back, so it's never used up | |
+| Boomerang | `}` | Thrown spinning at a monster up to 9 tiles away, for 3 to 6 damage. It comes back, so it's never used up | |
 | Wand of frost | `/` | Freezes the nearest monster in sight for 30 seconds, without waking it. Rare. Breaks after 10 uses | |
 | Wand of fire | `/` | Burns the nearest monster in sight within 10 tiles. Breaks after 10 uses | |
 | Gold | `*` | Goes to your purse, not a pack slot | |
