@@ -58,6 +58,8 @@ class Player(Actor):
     reflect_until: int = 0       # tick when a pond's ward wears off
     gas_ticks: int = 0           # time in toxic gas, toward the next point of damage
     noclip: bool = False         # console: walks through everything
+    bright: bool = False         # console: every floor is drawn fully lit
+    reveal: bool = False         # console: every floor is mapped, with all its monsters and items
     ping: float | None = None    # smoothed round trip in ms; None until measured
     downed: bool = False         # Revive mode: fallen, but can be brought back
     final_gold: int | None = None  # gold carried when they fell; Classic scatters the real gold

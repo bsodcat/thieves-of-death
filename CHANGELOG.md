@@ -2,6 +2,19 @@
 
 Versions are MAJOR.MINOR.PATCH. See "Versions" in the README for what each number means.
 
+## 2.3.0 - October 31, 2026
+
+### Added
+
+- An `ultrabright` console command, which lights up every floor until you turn it off.
+
+### Changed
+
+- The `reveal` console command is now a toggle. While it's on, every floor is mapped and all its
+  monsters and items are marked as they appear, with or without `ultrabright`.
+
+Players need 2.3.0 or newer to join each other's games.
+
 ## 2.2.1 - October 31, 2026
 
 ### Changed

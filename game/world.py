@@ -1681,10 +1681,10 @@ class World:
         ents = []
         for a in lvl.occupant.values():
             seen = bool(vis[a.x, a.y])
-            if seen or a.is_player:  # allies on your depth are always shown
+            if seen or a.is_player or p.reveal:  # allies on your depth are always shown
                 ents.append({"id": a.id, "g": a.glyph, "c": list(a.color), "x": a.x, "y": a.y,
                              "name": a.name, "hp": a.hp, "mhp": a.max_hp, "p": a.is_player,
-                             "seen": seen, "st": "merchant" if isinstance(a, Merchant) else getattr(a, "state", ""),
+                             "seen": seen or p.reveal, "hl": p.reveal and not a.is_player, "st": "merchant" if isinstance(a, Merchant) else getattr(a, "state", ""),
                              "kind": getattr(a, "kind", ""), "lev": a.is_player and self._levitating(a),
                              "burn": getattr(a, "burning", 0) > 0,
                              "frozen": getattr(a, "frozen_until", 0) > self.clock,
@@ -1693,8 +1693,8 @@ class World:
             ents.append({"id": a.id, "g": BONES_GLYPH, "c": list(BONE), "x": a.x, "y": a.y, "name": a.name,
                          "hp": 0, "mhp": a.max_hp, "p": True, "seen": bool(vis[a.x, a.y]), "st": "down"})
         items = [{"x": x, "y": y, "g": i.glyph, "c": list(i.color), "name": i.label, "info": i.info,
-                  "auto": i.category in AUTO_PICKUP}
-                 for (x, y), i in lvl.items.items() if vis[x, y]]
+                  "auto": i.category in AUTO_PICKUP, "hl": p.reveal}
+                 for (x, y), i in lvl.items.items() if vis[x, y] or p.reveal]
         party = []
         for q in sorted(self.players.values(), key=lambda q: q.id):
             party.append({"id": q.id, "name": q.name, "c": list(q.color), "hp": q.hp, "mhp": q.max_hp,
@@ -1705,7 +1705,7 @@ class World:
                 "visible": protocol.pack_bool(vis), "ents": ents, "items": items, "party": party,
                 "time": (self.clock - self.run_start) / TICKS_PER_SECOND,
                 "haste": p.haste_until > self.clock, "stealth": int(p.stealth), "downed": p.downed,
-                "levitate": self._levitating(p), "victory": self.victory,
+                "levitate": self._levitating(p), "victory": self.victory, "bright": p.bright, "reveal": p.reveal,
                 "gas": [[*c, max(1, 9 * (end - self.clock) // gas_span)] for c, end in lvl.gas.items() if vis[c]],
                 "waterwalk": p.waterwalk_until > self.clock,
                 "lavawalk": p.lavawalk_until > self.clock, "stamina": int(p.stamina), "lit": self._lit(p) > 0,

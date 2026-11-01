@@ -100,6 +100,8 @@ RIPPLES = ((DEEP, (0x2248, ord("~"), 0x2248, 0x2248), 3), (SHALLOW, (ord("~"), 0
 ICE = (70, 130, 190)
 AURA = np.array((165, 60, 250), np.float32)      # added to the background right beside an altar
 AURA_RADIUS = 5.0
+ULTRABRIGHT = 1.5
+MARK_MONSTER, MARK_ITEM = (150, 30, 45), (125, 105, 15)   # behind whatever reveal is showing you
 GAS = np.array((50, 120, 30), np.float32)
 WIN_BG = (30, 26, 6)
 CONSOLE_WIDTH, CONSOLE_ROWS = 72, 14
@@ -158,6 +160,7 @@ class ClientView:
         self.bolts: list[tuple] = []              # (tiles, when, color) of magic still on screen
         self.gas: list = []                       # tiles of toxic gas in sight
         self.prompt: dict | None = None           # a yes or no question waiting for an answer
+        self.bright = False                       # console: draw the whole floor fully lit
         self.victory = ""                         # who won the run
         self.console_open = False
         self.console_buf = ""
@@ -209,9 +212,14 @@ class ClientView:
         elif t == "state":
             self.depth = msg["depth"]
             self.visible = protocol.unpack_bool(msg["visible"], (MAP_W, MAP_H))
+            self.bright = msg.get("bright", False)
             if self.depth in self.seen:
                 self.seen[self.depth] |= self.visible
+                if msg.get("reveal"):
+                    self.seen[self.depth][:] = True
             memory = self.item_memory.setdefault(self.depth, {})
+            if msg.get("reveal"):
+                memory.clear()  # everything on the floor is about to be reported
             for pos in [pos for pos in memory if self.visible[pos]]:
                 del memory[pos]  # visible tiles are about to be reported afresh
             for item in msg.get("items", ()):
@@ -246,9 +254,6 @@ class ClientView:
                 self.console_log.append((line, tuple(msg.get("c", TEXT))))
         elif t == "prompt":
             self.prompt = msg
-        elif t == "reveal":
-            if self.depth in self.seen:
-                self.seen[self.depth][:] = True
         elif t == "reject":
             self.messages.append((msg["text"], (255, 90, 90)))
         elif t == "pack":
@@ -374,6 +379,9 @@ class ClientView:
             light = np.clip(1.15 - np.hypot(XS - me["x"], YS - me["y"]) / 28.0, 0.55, 1.0)[..., None]
         else:
             light = 1.0
+        if self.bright:
+            seen = vis = np.ones((MAP_W, MAP_H), dtype=bool)
+            light = ULTRABRIGHT
         # Remembered tiles: dark and bluish, like Brogue's magic-mapped memory.
         mem_fg = fg.mean(axis=-1, keepdims=True) * 0.32 + np.array([12, 14, 34], np.float32)
         mem_bg = bg * 0.22 + np.array([0, 0, 10], np.float32)
@@ -403,7 +411,9 @@ class ClientView:
 
         for (x, y), item in self.item_memory.get(self.depth, {}).items():
             f["ch"][MAP_X + x, MAP_Y + y] = ord(item["g"])
-            f["fg"][MAP_X + x, MAP_Y + y] = item["c"] if vis[x, y] else scale(item["c"], 0.45)
+            f["fg"][MAP_X + x, MAP_Y + y] = item["c"] if vis[x, y] or item.get("hl") else scale(item["c"], 0.45)
+            if item.get("hl"):
+                f["bg"][MAP_X + x, MAP_Y + y] = MARK_ITEM
 
         # Monsters first, then allies, then you on top.
         for e in sorted(self.ents, key=lambda e: (e["p"], e["id"] == self.my_id)):
@@ -415,6 +425,8 @@ class ClientView:
                 continue
             f["ch"][MAP_X + e["x"], MAP_Y + e["y"]] = ord(e["g"])
             f["fg"][MAP_X + e["x"], MAP_Y + e["y"]] = color
+            if e.get("hl"):
+                f["bg"][MAP_X + e["x"], MAP_Y + e["y"]] = MARK_MONSTER
             if e.get("lev"):
                 self._draw_float(f, e)
             if e.get("burn"):
@@ -540,7 +552,7 @@ class ClientView:
         """What the player knows about a map tile, as (text, color) lines."""
         tiles = self.levels.get(self.depth)
         seen = self.seen.get(self.depth)
-        if tiles is None or seen is None or not seen[x, y]:
+        if tiles is None or seen is None or not (seen[x, y] or self.bright):
             actor = next((e for e in self.ents if (e["x"], e["y"]) == (x, y)), None)
             if actor is None:
                 return [("Unexplored", DIM), ("You haven't seen this yet.", DIM)]
@@ -549,7 +561,7 @@ class ClientView:
         for e in self.ents:
             if (e["x"], e["y"]) == (x, y) and (e["seen"] or e["p"]):
                 lines += self._describe_actor(e)
-        in_sight = bool(self.visible[x, y])
+        in_sight = bool(self.visible[x, y]) or self.bright
         item = self.item_memory.get(self.depth, {}).get((x, y))
         if item is not None:
             lines += self._describe_item(item, in_sight)
@@ -636,7 +648,7 @@ class ClientView:
             y += 1
 
         me_e = self.me()
-        mons = [e for e in self.ents if not e["p"] and e["seen"]]
+        mons = [e for e in self.ents if not e["p"] and e["seen"] and (not e.get("hl") or self.visible[e["x"], e["y"]])]
         if me_e:
             mons.sort(key=lambda e: max(abs(e["x"] - me_e["x"]), abs(e["y"] - me_e["y"])))
         for e in mons:

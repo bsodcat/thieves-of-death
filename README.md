@@ -227,7 +227,8 @@ recall what you've typed, and Esc closes it. The game keeps running behind it.
 | `goto <floor>` | The same as `floor`, for yourself only |
 | `spawn <monster> [count]` | Add monsters beside you. `spawn cult` adds a whole cult |
 | `killall` | Kill every monster on this floor |
-| `reveal` | Show this whole floor on your map |
+| `reveal` | Toggle: every floor is mapped as you reach it, and all monsters and items are marked, including any that appear later |
+| `ultrabright` | Toggle: every floor is drawn fully lit, without showing what's out of sight |
 | `stealth <0-100>` | Set your stealth |
 | `teleport` | Jump to another part of this floor |
 | `clear` | Empty the console |

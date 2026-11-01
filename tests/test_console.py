@@ -13,7 +13,7 @@ import client
 from game import commands, mapgen, protocol
 from game.constants import SCREEN_H, TELEPORT_STEPS, MAP_H, MAP_W
 from game.items import ITEMS, make_item
-from game.render import ClientView
+from game.render import MARK_ITEM, MARK_MONSTER, ClientView
 from game.entities import make_monster
 from game.tiles import DEEP, LAVA, LOCKED, PIT, WALKABLE, WALL
 from game.world import Level, LockedRoom, World
@@ -477,10 +477,115 @@ class ViewTests(unittest.TestCase):
 
     def test_reveal_fills_the_map(self):
         v, w, p = self.view()
+        self.assertFalse(v.seen[1].all())
         commands.run(w, p, "reveal")
-        for _, msg in w.drain_outbox():
-            v.apply(msg)
+        v.apply(w.state_for(p))
         self.assertTrue(v.seen[1].all())
+
+    def test_reveal_maps_each_new_floor_too(self):
+        v, w, p = self.view()
+        commands.run(w, p, "reveal")
+        w.warp(p, 4)
+        v.apply(w.level_msg(4))
+        v.apply(w.state_for(p))
+        self.assertTrue(v.seen[4].all())
+
+    def test_reveal_shows_and_marks_everything_on_the_floor(self):
+        v, w, p = self.view()
+        lvl = w.levels[1]
+        far = next(m for m in lvl.monsters if not w.fov(p)[m.x, m.y])
+        self.assertNotIn(far.id, [e["id"] for e in w.state_for(p)["ents"]])
+        commands.run(w, p, "reveal")
+        v.apply(w.state_for(p))
+        self.assertEqual({e["id"] for e in v.ents if e["hl"]}, {m.id for m in lvl.monsters})
+        self.assertEqual(set(v.item_memory[1]), set(lvl.items))
+        frame = v.draw()
+        self.assertEqual(int(frame["ch"][21 + far.x, 3 + far.y]), ord(far.glyph))
+        self.assertEqual(tuple(int(c) for c in frame["bg"][21 + far.x, 3 + far.y]), MARK_MONSTER)
+        x, y = next(c for c in lvl.items if c not in lvl.occupant)
+        self.assertEqual(tuple(int(c) for c in frame["bg"][21 + x, 3 + y]), MARK_ITEM)
+
+    def test_reveal_marks_what_appears_later(self):
+        v, w, p = self.view()
+        commands.run(w, p, "reveal")
+        lvl = w.levels[1]
+        spot = next(c for c in lvl.land_cells if not w.fov(p)[c] and c not in lvl.occupant and c not in lvl.items)
+        rat = make_monster("rat", 9001)
+        lvl.place(rat, *spot)
+        lvl.monsters.append(rat)
+        lvl.items[spot] = make_item("sword")
+        v.apply(w.state_for(p))
+        self.assertIn(9001, [e["id"] for e in v.ents if e["hl"]])
+        self.assertIn(spot, v.item_memory[1])
+        del lvl.items[spot]
+        v.apply(w.state_for(p))
+        self.assertNotIn(spot, v.item_memory[1])
+
+    def test_reveal_turns_off(self):
+        v, w, p = self.view()
+        commands.run(w, p, "reveal")
+        commands.run(w, p, "reveal")
+        v.apply(w.state_for(p))
+        self.assertFalse([e for e in v.ents if e.get("hl")])
+
+    def test_reveal_doesnt_flood_the_sidebar(self):
+        v, w, p = self.view()
+        commands.run(w, p, "reveal")
+        v.apply(w.state_for(p))
+        frame = v.draw()
+        hidden = next(m for m in w.levels[1].monsters if not w.fov(p)[m.x, m.y])
+        sidebar = "\n".join("".join(chr(c) for c in frame["ch"][:20, y]) for y in range(24))
+        visible_names = {m.name for m in w.levels[1].monsters if w.fov(p)[m.x, m.y]}
+        if hidden.name not in visible_names:
+            self.assertNotIn(hidden.name, sidebar)
+
+    def test_reveal_is_only_for_you(self):
+        w, p = host()
+        guest = w.join("Guest")
+        commands.run(w, p, "reveal")
+        self.assertFalse(w.state_for(guest)["reveal"])
+
+    def test_ultrabright_lights_the_whole_floor(self):
+        v, w, p = self.view()
+        x, y = next((x, y) for x in range(MAP_W) for y in range(MAP_H) if not v.seen[1][x, y] and v.levels[1][x, y] == 0)
+        self.assertEqual(tuple(int(c) for c in v.draw()["bg"][21 + x, 3 + y]), (0, 0, 0))
+        commands.run(w, p, "ultrabright")
+        v.apply(w.state_for(p))
+        frame = v.draw()
+        self.assertGreater(int(frame["bg"][21 + x, 3 + y][0]), 40)
+        self.assertEqual(int(frame["ch"][21 + x, 3 + y]), ord("#"))
+        self.assertEqual(v.describe(x, y)[0][0], "Granite wall")
+
+    def test_ultrabright_alone_shows_no_monsters(self):
+        v, w, p = self.view()
+        commands.run(w, p, "ultrabright")
+        v.apply(w.state_for(p))
+        m = next(m for m in w.levels[1].monsters if not w.fov(p)[m.x, m.y])
+        self.assertNotEqual(int(v.draw()["ch"][21 + m.x, 3 + m.y]), ord(m.glyph))
+
+    def test_ultrabright_stays_on_across_floors_and_toggles_off(self):
+        v, w, p = self.view()
+        commands.run(w, p, "ultrabright")
+        w.warp(p, 6)
+        v.apply(w.level_msg(6))
+        v.apply(w.state_for(p))
+        self.assertTrue(v.bright)
+        commands.run(w, p, "ultrabright")
+        v.apply(w.state_for(p))
+        self.assertFalse(v.bright)
+
+    def test_ultrabright_doesnt_change_what_auto_walk_knows(self):
+        v, w, p = self.view()
+        commands.run(w, p, "ultrabright")
+        v.apply(w.state_for(p))
+        self.assertFalse(v.seen[1].all())
+
+    def test_a_guest_gets_neither(self):
+        w, p = host()
+        guest = w.join("Guest")
+        commands.run(w, guest, "ultrabright")
+        commands.run(w, guest, "reveal")
+        self.assertFalse(guest.bright or guest.reveal)
 
     def test_never_covers_the_player(self):
         v, w, p = self.view()

@@ -171,8 +171,13 @@ def killall(w, p, args) -> str:
 
 
 def reveal(w, p, args) -> str:
-    w.outbox.append((p.id, {"t": "reveal"}))
-    return "The whole floor is on your map."
+    p.reveal = not p.reveal
+    return f"Reveal is {'on: all maps, monsters and items are marked' if p.reveal else 'off'}."
+
+
+def ultrabright(w, p, args) -> str:
+    p.bright = not p.bright
+    return f"Ultrabright is {'on' if p.bright else 'off'}."
 
 
 def stealth(w, p, args) -> str:
@@ -216,7 +221,8 @@ COMMANDS = {
     "floor": (floor, "floor <number> [player]", "Move you, or another player, to a floor"),
     "spawn": (spawn, "spawn <monster> [count]", "Add monsters; spawn cult adds a cult"),
     "killall": (killall, "killall", "Kill every monster on this floor"),
-    "reveal": (reveal, "reveal", "Show this whole floor on your map"),
+    "reveal": (reveal, "reveal", "Map floors, mark monsters and items"),
+    "ultrabright": (ultrabright, "ultrabright", "Light up every floor, on or off"),
     "stealth": (stealth, "stealth <0-100>", "Set your stealth"),
     "teleport": (teleport, "teleport", "Jump to another part of this floor"),
     "clear": (None, "clear", "Empty this console"),
