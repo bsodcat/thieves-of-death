@@ -112,11 +112,23 @@ class ClientTests(unittest.TestCase):
 
     def test_it_blinks_faster_near_the_end(self):
         v = ClientView()
-        changes = []
-        for start, stop in ((0.3, 0.65), (0.65, 1.0)):
-            states = [blinking(v, start + (stop - start) * i / 2000) for i in range(2001)]
-            changes.append(sum(a != b for a, b in zip(states, states[1:])))
-        self.assertGreater(changes[1], changes[0] * 2)
+        states = [blinking(v, 0.3 + 0.7 * i / 4000) for i in range(1, 4000)]
+        lengths, run = [], 1
+        for a, b in zip(states, states[1:]):
+            if a == b:
+                run += 1
+            else:
+                lengths.append(run)
+                run = 1
+        self.assertGreaterEqual(len(lengths), 3)
+        self.assertEqual(lengths, sorted(lengths, reverse=True))
+
+    def test_it_only_blinks_a_couple_of_times_a_swing(self):
+        v = ClientView()
+        states = [blinking(v, i / 4000) for i in range(4001)]
+        turned_dark = sum(b and not a for a, b in zip(states, states[1:]))
+        self.assertLessEqual(turned_dark, 3)
+        self.assertGreaterEqual(turned_dark, 1)
 
     def test_it_doesnt_start_right_away(self):
         v = ClientView()
@@ -136,7 +148,8 @@ class ClientTests(unittest.TestCase):
         w, lvl, p, m = setup()
         v = view_of(w, p)
         at = (21 + m.x, 3 + m.y)
-        calm = v.draw()
+        with mock.patch.object(ClientView, "blinked_off", lambda self, ent: False):
+            calm = v.draw()
         with mock.patch.object(ClientView, "blinked_off", lambda self, ent: ent["id"] == m.id):
             dark = v.draw()
         self.assertLess(sum(int(c) for c in dark["fg"][at]), sum(int(c) for c in calm["fg"][at]))

@@ -2,6 +2,12 @@
 
 Versions are MAJOR.MINOR.PATCH. See "Versions" in the README for what each number means.
 
+## 2.7.5 - November 1, 2026
+
+### Changed
+
+- Monsters about to hit now blink about twice in a swing, and more softly, instead of strobing.
+
 ## 2.7.4 - November 1, 2026
 
 ### Changed

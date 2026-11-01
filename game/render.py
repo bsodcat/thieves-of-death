@@ -112,7 +112,8 @@ AURA = np.array((165, 60, 250), np.float32)      # added to the background right
 AURA_RADIUS = 5.0
 ULTRABRIGHT = 1.5
 WARNING_START = 0.3       # the share of a swing gone before it starts to blink
-WARNING_BLINKS = 4.5      # how fast the blinking speeds up: more is more frantic
+WARNING_BLINKS = 2.6      # how fast the blinking speeds up: more is more frantic
+WARNING_DIM = 0.45        # how bright a monster stays in the dark part of a blink
 HIT_RED = np.array((230, 35, 25), np.float32)     # at the center of a blow
 HIT_RADIUS, HIT_SECONDS = 2.5, 0.35
 WATER_GLOW = np.array((30, 95, 190), np.float32)
@@ -462,7 +463,7 @@ class ClientView:
             if e.get("hl"):
                 f["bg"][MAP_X + e["x"], MAP_Y + e["y"]] = MARK_MONSTER
             if self.blinked_off(e):
-                f["fg"][MAP_X + e["x"], MAP_Y + e["y"]] = scale(color, 0.2)
+                f["fg"][MAP_X + e["x"], MAP_Y + e["y"]] = scale(color, WARNING_DIM)
             if e.get("lev"):
                 self._draw_float(f, e)
             if e.get("burn"):
