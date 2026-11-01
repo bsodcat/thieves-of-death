@@ -7,7 +7,7 @@ from game import pathing, protocol
 from game.constants import MAP_H, MAP_W
 from game.entities import make_monster
 from game.render import ClientView
-from game.tiles import STAIRS_DOWN, STAIRS_UP, WALKABLE
+from game.tiles import STAIRS_UP
 from game.world import World
 
 

@@ -206,7 +206,7 @@ class App:
                      Row("Port", "port", c["port"], digits=True, limit=5),
                      Row("Connect", action="go"), Row("Back", action="back")],
                     note="Ask the host for their address and port.")
-        while self.show(form) =="go":
+        while self.show(form) == "go":
             values = form.values()
             self.remember(values)
             form.error = ""

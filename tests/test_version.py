@@ -1,5 +1,4 @@
 """The version shown on the title screen, and refusing players on another version."""
-import re
 import socket
 import time
 import unittest

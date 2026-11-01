@@ -42,13 +42,22 @@ class Player(Actor):
     gold: int = 0
     weapon: Item | None = None   # equipped items stay in the pack
     armor: Item | None = None
+    cloak: Item | None = None
     haste_until: int = 0         # tick when haste wears off
     levitate_until: int = 0      # tick when they come back down
+    waterwalk_until: int = 0     # tick when deep water stops holding them
+    lavawalk_until: int = 0      # tick when lava starts burning them
     stealth: float = 0.0         # 0 to stealth_cap
     stealth_cap: int = STEALTH_MAX   # lowered by the noise of equipped gear
     stamina: float = STAMINA_MAX
     stamina_rest: int = 0        # tick when stamina starts refilling
     sprinting: bool = False      # Shift is held down
+    can_command: bool = False    # playing on the server's own computer, so the console works
+    god: bool = False            # console: takes no damage
+    chased: bool = False         # left the necromancer's floor with it awake
+    reflect_until: int = 0       # tick when a pond's ward wears off
+    gas_ticks: int = 0           # time in toxic gas, toward the next point of damage
+    noclip: bool = False         # console: walks through everything
     ping: float | None = None    # smoothed round trip in ms; None until measured
     downed: bool = False         # Revive mode: fallen, but can be brought back
     final_gold: int | None = None  # gold carried when they fell; Classic scatters the real gold
@@ -73,6 +82,12 @@ class Monster(Actor):
     last_seen: tuple | None = None
     wander_target: tuple | None = None
     lag: int = 0                 # staggers monsters so a level doesn't all move at once
+    leader: Monster | None = None  # who a cultist follows
+    burning: int = 0             # turns left on fire
+    burned_by: Player | None = None
+    frozen_until: int = 0        # tick when it can act again
+    ready_at: int = 0            # tick when it can next use its special ability
+    post: tuple | None = None    # a place it guards
 
 
 # What players can choose on the character screen. Shapes that look like a monster,
@@ -85,6 +100,7 @@ PLAYER_COLOR_NAMES = {
     "Red": (255, 90, 90), "Teal": (80, 220, 200), "White": (235, 235, 235),
 }
 PLAYER_COLORS = list(PLAYER_COLOR_NAMES.values())
+
 
 @dataclass(eq=False)
 class Merchant(Actor):
@@ -109,10 +125,12 @@ def apply_gear(p: Player) -> None:
     """Recomputes a player's stats from what they have equipped."""
     s, w, a = PLAYER_STATS, p.weapon, p.armor
     p.damage = w.damage if w else s["damage"]
+    p.accuracy = s["accuracy"] + (w.accuracy if w else 0)
     p.attack_cost = w.attack_cost if w else TICKS_PER_TURN
     p.defense = s["defense"] + (a.armor if a else 0)
     p.move_cost = a.move_cost if a else TICKS_PER_TURN
-    p.stealth_cap = max(0, STEALTH_MAX - (w.noise if w else 0) - (a.noise if a else 0))
+    noise = sum(i.noise for i in (w, a, p.cloak) if i)
+    p.stealth_cap = max(0, min(STEALTH_MAX, STEALTH_MAX - noise))
     p.stealth = min(p.stealth, p.stealth_cap)
 
 
@@ -125,8 +143,10 @@ def reset_player(p: Player) -> None:
     p.downed, p.revive_ticks = False, 0
     p.final_gold, p.kill_tally, p.hardest = None, {}, ""
     p.turns = p.kills = p.regen_acc = p.next_time = p.haste_until = p.levitate_until = 0
+    p.waterwalk_until = p.lavawalk_until = p.gas_ticks = 0
+    p.chased, p.reflect_until = False, 0
     p.fov_key, p.fov = None, None
-    p.pack, p.gold, p.weapon, p.armor, p.pack_dirty = [], 0, None, None, True
+    p.pack, p.gold, p.weapon, p.armor, p.cloak, p.pack_dirty = [], 0, None, None, None, True
     apply_gear(p)
 
 
@@ -150,6 +170,28 @@ MONSTERS = {
     "ogre": dict(name="ogre", glyph="O", color=(160, 120, 170), hp=55, accuracy=125, defense=60,
                  damage=(9, 13), move=100, attack=200, depths=(7, 26), weight=4,
                  verbs=("bludgeons", "bludgeon"), desc="Huge. One hit hurts."),
+    "mushroom": dict(name="mushroom", glyph="f", color=(200, 170, 120), hp=10, accuracy=0, defense=0,
+                     damage=(0, 0), move=100, attack=100, depths=(3, 26), weight=5, verbs=("hits", "hit"),
+                     desc="Never moves. Lets out toxic gas when you get near."),
+    # Everything below turns up in its own way, never from the tables above: see World._populate.
+    "wolf": dict(name="wolf", glyph="w", color=(170, 170, 180), hp=12, accuracy=85, defense=5,
+                 damage=(2, 5), move=50, attack=100, depths=(0, 0), weight=0, verbs=("bites", "bite"),
+                 desc="Fast, and hunts in packs."),
+    "zombie": dict(name="zombie", glyph="z", color=(120, 160, 100), hp=30, accuracy=90, defense=0,
+                   damage=(3, 8), move=150, attack=100, depths=(0, 0), weight=0, verbs=("claws", "claw"),
+                   desc="Slow, but there are always more."),
+    "necromancer": dict(name="necromancer", glyph="N", color=(190, 90, 255), hp=200, accuracy=120, defense=40,
+                        damage=(6, 12), move=100, attack=100, depths=(0, 0), weight=0, verbs=("withers", "wither"),
+                        desc="Asleep beside the Amulet. Don't wake it. Raises the dead."),
+    "dragon": dict(name="skeletal dragon", glyph="D", color=(225, 220, 195), hp=220, accuracy=120, defense=50,
+                   damage=(8, 14), move=100, attack=150, depths=(0, 0), weight=0, verbs=("rakes", "rake"),
+                   desc="Bones and old fire. Breathes flame in a line."),
+    "cultist": dict(name="cultist", glyph="c", color=(170, 60, 70), hp=18, accuracy=90, defense=10,
+                    damage=(2, 5), move=100, attack=100, depths=(0, 0), weight=0, verbs=("stabs", "stab"),
+                    desc="Robed, chanting and never alone."),
+    "cult_leader": dict(name="cult leader", glyph="C", color=(235, 80, 60), hp=50, accuracy=110, defense=20,
+                        damage=(3, 7), move=100, attack=100, depths=(0, 0), weight=0, verbs=("strikes", "strike"),
+                        desc="Carries a wand of fire."),
 }
 
 

@@ -14,7 +14,7 @@ import threading
 import time
 from collections import deque
 
-from game import algo, protocol, seasons
+from game import algo, commands, protocol, seasons
 from game.constants import (DEFAULT_PORT, GAME_MODES, MONSTER_TIME, PING_SECONDS, PING_TIMEOUT, PROTOCOL_VERSION,
                             TICK_RATE, TICKS_PER_SECOND)
 from game.version import VERSION
@@ -24,6 +24,12 @@ log = logging.getLogger("server")
 
 # A client this far behind skips states until it catches up; states replace each other.
 MAX_BACKLOG = 1 << 20
+
+
+def is_local(peer) -> bool:
+    """Whether a connection comes from this computer. The console needs this: anyone
+    who can reach the server can connect, but only the host should be able to cheat."""
+    return bool(peer) and peer[0] in ("127.0.0.1", "::1", "::ffff:127.0.0.1")
 
 
 class GameServer:
@@ -111,6 +117,7 @@ class GameServer:
             return
 
         p = self.world.join(hello.get("name", ""), hello.get("glyph"), hello.get("color"))
+        p.can_command = is_local(peer)
         self.writers[p.id] = writer
         log.info("%s joined from %s", p.name, peer[0] if peer else "unknown")
         self.send(p.id, {"t": "welcome", "id": p.id, "name": p.name, "version": PROTOCOL_VERSION})
@@ -130,6 +137,8 @@ class GameServer:
                         self.world.submit(p, msg)
                     elif kind == "chat":
                         self.world.chat(p, msg.get("text", ""))
+                    elif kind == "cmd":
+                        commands.run(self.world, p, msg.get("text", ""))
                     elif kind == "pong":
                         self.on_pong(p, msg)
                 except Exception:  # a game bug shouldn't drop the connection

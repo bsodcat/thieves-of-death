@@ -217,6 +217,7 @@ class ItemTests(unittest.TestCase):
 
     def test_fallen_players_drop_everything(self):
         w, lvl, a, b = setup_world(2)
+        lvl.items.clear()
         a.pack, a.gold = [make_item("sword"), make_item("leather")], 40
         w._perform(a, {"a": "use", "slot": 0})
         spot = (a.x, a.y)

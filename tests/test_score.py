@@ -2,7 +2,7 @@
 import unittest
 
 from game import protocol
-from game.constants import MAP_H, MAP_W, MAP_X, MAP_Y, SCORE_PER_GOLD, SCORE_PER_MOVE, SIDEBAR_W, TICKS_PER_TURN
+from game.constants import MAP_H, MAP_W, MAP_X, MAP_Y, SCORE_PER_GOLD, SCORE_STEPS, SIDEBAR_W, TICKS_PER_TURN
 from game.entities import MONSTERS, danger, make_monster
 from game.items import make_gold
 from game.render import ClientView
@@ -54,34 +54,40 @@ def fight(w, lvl, p, kind, hp=None, mid=900):
     return m
 
 
+def score(gold, moves):
+    return gold * SCORE_PER_GOLD * SCORE_STEPS // (moves + SCORE_STEPS)
+
+
 class ScoreTests(unittest.TestCase):
     def test_starts_at_zero(self):
         w, lvl, a = setup_world()
         self.assertEqual(w.state_for(a)["score"], 0)
 
-    def test_moves_and_gold_both_count(self):
+    def test_gold_scores_and_moves_divide_it(self):
         w, lvl, a = setup_world()
         a.turns, a.gold = 34, 120
-        self.assertEqual(w.state_for(a)["score"], 34 * SCORE_PER_MOVE + 120 * SCORE_PER_GOLD)
+        self.assertEqual(w.state_for(a)["score"], score(120, 34))
 
-    def test_a_real_step_scores(self):
+    def test_a_real_step_costs_score(self):
         w, lvl, a = setup_world()
+        a.gold = 500
+        before = w.state_for(a)["score"]
         dx, dy = open_dir(lvl, a)
         w.submit(a, {"a": "move", "dx": dx, "dy": dy})
-        self.assertEqual(w.state_for(a)["score"], SCORE_PER_MOVE)
+        self.assertLess(w.state_for(a)["score"], before)
 
     def test_picking_up_gold_scores(self):
         w, lvl, a = setup_world()
         lvl.items[(a.x, a.y)] = make_gold(30)
         w.submit(a, {"a": "pickup"})
-        self.assertEqual(w.state_for(a)["score"], SCORE_PER_MOVE + 30 * SCORE_PER_GOLD)
+        self.assertEqual(w.state_for(a)["score"], score(30, 1))
 
     def test_dropped_gold_stops_counting(self):
         w, lvl, a = setup_world()
         a.gold = 25
-        before = w.score_of(a)
+        self.assertEqual(w.score_of(a), score(25, 0))
         w.submit(a, {"a": "dropgold"})
-        self.assertEqual(w.score_of(a), before - 25 * SCORE_PER_GOLD + SCORE_PER_MOVE)
+        self.assertEqual(w.score_of(a), 0)
 
     def test_classic_keeps_the_gold_carried_at_death(self):
         w, lvl, a, b = setup_world(names=("Alice", "Bob"))
@@ -100,7 +106,7 @@ class ScoreTests(unittest.TestCase):
         lvl.move(b, *spot)
         w.submit(b, {"a": "pickup"})
         self.assertEqual(b.gold, 50)
-        self.assertEqual(w.state_for(b)["score"], SCORE_PER_MOVE + 50 * SCORE_PER_GOLD)
+        self.assertEqual(w.state_for(b)["score"], score(50, 1))
         self.assertEqual(w.state_for(a)["score_gold"], 50)
 
     def test_score_is_frozen_after_death(self):
@@ -151,7 +157,7 @@ class HardestTests(unittest.TestCase):
     def test_danger_ranks_the_catalogue_sensibly(self):
         self.assertLess(danger("rat"), danger("goblin"))
         self.assertLess(danger("goblin"), danger("ogre"))
-        self.assertEqual(max(MONSTERS, key=danger), "ogre")
+        self.assertEqual(max(MONSTERS, key=danger), "necromancer")
 
     def test_none_until_a_fight(self):
         w, lvl, a = setup_world()
@@ -197,7 +203,7 @@ class DisplayTests(unittest.TestCase):
     def test_sidebar_shows_the_score_live(self):
         w, lvl, a = setup_world()
         a.turns, a.gold = 12, 7
-        self.assertIn(" Score 82", screen(view_of(w, a)))
+        self.assertIn(f" Score {score(7, 12)}", screen(view_of(w, a)))
 
     def test_haste_still_shows_without_taking_a_row(self):
         w, lvl, a = setup_world()
@@ -214,7 +220,7 @@ class DisplayTests(unittest.TestCase):
         self.assertNotIn("Tally:", screen(v))
         v.show_tally = True
         text = screen(v)
-        for part in ("Tally: t closes", "Score 43", "3 moves + 4 gold x 10", "Hardest enemy fought: goblin",
+        for part in ("Tally: t closes", f"Score {score(4, 3)}", "4 gold x 10, cut by 3 moves", "Hardest enemy fought: goblin",
                      "Kills: 3", "rat", "goblin"):
             self.assertIn(part, text)
 
@@ -250,8 +256,8 @@ class DisplayTests(unittest.TestCase):
         w._kill(a, make_monster("rat", 800))
         text = screen(view_of(w, a))
         self.assertIn("You have died.", text)
-        self.assertIn("Score 201", text)
-        self.assertIn("1 moves + 20 gold x 10", text)
+        self.assertIn(f"Score {score(20, 1)}", text)
+        self.assertIn("20 gold x 10, cut by 1 moves", text)
         self.assertIn("Kills 1   Hardest enemy fought: goblin", text)
 
     def test_downed_screen_shows_them_too_and_bones_stay_visible(self):
@@ -290,7 +296,7 @@ class ScoreboardTests(unittest.TestCase):
         w._kill(b, make_monster("rat", 801))
         texts = [m["text"] for _, m in w.drain_outbox()]
         board = [t for t in texts if "points" in t]
-        self.assertEqual(board, ["Bob: 70 points, 0 kills", "Alice: 5 points, 0 kills"])
+        self.assertEqual(board, ["Bob: 18 points, 0 kills", "Alice: 0 points, 0 kills"])
 
     def test_no_scoreboard_while_someone_is_alive(self):
         w, lvl, a, b = setup_world(names=("Alice", "Bob"))

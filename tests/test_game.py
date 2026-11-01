@@ -1,27 +1,13 @@
 """Run with:  python -m pytest -q   (or  python -m unittest discover tests)"""
 import unittest
-from collections import deque
 
 import numpy as np
 
 from game import mapgen
 from game.constants import MAP_H, MAP_W, MONSTER_TIME, REGEN_TURNS, TICKS_PER_TURN
 from game.entities import make_monster
-from game.tiles import DOOR, FLOOR, STAIRS_DOWN, STAIRS_UP, WALKABLE
+from game.tiles import DEEP, DOOR, FLOOR, STAIRS_DOWN, STAIRS_UP, WALKABLE
 from game.world import World
-
-
-def connected(walk):
-    start = tuple(int(v) for v in np.argwhere(walk)[0])
-    seen, q = {start}, deque([start])
-    while q:
-        x, y = q.popleft()
-        for dx, dy in ((0, 1), (1, 0), (0, -1), (-1, 0)):
-            n = (x + dx, y + dy)
-            if 0 <= n[0] < MAP_W and 0 <= n[1] < MAP_H and walk[n] and n not in seen:
-                seen.add(n)
-                q.append(n)
-    return len(seen) == int(walk.sum())
 
 
 def empty_world(seed=1):
@@ -57,7 +43,9 @@ class MapGenTests(unittest.TestCase):
             for depth in (1, 2):
                 g = mapgen.generate(seed, depth)
                 walk = WALKABLE[g.tiles]
-                self.assertTrue(connected(walk), (seed, depth))
+                self.assertGreaterEqual(mapgen._bfs(walk, g.up_front)[g.down_front], 0, (seed, depth))
+                swim = mapgen._bfs(walk | (g.tiles == DEEP), g.up_front)
+                self.assertTrue((swim[walk] >= 0).all(), (seed, depth))  # only water makes islands
                 self.assertEqual(g.tiles[g.up], STAIRS_UP)
                 self.assertEqual(g.tiles[g.down], STAIRS_DOWN)
                 self.assertEqual(g.tiles[g.up_front], FLOOR)

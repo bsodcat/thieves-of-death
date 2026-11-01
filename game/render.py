@@ -18,9 +18,10 @@ import numpy as np
 from . import pathing, protocol, seasons
 from .constants import (ATTACK_STAMINA, BONES_GLYPH, LOOK_Y, MAP_H, MAP_W, MAP_X, MAP_Y, MSG_LINES, PACK_SIZE,
                         REVIVE_SECONDS, SCREEN_H, SCREEN_W, SCORE_PER_GOLD, SIDEBAR_W, STAMINA_MAX, STEALTH_MAX,
-                        TICKS_PER_TURN)
+                        TICKS_PER_TURN, VICTORY_SECONDS)
 from .entities import MONSTERS
-from .tiles import BG, DESCRIPTIONS, FG, GLYPH, NAMES, STAIRS_DOWN, STAIRS_UP, WALKABLE
+from .tiles import (ALTAR, BG, DEEP, DESCRIPTIONS, FG, GLYPH, LAVA, NAMES, POND, SHALLOW, STAIRS_DOWN, STAIRS_UP,
+                    TOWER_WALL, WALKABLE)
 
 FRAME_DTYPE = np.dtype([("ch", np.int32), ("fg", "3u1"), ("bg", "3u1")])
 
@@ -38,7 +39,7 @@ HELP_LINES = (
     ("d, then 1-0 or $", "Drop an item, or 25 gold"),
     ("Mouse", "Point to identify, hold right to walk"),
     ("g", "Pick up what you're standing on"),
-    ("Enter", "Chat"),
+    ("Enter, or ` or F2", "Chat, or the test console (host only)"),
     ("? or F1, Esc", "Show or hide this help, or close a panel"),
     ("Q twice", "Leave the game"),
 )
@@ -54,6 +55,8 @@ HELP_TIPS = (
     "A pit is a quick way down, but the fall hurts.",
     "Levitation carries you over water and pits, but not forever.",
     "Deep water stops monsters too. Put a lake between you.",
+    "Some rooms are cut off by water, and hold what nobody can reach.",
+    "Stuck on an island? You can always swim back. It's slow.",
     "Merchants can turn up on every 5th floor.",
     "Spending gold lowers your score, but it might keep you alive.",
     "Health comes back by itself, so a quiet corner can save you.",
@@ -61,12 +64,47 @@ HELP_TIPS = (
     "Walk into an ally to swap places with them.",
     "Hold right click to walk to the pointer, around walls.",
     "Only equipped gear makes noise. Carrying it is free.",
+    "Each player has a cloak out there. Wear one to hide better.",
+    "Strike a sleeper with 30% stealth for a critical hit.",
+    "Cultists come in packs. Their leader carries a wand of fire.",
+    "A wand aims itself at the nearest enemy you can see.",
+    "Past floor 50, a pit might drop you straight into lava.",
+    "Every move lowers your score. Gold raises it.",
+    "Mushrooms never move, but don't get close without a plan.",
+    "The goal: the Amulet on floor 99, out through floor 1.",
+    "Wake the necromancer and flee, and the dead follow you up.",
+    "A wand of frost holds an enemy still for 30 seconds.",
+    "Walk through tall grass to see what's beyond it.",
+    "A potion of teleportation could land you on any floor at all.",
+    "A pond of healing heals you once, and wards you against magic.",
+    "A ward sends magic back at whoever cast it.",
+    "The skeletal dragon on floor 80 breathes fire along a line.",
+    "Magic armor turns up on floors 60 to 70. It reflects magic.",
+    "Toxic gas fills a whole room. Shut a door behind you, or run.",
+    "Cultists guard altars. One use each, and the weapon keeps it.",
+    "Water and lava walking potions turn up around floors 20 to 40.",
 )
 
 LOOK_HINT = "Point the mouse at the map to identify what's there."
 HOVER_BG = (70, 70, 100)
 TORCH_GLOW = np.array((70, 38, 8), np.float32)    # added to the background at full brightness
 TORCH_TEXT = (255, 180, 70)
+DEATH_BG = (40, 10, 10)
+BOLT_SECONDS = 0.35
+FLAME = (255, 120, 20)
+BOLT_COLORS = {"fire": FLAME, "blink": (230, 120, 255), "frost": (150, 215, 255), "sparkle": (150, 255, 240)}
+SPARKLE = (90, 240, 220)
+# Each animated tile cycles through glyphs that look alike: (tile, glyphs, steps a second).
+RIPPLES = ((DEEP, (0x2248, ord("~"), 0x2248, 0x2248), 3), (SHALLOW, (ord("~"), 0x2248, ord("~"), ord("-")), 2),
+           (LAVA, (0x2248, ord("~"), 0x2591, 0x2248), 4), (POND, (0x2248, ord("*"), ord("~"), 0xB7), 6))
+ICE = (70, 130, 190)
+AURA = np.array((165, 60, 250), np.float32)      # added to the background right beside an altar
+AURA_RADIUS = 5.0
+GAS = np.array((50, 120, 30), np.float32)
+WIN_BG = (30, 26, 6)
+CONSOLE_WIDTH, CONSOLE_ROWS = 72, 14
+WALK_ON_WATER, WALK_ON_LAVA = (120, 190, 255), (255, 130, 40)
+XS, YS = np.indices((MAP_W, MAP_H))
 FLOAT_DIM, FLOAT_BRIGHT, FLOAT_SHADOW = (30, 50, 110), (90, 150, 240), (6, 6, 14)
 FLOAT_TEXT = (190, 170, 255)
 STATE_NAMES = {"sleeping": "Asleep", "wandering": "Wandering", "hunting": "Hunting you"}
@@ -107,6 +145,8 @@ class ClientView:
         self.lights: dict[int, np.ndarray] = {}   # depth -> brightness 0 to 1, [torch, x, y]
         self.tips: list[str] = []                 # the tips still to come, so none repeats early
         self.tip = HELP_TIPS[0]
+        self._walk_key = None                     # what the last auto-walk step was worked out from
+        self._walk_step = None
         self.show_help = False
         self.show_tally = False
         self.season = None
@@ -114,6 +154,16 @@ class ClientView:
         self.shop_name = ""
         self.shop_pos = (0, 0)
         self.levitate = False
+        self.waterwalk = self.lavawalk = False
+        self.bolts: list[tuple] = []              # (tiles, when, color) of magic still on screen
+        self.gas: list = []                       # tiles of toxic gas in sight
+        self.prompt: dict | None = None           # a yes or no question waiting for an answer
+        self.victory = ""                         # who won the run
+        self.console_open = False
+        self.console_buf = ""
+        self.console_log: deque = deque(maxlen=200)
+        self.console_history: list[str] = []
+        self.console_back = 0                     # how far back up the history you've gone
         self.score = self.score_gold = 0
         self.tally: dict = {}                     # monster name -> kills
         self.hardest = ""
@@ -151,6 +201,11 @@ class ClientView:
             self.levels[msg["depth"]] = protocol.unpack_u8(msg["tiles"], shape)
             self.lights[msg["depth"]] = [protocol.unpack_u8(m, shape) / 255 for m in msg.get("lights", ())]
             self.seen.setdefault(msg["depth"], np.zeros(shape, dtype=bool))
+        elif t == "tiles":
+            tiles = self.levels.get(msg["depth"])
+            if tiles is not None:
+                for x, y, tile in msg["cells"]:
+                    tiles[x, y] = tile
         elif t == "state":
             self.depth = msg["depth"]
             self.visible = protocol.unpack_bool(msg["visible"], (MAP_W, MAP_H))
@@ -165,6 +220,9 @@ class ClientView:
             me = self.me()
             if me is not None and max(abs(me["x"] - self.shop_pos[0]), abs(me["y"] - self.shop_pos[1])) > 1:
                 self.shop = None  # walked away
+            if me is not None and self.prompt and max(abs(me["x"] - self.prompt["x"]),
+                                                      abs(me["y"] - self.prompt["y"])) > 1:
+                self.prompt = None
             self.alive, self.death = msg["alive"], msg.get("death", "")
             self.downed = msg.get("downed", False)
             self.turns, self.kills = msg.get("turns", 0), msg.get("kills", 0)
@@ -173,12 +231,24 @@ class ClientView:
             self.tally, self.hardest = msg.get("tally", {}), msg.get("hardest", "")
             self.season = msg.get("season")
             self.levitate = msg.get("levitate", False)
+            self.gas, self.victory = msg.get("gas", ()), msg.get("victory", "")
+            self.waterwalk, self.lavawalk = msg.get("waterwalk", False), msg.get("lavawalk", False)
             self.stamina, self.lit = msg.get("stamina", STAMINA_MAX), msg.get("lit", False)
             self.detect = msg.get("detect", 0)
             self.clock_base, self.clock_at = msg.get("time", 0.0), time.monotonic()
         elif t == "shop":
             self.shop, self.shop_name, self.shop_pos = msg["stock"], msg["name"], (msg["x"], msg["y"])
             self.show_pack = self.drop_mode = self.show_help = self.show_tally = False
+        elif t == "fx":
+            self.bolts.append((msg["cells"], time.monotonic(), BOLT_COLORS.get(msg.get("kind"), FLAME)))
+        elif t == "console":
+            for line in textwrap.wrap(msg["text"], CONSOLE_WIDTH - 4, replace_whitespace=False, drop_whitespace=False):
+                self.console_log.append((line, tuple(msg.get("c", TEXT))))
+        elif t == "prompt":
+            self.prompt = msg
+        elif t == "reveal":
+            if self.depth in self.seen:
+                self.seen[self.depth][:] = True
         elif t == "reject":
             self.messages.append((msg["text"], (255, 90, 90)))
         elif t == "pack":
@@ -189,6 +259,23 @@ class ClientView:
         elif t == "_disconnected":
             self.connected = False
             self.messages.append(("Disconnected from the server.", (255, 90, 90)))
+
+    def console_submit(self) -> str:
+        """Takes the typed line. Returns what to send the server, if anything."""
+        text, self.console_buf, self.console_back = self.console_buf.strip(), "", 0
+        if not text:
+            return ""
+        self.console_history.append(text)
+        if text.lower() == "clear":
+            self.console_log.clear()
+            return ""
+        self.console_log.append((f"> {text}"[:CONSOLE_WIDTH - 4], DIM))
+        return text
+
+    def console_recall(self, step: int) -> None:
+        """Up and down arrows: older or newer lines you've typed."""
+        self.console_back = max(0, min(len(self.console_history), self.console_back + step))
+        self.console_buf = self.console_history[-self.console_back] if self.console_back else ""
 
     def toggle_help(self) -> None:
         """Each time the help opens it shows the next tip, in a shuffled order."""
@@ -215,7 +302,12 @@ class ClientView:
         others = {(e["x"], e["y"]) for e in self.ents
                   if e["id"] != self.my_id and e["st"] != "down" and (e["seen"] or e["p"])}
         stairs = tiles[x, y] == STAIRS_DOWN or (tiles[x, y] == STAIRS_UP and self.depth > 1)
-        return pathing.next_step(WALKABLE[tiles] & seen, start, goal, others, bool(stairs and seen[x, y]))
+        key = (id(tiles), start, goal, frozenset(others), int(seen.sum()))
+        if key != self._walk_key:  # this is asked every frame, but the answer rarely changes
+            self._walk_key = key
+            self._walk_step = pathing.next_step(WALKABLE[tiles] & seen, start, goal, others,
+                                                bool(stairs and seen[x, y]))
+        return self._walk_step
 
     def clock(self) -> float:
         """Run time in seconds. Counts on smoothly between states from the server."""
@@ -233,7 +325,9 @@ class ClientView:
         self._draw_footer(f)
         if self.show_pack or self.drop_mode:
             self._draw_pack(f)
-        if not self.alive:
+        if self.victory:
+            self._draw_victory(f)
+        elif not self.alive:
             self._draw_death(f)
         if self.shop is not None:
             self._draw_shop(f)
@@ -241,6 +335,10 @@ class ClientView:
             self._draw_tally(f)
         if self.show_help:
             self._draw_help(f)
+        if self.prompt:
+            self._draw_prompt(f)
+        if self.console_open:
+            self._draw_console(f)
         return f
 
     @staticmethod
@@ -270,10 +368,10 @@ class ClientView:
         ch = GLYPH[tiles]
         fg = FG[tiles].astype(np.float32)
         bg = BG[tiles].astype(np.float32)
+        ch, fg, bg = self._animate(tiles, ch, fg, bg)
         me = self.me()
         if me is not None:  # gentle light falloff around you
-            xs, ys = np.indices((MAP_W, MAP_H))
-            light = np.clip(1.15 - np.hypot(xs - me["x"], ys - me["y"]) / 28.0, 0.55, 1.0)[..., None]
+            light = np.clip(1.15 - np.hypot(XS - me["x"], YS - me["y"]) / 28.0, 0.55, 1.0)[..., None]
         else:
             light = 1.0
         # Remembered tiles: dark and bluish, like Brogue's magic-mapped memory.
@@ -285,12 +383,23 @@ class ClientView:
         if glow is not None:
             lit_fg = lit_fg * (1 + 0.6 * glow)
             lit_bg = lit_bg * (1 + 0.8 * glow) + glow * TORCH_GLOW
+        for x, y in np.argwhere(tiles == ALTAR):
+            pulse = 0.75 + 0.25 * math.sin(time.monotonic() * 3 + x)
+            lit_bg = lit_bg + (np.clip(1 - np.hypot(XS - x, YS - y) / AURA_RADIUS, 0, 1) * pulse)[..., None] * AURA
         out_fg = np.where(v, lit_fg, np.where(s, mem_fg, 0))
         out_bg = np.where(v, lit_bg, np.where(s, mem_bg, 0))
         area = (slice(MAP_X, MAP_X + MAP_W), slice(MAP_Y, MAP_Y + MAP_H))
         f["ch"][area] = np.where(vis | seen, ch, ord(" "))
         f["fg"][area] = np.clip(out_fg, 0, 255).astype(np.uint8)
         f["bg"][area] = np.clip(out_bg, 0, 255).astype(np.uint8)
+
+        for x, y, thickness in self.gas:  # fades to nothing, and thins to specks on the way
+            share = thickness / 9
+            at = (MAP_X + x, MAP_Y + y)
+            f["bg"][at] = np.clip(f["bg"][at] * (1 - 0.5 * share) + GAS * share, 0, 255).astype(np.uint8)
+            if thickness > 1:
+                f["ch"][at] = 0x2592 if thickness > 5 else 0x2591
+                f["fg"][at] = np.clip(GAS * (0.6 + share), 0, 255).astype(np.uint8)
 
         for (x, y), item in self.item_memory.get(self.depth, {}).items():
             f["ch"][MAP_X + x, MAP_Y + y] = ord(item["g"])
@@ -308,10 +417,54 @@ class ClientView:
             f["fg"][MAP_X + e["x"], MAP_Y + e["y"]] = color
             if e.get("lev"):
                 self._draw_float(f, e)
+            if e.get("burn"):
+                f["bg"][MAP_X + e["x"], MAP_Y + e["y"]] = scale(FLAME, 0.7 + 0.3 * math.sin(time.monotonic() * 11))
+            if e.get("frozen"):
+                f["bg"][MAP_X + e["x"], MAP_Y + e["y"]] = ICE
+            if e.get("ward"):
+                self._draw_sparkle(f, e)
+        self._draw_bolts(f)
 
         hover = self.hovered()
         if hover is not None:
             f["bg"][MAP_X + hover[0], MAP_Y + hover[1]] = HOVER_BG
+
+    @staticmethod
+    def _animate(tiles, ch, fg, bg) -> tuple:
+        """Water and lava ripple, with each tile a step out from its neighbors, and the
+        tower's walls glow and fade."""
+        now = time.monotonic()
+        wave = np.sin(XS * 0.6 + YS * 0.9 + now * 3)[..., None]
+        for tile, glyphs, speed in RIPPLES:
+            here = tiles == tile
+            if here.any():
+                step = (XS * 3 + YS * 5 + int(now * speed)) % len(glyphs)
+                ch = np.where(here, np.array(glyphs)[step], ch)
+                fg = np.where(here[..., None], fg * (1 + 0.25 * wave), fg)
+                bg = np.where(here[..., None], bg * (1 + 0.2 * wave), bg)
+        walls = (tiles == TOWER_WALL)[..., None]
+        if walls.any():
+            glow = 0.85 + 0.15 * math.sin(now * 1.5)
+            fg, bg = np.where(walls, fg * glow, fg), np.where(walls, bg * glow, bg)
+        return ch, fg, bg
+
+    @staticmethod
+    def _draw_sparkle(f, e: dict) -> None:
+        """Motes of teal light come and go around someone warded."""
+        tick = int(time.monotonic() * 7)
+        for i, (dx, dy) in enumerate(((-1, -1), (1, -1), (-1, 1), (1, 1), (0, -1), (0, 1), (-1, 0), (1, 0))):
+            x, y = e["x"] + dx, e["y"] + dy
+            if (tick * 5 + i * 3) % 4 == 0 and 0 <= x < MAP_W and 0 <= y < MAP_H:
+                f["ch"][MAP_X + x, MAP_Y + y] = ord("*")
+                f["fg"][MAP_X + x, MAP_Y + y] = SPARKLE
+
+    def _draw_bolts(self, f) -> None:
+        now = time.monotonic()
+        self.bolts = [b for b in self.bolts if now - b[1] < BOLT_SECONDS]
+        for cells, fired, color in self.bolts:
+            heat = 1 - (now - fired) / BOLT_SECONDS
+            for x, y in cells:
+                f["bg"][MAP_X + x, MAP_Y + y] = scale(color, heat)
 
     def _torchlight(self) -> np.ndarray | None:
         """How brightly torches light each tile right now, with each one flickering by itself."""
@@ -354,6 +507,8 @@ class ClientView:
             lines = [(f"{e['g']} {name}", color), (f"Health {e['hp']}/{e['mhp']}", TEXT)]
             if e.get("lev"):
                 lines.append(("Levitating", FLOAT_TEXT))
+            if e.get("ward"):
+                lines.append(("Reflecting magic", SPARKLE))
             return lines
         lines = [(f"{e['g']} {e['name'].capitalize()}", color),
                  (f"Health {e['hp']}/{e['mhp']}", TEXT),
@@ -364,7 +519,12 @@ class ClientView:
             speed = " Fast." if t["move"] < TICKS_PER_TURN else ""
             speed += " Slow hits." if t["attack"] > TICKS_PER_TURN else ""
             desc = seasons.monster_description(kind, self.season, t["desc"])
-            lines.append((f"{desc} Hits for {t['damage'][0]}-{t['damage'][1]}.{speed}", TEXT))
+            hits = f" Hits for {t['damage'][0]}-{t['damage'][1]}." if t["damage"][1] else ""
+            lines.append((f"{desc}{hits}{speed}", TEXT))
+        if e.get("burn"):
+            lines.append(("On fire", FLAME))
+        if e.get("frozen"):
+            lines.append(("Frozen solid", ICE))
         return lines
 
     @staticmethod
@@ -454,6 +614,10 @@ class ClientView:
 
         if self.party:
             self.text(f, 1, y, "Players", HEADING)
+            if self.waterwalk:
+                self.text(f, 9, y, "Water", WALK_ON_WATER)
+            if self.lavawalk:
+                self.text(f, 15, y, "Lava", WALK_ON_LAVA)
             y += 1
             for q in self.party:
                 if y >= LOOK_Y - 2:
@@ -541,7 +705,7 @@ class ClientView:
         return x, y
 
     def score_line(self) -> str:
-        return f"Score {self.score}  ({self.turns} moves + {self.score_gold} gold x {SCORE_PER_GOLD})"
+        return f"Score {self.score}  ({self.score_gold} gold x {SCORE_PER_GOLD}, cut by {self.turns} moves)"
 
     def tally_lines(self) -> list[str]:
         hardest = self.hardest or "none yet"
@@ -549,7 +713,7 @@ class ClientView:
 
     def _draw_tally(self, f) -> None:
         kills = sorted(self.tally.items(), key=lambda kv: (-kv[1], kv[0]))
-        bw, rows = 50, min(14, 6 + len(kills))
+        bw, rows = 50, min(14, 6 + (len(kills) + 1) // 2)
         x0, y0 = self._panel_pos(bw, rows)
         for j in range(rows):
             self.text(f, x0, y0 + j, " " * bw, TEXT, PANEL_BG)
@@ -557,9 +721,11 @@ class ClientView:
         self.text(f, x0 + 2, y0 + 1, self.score_line(), (255, 215, 90), width=bw - 4)
         self.text(f, x0 + 2, y0 + 2, f"Hardest enemy fought: {self.hardest or 'none yet'}", TEXT, width=bw - 4)
         self.text(f, x0 + 2, y0 + 3, f"Kills: {self.kills}", TEXT)
-        for j, (name, count) in enumerate(kills[:rows - 5]):
-            self.text(f, x0 + 4, y0 + 4 + j, f"{name}", TEXT)
-            self.text(f, x0 + 24, y0 + 4 + j, f"{count}", (255, 255, 255))
+        per_column = rows - 5
+        for j, (name, count) in enumerate(kills[:per_column * 2]):
+            x, y = x0 + 2 + 23 * (j // per_column), y0 + 4 + j % per_column
+            self.text(f, x, y, name, TEXT, width=16)
+            self.text(f, x + 17, y, f"{count}", (255, 255, 255))
 
     def _draw_shop(self, f) -> None:
         bw, rows = 62, len(self.shop) + 4 if self.shop else 5
@@ -594,27 +760,56 @@ class ClientView:
             self.text(f, x0 + 2 + key_w, y0 + 1 + j, what, TEXT)
         self.text(f, x0 + 2, y0 + rows - 1, self.tip, DIM)
 
+    def _draw_prompt(self, f) -> None:
+        text, keys = self.prompt["text"], "y yes    n no"
+        bw, rows = len(text) + 4, 4
+        x0, y0 = self._panel_pos(bw, rows)
+        for j in range(rows):
+            self.text(f, x0, y0 + j, " " * bw, TEXT, PANEL_BG)
+        self.text(f, x0 + 2, y0 + 1, text, (225, 140, 255))
+        self.text(f, x0 + 2, y0 + 2, keys, DIM)
+
+    def _draw_victory(self, f) -> None:
+        lines = [f"{self.victory} escaped with the Amulet!", "The party wins.", "", *self.tally_lines(), "",
+                 f"A new dungeon begins in about {VICTORY_SECONDS:.0f} seconds."]
+        bw = max(len(s) for s in lines) + 4
+        x0, y0 = MAP_X + (MAP_W - bw) // 2, MAP_Y + (MAP_H - len(lines) - 2) // 2
+        for j in range(len(lines) + 2):
+            self.text(f, x0, y0 + j, " " * bw, TEXT, WIN_BG)
+        for j, s in enumerate(lines):
+            self.text(f, x0 + 2, y0 + 1 + j, s, (255, 215, 90) if j == 0 else TEXT, WIN_BG)
+
+    def _draw_console(self, f) -> None:
+        bw, rows = CONSOLE_WIDTH, CONSOLE_ROWS
+        x0, y0 = self._panel_pos(bw, rows)
+        for j in range(rows):
+            self.text(f, x0, y0 + j, " " * bw, TEXT, PANEL_BG)
+        self.text(f, x0 + 2, y0, "Test console. Type help for commands, Esc closes", HEADING)
+        for j, (line, color) in enumerate(list(self.console_log)[-(rows - 2):]):
+            self.text(f, x0 + 2, y0 + 1 + j, line, color, width=bw - 4)
+        self.text(f, x0 + 2, y0 + rows - 1, "> " + self.console_buf[-(bw - 7):] + "_", (255, 255, 255))
+
     def _draw_death(self, f) -> None:
         if self.downed:
             lines = ["You are down!", self.death, "",
-                     f"A teammate can revive you by standing next to your",
+                     "A teammate can revive you by standing next to your",
                      f"bones ({BONES_GLYPH}) for {REVIVE_SECONDS:.0f} seconds. You come back at half health",
                      "with all your gear.", "",
                      "If everyone goes down, the run restarts.", "", *self.tally_lines()]
         else:
             lines = ["You have died.", self.death, "", *self.tally_lines(), "", "Waiting for the party.",
                      "A new run starts when everyone has fallen."]
-                     
+
         bw = max(len(s) for s in lines) + 4
         x0 = MAP_X + (MAP_W - bw) // 2
         y0 = MAP_Y + (MAP_H - len(lines) - 2) // 2
-        
-        if self.downed:  # keep MY BONED in view for revival
+
+        if self.downed:  # keep your bones in view while waiting to be revived
             me = self.me()
             y0 = MAP_Y if me is None or me["y"] >= MAP_H // 2 else MAP_Y + MAP_H - len(lines) - 2
-            
+
         for j in range(len(lines) + 2):
-            self.text(f, x0, y0 + j, " " * bw, TEXT, (40,10, 10))
-            
+            self.text(f, x0, y0 + j, " " * bw, TEXT, DEATH_BG)
+
         for j, s in enumerate(lines):
-            self.text(f, x0 + 2, y0 + 1 + j, s, (255, 120, 120) if j == 0 else TEXT, (40, 10, 10))
+            self.text(f, x0 + 2, y0 + 1 + j, s, (255, 120, 120) if j == 0 else TEXT, DEATH_BG)

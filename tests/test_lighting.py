@@ -5,12 +5,12 @@ from unittest import mock
 import numpy as np
 
 from game import mapgen
-from game.constants import (ATTACK_STAMINA, MAP_H, MAP_W, NOTICE_RANGE_AWAKE, SCREEN_H, SCREEN_W, SPRINT_STAMINA,
+from game.constants import (ATTACK_STAMINA, MAP_H, MAP_W, NOTICE_RANGE_AWAKE, SCREEN_H, SPRINT_STAMINA,
                             STAMINA_MAX, TICKS_PER_SECOND, TICKS_PER_TURN, TORCH_COUNT, TORCH_NOTICE, TORCH_RADIUS,
                             TORCH_SPACING)
 from game.entities import make_monster
 from game.render import HELP_LINES, HELP_TIPS, ClientView
-from game.tiles import FLOOR, TORCH, WALKABLE, WALL
+from game.tiles import FLOOR, TORCH, WALL
 from game.world import Level, World
 
 

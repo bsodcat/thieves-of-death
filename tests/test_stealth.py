@@ -69,7 +69,7 @@ class StealthBarTests(unittest.TestCase):
     def test_holding_a_direction_empties_it(self):
         w, lvl, a = setup_world()
         a.stealth = STEALTH_MAX
-        for _ in range(10):
+        for _ in range(30):
             w.submit(a, open_step(lvl, a))
             w.advance(TICKS_PER_TURN)
         self.assertLess(a.stealth, 15)

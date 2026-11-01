@@ -47,6 +47,7 @@ def out_of_reach(lvl, p):
 class DownedTests(unittest.TestCase):
     def test_going_down_leaves_bones_and_keeps_gear(self):
         w, lvl, a, b = setup_world()
+        lvl.items.clear()
         a.pack, a.gold = [make_item("sword")], 30
         w._perform(a, {"a": "use", "slot": 0})
         spot = (a.x, a.y)
@@ -251,6 +252,7 @@ class ReviveTests(unittest.TestCase):
 class ClassicTests(unittest.TestCase):
     def test_classic_is_unchanged(self):
         w, lvl, a, b = setup_world(mode="Classic")
+        lvl.items.clear()
         a.pack = [make_item("sword")]
         w.drain_outbox()
         down(w, a)

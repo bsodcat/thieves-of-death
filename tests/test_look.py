@@ -7,8 +7,8 @@ from game import protocol
 from game.constants import LOOK_Y, MAP_H, MAP_W, MAP_X, MAP_Y, SCREEN_H, SCREEN_W, SIDEBAR_W
 from game.entities import MONSTERS, make_monster
 from game.items import ITEMS, make_gold, make_item
-from game.render import HOVER_BG, LOOK_HINT, ClientView
-from game.tiles import DESCRIPTIONS, DOOR, FLOOR, NAMES, STAIRS_DOWN, STAIRS_UP, WALL
+from game.render import HOVER_BG, ClientView
+from game.tiles import DESCRIPTIONS, DOOR, NAMES, WALL
 from game.world import World
 
 

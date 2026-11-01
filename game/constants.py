@@ -28,12 +28,65 @@ RESET_DELAY = 4.0
 PACK_SIZE = 10             # slots, one per number key; potions of a kind share a slot
 GOLD_DROP = 25             # gold dropped at a time
 
+# The console's teleport lands you at least this many steps' walk from where you were.
+# A potion of teleportation goes further: to a random floor of the whole dungeon.
+TELEPORT_STEPS = 15
+
 # Merchants. Each MERCHANT_EVERY floors, one may be waiting. The levitation potion
 # shows up in LEVITATION_STOCK_CHANCE of their shops.
 MERCHANT_EVERY = 5
 MERCHANT_CHANCE = 0.6
 MERCHANT_STOCK = (3, 5)
 LEVITATION_STOCK_CHANCE = 0.3
+
+# The end of the dungeon. ATRIUM_FLOOR is an empty hall leading down to the tower, whose
+# floors from TOWER_FIRST to LAST_FLOOR are built to a plan rather than grown. See mapgen.
+ATRIUM_FLOOR = 89
+TOWER_FIRST = 90
+
+# The goal. The dungeon ends at LAST_FLOOR, where the Amulet lies in the necromancer's room.
+# Whoever carries it up the stairs on floor 1 wins the run for the whole party.
+LAST_FLOOR = 99
+VICTORY_SECONDS = 12.0     # how long the win stays on screen before a new dungeon
+WIN_POINTS = 10000         # added to everyone's score before it's divided by their moves
+
+# The necromancer. Awake and in sight of a player, it raises zombies every SUMMON_SECONDS.
+# Anyone who leaves its floor while it's awake is chased: wherever they are above it, more
+# zombies come every TIDE_SECONDS, up to TIDE_MAX at a time, until the necromancer dies.
+SUMMON_SECONDS = 8.0
+SUMMON_SIZE = (2, 5)
+TIDE_SECONDS = 4.0
+TIDE_SIZE = 2
+TIDE_MAX = 30
+
+# Wolves hunt in packs. From WOLF_FIRST down, a floor has WOLF_CHANCE of one.
+WOLF_FIRST = 3
+WOLF_CHANCE = 0.2
+WOLF_SIZE = (3, 6)
+
+# Mushrooms never move. Get within GAS_TRIGGER tiles and one fills the room around it, up to
+# GAS_MOST_TILES. The edges clear first, and the last of it goes after GAS_SECONDS.
+GAS_TRIGGER = 2
+GAS_MOST_TILES = 220
+GAS_SECONDS = 12.0
+GAS_COOLDOWN = 20.0
+GAS_DAMAGE = 2             # each second spent in it
+
+# Ponds of healing. Stepping in heals you fully and wards you, which reflects magic, then the
+# pond is spent. Armor with `reflect` wards whoever wears it.
+POND_CHANCE = 0.12
+REFLECT_SECONDS = 60.0
+
+# The skeletal dragon sleeps on DRAGON_FLOOR. It breathes fire along a line at whoever it's
+# hunting, every BREATH_SECONDS.
+DRAGON_FLOOR = 80
+BREATH_RANGE = 8
+BREATH_SECONDS = 6.0
+BREATH_DAMAGE = (8, 14)
+
+# Plants block sight until someone walks through them, which tramples them for good.
+PLANT_CHANCE = 0.6
+PLANT_PATCHES = (1, 3)
 
 # Terrain. The chance of each on a floor, and how many pits a floor with them gets.
 LAKE_CHANCE = 0.4
@@ -49,6 +102,38 @@ TORCH_RADIUS = 9
 TORCH_SPACING = 16
 TORCH_NOTICE = 0.75
 
+# Cloaks. Each player brings one into the dungeon, somewhere in the CLOAK_FLOORS floors
+# from where they joined.
+CLOAK_FLOORS = 4
+
+# Lava. From LAVA_FIRST down, most floors have pools of it. Falling into one costs LAVA_DAMAGE
+# on top of the fall, which can kill, and leaves you on the nearest ground.
+LAVA_FIRST = 51
+LAVA_CHANCE = 0.85
+LAVA_POOLS = (4, 8)
+LAVA_DAMAGE = 25
+
+# Cultists. From CULT_FIRST down, a floor has CULT_CHANCE of one group, leader included.
+CULT_FIRST = 10
+CULT_CHANCE = 0.2
+CULT_SIZE = (6, 12)
+
+# The wand of fire the leader drops. It aims at the nearest monster in sight, and each one
+# burns for WAND_BURN_TURNS of its own turns.
+WAND_CHARGES = 10
+WAND_RANGE = 10
+WAND_DAMAGE = (8, 14)
+WAND_BURN = (2, 4)
+WAND_BURN_TURNS = 3
+
+# What an altar can give a weapon. See items.enhance_weapon.
+ENHANCE_DAMAGE = (2, 4)
+ENHANCE_ACCURACY = 15
+ENHANCE_NOISE = 10
+WEAPON_FREEZE_CHANCE = 0.2
+WEAPON_FREEZE_SECONDS = 3.0
+WEAPON_DRAIN = 4           # a draining weapon heals you for 1 in this many points of damage
+
 # Locked rooms. Each floor in the range has LOCKED_ROOM_CHANCE of one, and its key lies
 # KEY_DISTANCE floors above or below. There's one room per color in tiles.LOCK_COLORS at most.
 LOCKED_ROOM_FLOORS = (4, 14)
@@ -60,7 +145,7 @@ KEY_DISTANCE = 2
 # Equipped gear makes noise (see items.py), which lowers how far the bar can fill.
 STEALTH_MAX = 100
 STEALTH_FILL_SECONDS = 3.0 # empty to full
-STEALTH_MOVE_DRAIN = 20    # lost per step
+STEALTH_MOVE_DRAIN = 10    # lost per step
 STEALTH_RANGE_MIN = 0.3
 
 # Stamina. Sprinting and attacking spend it, and it refills after STAMINA_REST_SECONDS
@@ -73,6 +158,12 @@ SPRINT_MOVE_COST = 0.6     # a sprinting step takes this share of a normal one
 ATTACK_STAMINA = 8         # spent per attack
 TIRED_ATTACK = 2
 
+# Sneak attacks always hit, for SNEAK_DAMAGE times normal. One on a sleeping monster with
+# at least CRIT_STEALTH stealth is a critical hit, for CRIT_DAMAGE times normal.
+SNEAK_DAMAGE = 3
+CRIT_DAMAGE = 10
+CRIT_STEALTH = 40
+
 # Game modes. In Revive, a fallen player stays on the map as bones until a teammate
 # stands next to them for REVIVE_SECONDS. Classic is permanent until the next run.
 GAME_MODES = ("Classic", "Revive")
@@ -80,9 +171,10 @@ REVIVE_SECONDS = 3.0
 REVIVE_HEALTH = 0.5        # share of full health a revived player comes back with
 BONES_GLYPH = "%"
 
-# Score = moves * SCORE_PER_MOVE + gold carried * SCORE_PER_GOLD.
-SCORE_PER_MOVE = 1
+# Score = (gold carried * SCORE_PER_GOLD + WIN_POINTS if the party won) * SCORE_STEPS / (moves + SCORE_STEPS).
+# So every move lowers it, and it's halved after SCORE_STEPS moves.
 SCORE_PER_GOLD = 10
+SCORE_STEPS = 500
 
 # Combat and monsters.
 DEEPEST_TABLE = 26         # the monster and item lists end here; deeper floors reuse this one
@@ -91,5 +183,5 @@ DEFENSE_FACTOR = 0.987     # hit% = accuracy * DEFENSE_FACTOR ** defense
 NOTICE_RANGE_SLEEPING = 7
 NOTICE_RANGE_AWAKE = 14
 
-PROTOCOL_VERSION = 14
+PROTOCOL_VERSION = 19
 DEFAULT_PORT = 5555

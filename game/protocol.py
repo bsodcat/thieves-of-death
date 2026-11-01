@@ -16,6 +16,11 @@ Server -> client
     {"t": "level", "depth": 1, "run": 1, "w": 79, "h": 29, "tiles": <base64 uint8>,
      "lights": [<base64 uint8>, ...]}   one brightness map per torch
     {"t": "state", ...}      see World.state_for
+    {"t": "fx", "kind": "fire", "cells": [[x, y], ...]}   a wand's bolt, or "blink" for a teleport
+    {"t": "console", "text": "...", "c": [r, g, b]}       a line for the test console
+    {"t": "prompt", "text": "...", "x": 1, "y": 2}   a yes or no question about an altar
+    {"t": "reveal"}          put the whole floor on this player's map
+    {"t": "tiles", "depth": 1, "cells": [[x, y, tile], ...]}   tiles that changed
     {"t": "pack", ...}       see World.pack_msg; sent only when it changes
     {"t": "msg", "text": "...", "c": [r, g, b]}
     {"t": "ping", "n": 7}

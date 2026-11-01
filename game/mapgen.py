@@ -8,8 +8,13 @@ adds loops by knocking through walls that separate two areas which are
 far apart by foot. This module follows that recipe.
 
 Water and pits go in last, over the finished level. Lakes and rivers run through
-rock as well as rooms, so they can cut the level in two; wherever they do, a ford
-is left across. The stairs and every walkable tile stay reachable on foot.
+rock as well as rooms, so they can cut the level up. A ford is only left where it's
+needed to walk between the stairs, or to a locked room's door. Anything else the
+water cuts off stays cut off, as an island. Pits and lava never make one, so a
+player who gets out to an island can always swim back; see World._player_move.
+
+The end of the dungeon isn't grown at all. The atrium and the buried tower below it
+are laid out by hand, with one half drawn and mirrored, so they're symmetrical.
 """
 from __future__ import annotations
 
@@ -19,9 +24,11 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .constants import (LAKE_CHANCE, MAP_H, MAP_W, PIT_CHANCE, PIT_COUNT, RIVER_CHANCE, TORCH_COUNT, TORCH_RADIUS,
+from .constants import (ATRIUM_FLOOR, LAKE_CHANCE, LAST_FLOOR, LAVA_CHANCE, LAVA_FIRST, LAVA_POOLS, MAP_H, MAP_W, PIT_CHANCE,
+                        PLANT_CHANCE, PLANT_PATCHES, POND_CHANCE, TOWER_FIRST, PIT_COUNT, RIVER_CHANCE, TORCH_COUNT, TORCH_RADIUS,
                         TORCH_SPACING)
-from .tiles import DEEP, DOOR, FLOOR, PIT, SHALLOW, STAIRS_DOWN, STAIRS_UP, TORCH, WALL
+from .tiles import (DEEP, DOOR, FLOOR, FOLIAGE, GRASS, LAVA, PIT, POND, SHALLOW, STAIRS_DOWN, STAIRS_UP, TORCH,
+                    TOWER_WALL, WALL)
 
 DIRS4 = ((0, -1), (1, 0), (0, 1), (-1, 0))
 Point = tuple[int, int]
@@ -37,6 +44,7 @@ class GeneratedLevel:
     vault: np.ndarray | None = None   # the floor of the locked room, if there is one
     lock: Point | None = None         # its door
     torches: tuple = ()               # (torch, the floor cell in front of it)
+    lair: Point | None = None         # the last floor has no way down, and this instead
 
 
 # --------------------------------------------------------------- helpers
@@ -295,7 +303,7 @@ def _clean_doors(fl: np.ndarray, doors: set) -> None:
 
 
 def _stair_sites(fl: np.ndarray, doors: set) -> list[tuple[Point, Point]]:
-    """Wall cells with exactly one floor neighbour (an alcove in a straight wall)."""
+    """Wall cells with exactly one floor neighbor (an alcove in a straight wall)."""
     w, h = fl.shape
     sites = []
     for x in range(w):
@@ -356,21 +364,34 @@ def _river(rng: random.Random) -> np.ndarray:
     return m
 
 
+def _stamp(rng: random.Random, m: np.ndarray, hole: np.ndarray) -> None:
+    pw, ph = hole.shape
+    ox, oy = rng.randint(1, MAP_W - pw - 1), rng.randint(1, MAP_H - ph - 1)
+    m[ox:ox + pw, oy:oy + ph] |= hole
+
+
 def _pits(rng: random.Random) -> np.ndarray:
     m = np.zeros((MAP_W, MAP_H), bool)
     for _ in range(rng.randint(*PIT_COUNT)):
-        hole = _room_circle(rng) if rng.random() < 0.3 else np.ones((rng.randint(1, 3), rng.randint(1, 3)), bool)
-        pw, ph = hole.shape
-        ox, oy = rng.randint(1, MAP_W - pw - 1), rng.randint(1, MAP_H - ph - 1)
-        m[ox:ox + pw, oy:oy + ph] |= hole
+        _stamp(rng, m, _room_circle(rng) if rng.random() < 0.3
+               else np.ones((rng.randint(1, 3), rng.randint(1, 3)), bool))
     return m
 
 
-def _rejoin(ground: np.ndarray, cuts: np.ndarray, start: Point) -> set:
-    """The cells to clear to link one cut-off patch of ground back to `start`, or nothing if
-    all of it is connected. It's the shortest crossing, so a river gets a narrow ford."""
+def _lava(rng: random.Random) -> np.ndarray:
+    m = np.zeros((MAP_W, MAP_H), bool)
+    for _ in range(rng.randint(*LAVA_POOLS)):
+        _stamp(rng, m, _room_circle(rng))
+    return m
+
+
+def _rejoin(ground: np.ndarray, wanted: np.ndarray, cuts: np.ndarray, start: Point) -> set:
+    """The `cuts` cells to clear so one more `wanted` cell can be reached from `start` over
+    `ground`, or nothing if they all can. It's the shortest crossing, so a river gets a
+    narrow ford."""
     reached = _bfs(ground, start) >= 0
-    if not (ground & ~reached).any():
+    missing = wanted & ~reached
+    if not missing.any():
         return set()
     w, h = ground.shape
     came: dict[Point, Point | None] = {(int(x), int(y)): None for x, y in np.argwhere(reached)}
@@ -381,13 +402,14 @@ def _rejoin(ground: np.ndarray, cuts: np.ndarray, start: Point) -> set:
             n = (x + dx, y + dy)
             if not (0 <= n[0] < w and 0 <= n[1] < h) or n in came:
                 continue
-            if ground[n]:  # reached the cut-off patch: walk back over what was crossed
+            if missing[n]:  # walk back, noting what was crossed
                 path, at = set(), (x, y)
-                while at is not None and cuts[at]:
-                    path.add(at)
+                while at is not None:
+                    if cuts[at]:
+                        path.add(at)
                     at = came[at]
                 return path
-            if cuts[n]:
+            if cuts[n] or ground[n]:
                 came[n] = (x, y)
                 queue.append(n)
     raise AssertionError("cut-off ground with no way across")
@@ -396,45 +418,80 @@ def _rejoin(ground: np.ndarray, cuts: np.ndarray, start: Point) -> set:
 def _corners(ground: np.ndarray, cuts: np.ndarray, keep: np.ndarray) -> set | None:
     """A cell to clear so no two tiles of ground touch only diagonally: water or a pit if it
     can be, or else rock beside a ford. None if neither can be cleared."""
-    w, h = ground.shape
-    for x in range(w - 1):
-        for y in range(h - 1):
-            a, b, c, d = ground[x, y], ground[x + 1, y], ground[x, y + 1], ground[x + 1, y + 1]
-            if (a and d and not b and not c) or (b and c and not a and not d):
-                pair = ((x + 1, y), (x, y + 1)) if a and d else ((x, y), (x + 1, y + 1))
-                free = sorted((p for p in pair if not keep[p]), key=lambda p: not cuts[p])
-                return set(free[:1]) or None
-    return set()
+    a, b, c, d = ground[:-1, :-1], ground[1:, :-1], ground[:-1, 1:], ground[1:, 1:]
+    touching = np.argwhere(a & d & ~b & ~c | b & c & ~a & ~d)
+    if len(touching) == 0:
+        return set()
+    x, y = (int(v) for v in touching[0])
+    pair = ((x + 1, y), (x, y + 1)) if ground[x, y] else ((x, y), (x + 1, y + 1))
+    free = sorted((p for p in pair if not keep[p]), key=lambda p: not cuts[p])
+    return set(free[:1]) or None
 
 
-def _add_terrain(rng: random.Random, fl: np.ndarray, doors: set, keep: np.ndarray, start: Point):
-    """Returns the deep, shallow and pit masks, or None if this level can't be made whole.
-    Nothing is put on the `keep` cells."""
+def _add_terrain(rng: random.Random, fl: np.ndarray, doors: set, keep: np.ndarray, start: Point,
+                 goals: tuple, depth: int):
+    """Returns the deep, shallow, pit and lava masks, or None if this level can't be made to
+    work. Nothing is put on the `keep` cells, and `goals` can be walked to from `start`."""
     deep = np.zeros_like(fl)
     if rng.random() < LAKE_CHANCE:
         deep |= _lake(rng)
     if rng.random() < RIVER_CHANCE:
         deep |= _river(rng)
     deep &= ~keep
-    pits = _pits(rng) & fl & ~keep & ~deep if rng.random() < PIT_CHANCE else np.zeros_like(fl)
+    pits = np.zeros_like(fl)
+    if rng.random() < PIT_CHANCE:
+        pits = _pits(rng) & fl & ~keep & ~deep
+    lava = np.zeros_like(fl)
+    if depth >= LAVA_FIRST and rng.random() < LAVA_CHANCE:
+        lava = _lava(rng) & fl & ~keep & ~deep & ~pits
     for x, y in doors:
-        pits[x, y] = False
+        pits[x, y] = lava[x, y] = False
     doors -= {p for p in doors if deep[p]}
     _clean_doors(fl | deep, doors)
+    goal_cells = np.zeros_like(fl)
+    for goal in goals:
+        goal_cells[goal] = True
 
     while True:
-        ground = fl & ~deep & ~pits
-        clear = _rejoin(ground, deep | pits, start) or _corners(ground, deep | pits, keep)
+        ground = fl & ~deep & ~pits & ~lava
+        cuts = deep | pits | lava
+        clear = (_rejoin(ground, goal_cells, cuts, start)                  # the way to the stairs
+                 or _rejoin(ground | deep, ground, pits | lava, start)     # only water makes an island
+                 or _corners(ground, cuts, keep))
         if clear is None:
             return None
         if not clear:
             break
         for p in clear:
-            deep[p] = pits[p] = False
+            deep[p] = pits[p] = lava[p] = False
             fl[p] = True
     _clean_doors(ground, doors)  # a door opening onto water is just a gap in the wall
-    shallow = _dilate(deep)[1:-1, 1:-1] & fl & ~deep & ~pits & ~keep
-    return deep, shallow, pits
+    shallow = _dilate(deep)[1:-1, 1:-1] & fl & ~deep & ~pits & ~lava & ~keep
+    return deep, shallow, pits, lava
+
+
+# ------------------------------------------------------------------- plants
+
+def _add_plants(rng: random.Random, tiles: np.ndarray, keep: np.ndarray) -> None:
+    """Patches of tall grass with thicker foliage in them, on bare floor only."""
+    if rng.random() >= PLANT_CHANCE:
+        return
+    grass, thick = np.zeros((MAP_W, MAP_H), bool), np.zeros((MAP_W, MAP_H), bool)
+    for _ in range(rng.randint(*PLANT_PATCHES)):
+        _stamp(rng, grass, _room_small_cave(rng))
+        _stamp(rng, thick, _room_circle(rng))
+    bare = (tiles == FLOOR) & ~keep
+    tiles[grass & bare] = GRASS
+    tiles[grass & thick & bare] = FOLIAGE
+
+
+def _add_pond(rng: random.Random, tiles: np.ndarray, keep: np.ndarray) -> None:
+    """A small pool of healing water, sometimes."""
+    if rng.random() >= POND_CHANCE:
+        return
+    pond = np.zeros((MAP_W, MAP_H), bool)
+    _stamp(rng, pond, _room_circle(rng) if rng.random() < 0.5 else np.ones((3, 2), bool))
+    tiles[pond & (tiles == FLOOR) & ~keep] = POND
 
 
 # ------------------------------------------------------------------ torches
@@ -462,9 +519,113 @@ def _add_torches(rng: random.Random, tiles: np.ndarray, vault, stairs: tuple) ->
     return torches
 
 
+# ----------------------------------------------------------- the buried tower
+
+MIDDLE_X, MIDDLE_Y = (MAP_W - 1) // 2, (MAP_H - 1) // 2
+
+
+def _ellipse(cx: int, cy: int, rx: float, ry: float) -> np.ndarray:
+    xs, ys = np.ogrid[0:MAP_W, 0:MAP_H]
+    m = ((xs - cx) / rx) ** 2 + ((ys - cy) / ry) ** 2 <= 1
+    m[0, :] = m[-1, :] = False
+    m[:, 0] = m[:, -1] = False
+    return m
+
+
+def _rect(fl: np.ndarray, x0: int, y0: int, x1: int, y1: int) -> None:
+    fl[x0:x1 + 1, y0:y1 + 1] = True
+
+
+def _pillars(fl: np.ndarray, cx: int, cy: int, rx: float, ry: float, count: int) -> None:
+    """Stone columns, evenly spaced around an ellipse."""
+    for i in range(count):
+        angle = 2 * np.pi * (i + 0.5) / count
+        fl[int(round(cx + rx * np.cos(angle))), int(round(cy + ry * np.sin(angle)))] = False
+
+
+def _built(fl: np.ndarray, doors: set, stone: np.ndarray, up: Point, up_front: Point, down=None, down_front=None,
+           lair=None, rng=None) -> GeneratedLevel | None:
+    """Turns a hand-made plan into a level, or None if it doesn't all join up."""
+    _clean_doors(fl, doors)
+    if (_bfs(fl, up_front)[fl] < 0).any():
+        return None
+    tiles = np.full(fl.shape, WALL, np.uint8)
+    tiles[stone] = TOWER_WALL
+    tiles[fl] = FLOOR
+    for p in doors:
+        tiles[p] = DOOR
+    tiles[up] = STAIRS_UP
+    if down:
+        tiles[down] = STAIRS_DOWN
+    torches = []
+    if rng is not None:
+        torches = _add_torches(rng, tiles, None, (up, down))
+        for torch, _ in torches:
+            tiles[torch] = TORCH
+    return GeneratedLevel(tiles, up, up_front, down, down_front, None, None, tuple(torches), lair)
+
+
+def _mirror(half: np.ndarray) -> np.ndarray:
+    return half | half[::-1, :]
+
+
+def _tower(rng: random.Random) -> GeneratedLevel | None:
+    """One floor of the tower: a round footprint, a central hall and a shaft through it, and
+    the same rooms down each side."""
+    half = np.zeros((MAP_W, MAP_H), bool)
+    doors: set[Point] = set()
+    _rect(half, MIDDLE_X - 1, 3, MIDDLE_X, MAP_H - 4)
+    half |= _ellipse(MIDDLE_X, MIDDLE_Y, rng.randint(6, 9), rng.randint(4, 6))
+    for row in (6, MIDDLE_Y, MAP_H - 7):
+        high = rng.randint(1, 2)
+        left, right = rng.randint(22, 26), rng.randint(29, 32)
+        _rect(half, left, row - high, right, row + high)
+        _rect(half, right + 1, row, MIDDLE_X, row)
+        doors.add((right + 1, row))
+        if rng.random() < 0.8:     # and sometimes another room further out
+            outer = rng.randint(16, 18)
+            _rect(half, outer - rng.randint(4, 6), row - high, outer, row + high)
+            _rect(half, outer + 1, row, left - 1, row)
+            doors.add((left - 1, row))
+    stone = _ellipse(MIDDLE_X, MIDDLE_Y, 37, 13.6)
+    fl = _mirror(half) & stone
+    doors |= {(MAP_W - 1 - x, y) for x, y in doors}
+    top, bottom = (MIDDLE_X, 2), (MIDDLE_X, MAP_H - 3)
+    return _built(fl, doors, stone, top, (MIDDLE_X, 3), bottom, (MIDDLE_X, MAP_H - 4))
+
+
+def _lair(rng: random.Random) -> GeneratedLevel | None:
+    """The last floor: a great round room with pillars, and a few smaller ones off it."""
+    half = _ellipse(MIDDLE_X, 15, 17, 10)
+    doors: set[Point] = set()
+    _pillars(half, MIDDLE_X, 15, 11, 6.5, 8)
+    _pillars(half, MIDDLE_X, 15, 5.5, 3.2, 4)
+    _rect(half, MIDDLE_X - 1, 3, MIDDLE_X, 6)
+    for row in (8, 21):
+        _rect(half, 9, row - rng.randint(1, 2), 17, row + 2)
+        _rect(half, 18, row, 28, row)
+        doors.add((18, row))
+    stone = _ellipse(MIDDLE_X, MIDDLE_Y, 37, 13.6)
+    fl = _mirror(half) & stone
+    doors |= {(MAP_W - 1 - x, y) for x, y in doors}
+    return _built(fl, doors, stone, (MIDDLE_X, 2), (MIDDLE_X, 3), lair=(MIDDLE_X, 15))
+
+
+def _atrium(rng: random.Random) -> GeneratedLevel | None:
+    """A long pillared hall opening into a round atrium, with the way into the tower beyond."""
+    fl = np.zeros((MAP_W, MAP_H), bool)
+    _rect(fl, 6, MIDDLE_Y - 2, 50, MIDDLE_Y + 2)
+    for x in range(10, 48, 6):
+        fl[x, MIDDLE_Y - 2] = fl[x, MIDDLE_Y + 2] = False
+    fl |= _ellipse(62, MIDDLE_Y, 13, 10)
+    _pillars(fl, 62, MIDDLE_Y, 8, 5.5, 8)
+    return _built(fl, set(), _ellipse(62, MIDDLE_Y, 15.5, 12.5), (5, MIDDLE_Y), (6, MIDDLE_Y),
+                  (76, MIDDLE_Y), (75, MIDDLE_Y), rng=rng)
+
+
 # ------------------------------------------------------------------ main
 
-def _try_generate(rng: random.Random, lock_tile: int | None = None) -> GeneratedLevel | None:
+def _try_generate(rng: random.Random, depth: int, lock_tile: int | None = None) -> GeneratedLevel | None:
     w, h = MAP_W, MAP_H
     fl = np.zeros((w, h), bool)
     doors: set[Point] = set()
@@ -519,16 +680,20 @@ def _try_generate(rng: random.Random, lock_tile: int | None = None) -> Generated
     sealed = fl.copy()  # the level without the locked room, which gets no water or pits
     if vault is not None:
         sealed[vault], sealed[lock] = False, False
-    terrain = _add_terrain(rng, sealed, doors, keep, up_front)
+    goals = [down_front]
+    if lock:
+        goals += [(lock[0] + dx, lock[1] + dy) for dx, dy in DIRS4 if sealed[lock[0] + dx, lock[1] + dy]]
+    terrain = _add_terrain(rng, sealed, doors, keep, up_front, tuple(goals), depth)
     if terrain is None:
         return None
-    deep, shallow, pits = terrain
+    deep, shallow, pits, lava = terrain
 
     tiles = np.full((w, h), WALL, np.uint8)
     tiles[fl | sealed] = FLOOR
     tiles[shallow] = SHALLOW
     tiles[deep] = DEEP
     tiles[pits] = PIT
+    tiles[lava] = LAVA
     for p in doors:
         tiles[p] = DOOR
     tiles[up] = STAIRS_UP
@@ -536,8 +701,11 @@ def _try_generate(rng: random.Random, lock_tile: int | None = None) -> Generated
     if lock:
         tiles[lock] = lock_tile
     torches = _add_torches(rng, tiles, vault, (up, down))
-    for torch, _ in torches:
+    for torch, front in torches:
         tiles[torch] = TORCH
+        keep[front] = True
+    _add_plants(rng, tiles, keep)
+    _add_pond(rng, tiles, keep)
     return GeneratedLevel(tiles, up, up_front, down, down_front, vault, lock, tuple(torches))
 
 
@@ -545,7 +713,14 @@ def generate(seed: int, depth: int, lock_tile: int | None = None) -> GeneratedLe
     """Same seed and depth always give the same level. `lock_tile` adds a locked room."""
     rng = random.Random(f"{seed}:{depth}")
     for _ in range(50):
-        level = _try_generate(rng, lock_tile)
+        if depth == ATRIUM_FLOOR:
+            level = _atrium(rng)
+        elif depth == LAST_FLOOR:
+            level = _lair(rng)
+        elif depth >= TOWER_FIRST:
+            level = _tower(rng)
+        else:
+            level = _try_generate(rng, depth, lock_tile)
         if level is not None:
             return level
     raise RuntimeError("level generation failed")

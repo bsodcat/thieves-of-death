@@ -6,7 +6,7 @@ from datetime import date
 from unittest import mock
 
 from game import protocol, seasons
-from game.constants import LOOK_Y, MAP_X, MAP_Y, SCREEN_H, SIDEBAR_W, TICKS_PER_TURN
+from game.constants import LOOK_Y, SCREEN_H, SIDEBAR_W, TICKS_PER_TURN
 from game.entities import MONSTERS, make_monster
 from game.items import ITEMS, make_gold, make_item
 from game.render import ClientView
@@ -117,7 +117,7 @@ class CoverageTests(unittest.TestCase):
     def test_every_monster_and_item_is_covered(self):
         for name, s in seasons.SEASONS.items():
             self.assertEqual(set(s["monsters"]), set(MONSTERS), name)
-            self.assertEqual(set(s["items"]), set(ITEMS), name)
+            self.assertEqual(set(s["items"]), set(ITEMS) | {"cloak", "fire_wand"}, name)
 
     def test_names_fit_the_ui(self):
         for s in seasons.SEASONS.values():

@@ -195,6 +195,9 @@ def play(context, console, net: Net, leave_note: str = "", intro: tuple = ()) ->
     backspace_keys = key_set("BACKSPACE")
     help_keys = key_set("F1")
     sprint_keys = key_set("LSHIFT", "RSHIFT")
+    console_keys = key_set("GRAVE", "F2")
+    yes_keys, no_keys = key_set("y") | enter_keys, key_set("n") | escape_keys
+    up_keys, down_keys = key_set("UP"), key_set("DOWN")
     held: dict = {}   # movement keys currently down, oldest first
     sent_dir = None   # the direction the server thinks is held
     settle_at = 0.0   # when a partial release takes effect
@@ -246,6 +249,24 @@ def play(context, console, net: Net, leave_note: str = "", intro: tuple = ()) ->
                 held.pop(event.sym, None)
                 settle_at = time.monotonic() + RELEASE_GRACE
             action = None
+            if view.console_open:
+                if isinstance(event, tcod.event.TextInput):
+                    if event.text not in ("`", "~"):  # the key that opened it
+                        view.console_buf = (view.console_buf + event.text)[:200]
+                elif isinstance(event, tcod.event.KeyDown):
+                    if event.sym in enter_keys:
+                        text = view.console_submit()
+                        if text:
+                            net.send({"t": "cmd", "text": text})
+                    elif event.sym in escape_keys or (event.sym in console_keys and not event.repeat):
+                        view.console_open = False
+                    elif event.sym in backspace_keys:
+                        view.console_buf = view.console_buf[:-1]
+                    elif event.sym in up_keys:
+                        view.console_recall(1)
+                    elif event.sym in down_keys:
+                        view.console_recall(-1)
+                continue
             if view.chat_mode:
                 if isinstance(event, tcod.event.TextInput):
                     view.chat_buf = (view.chat_buf + event.text)[:200]
@@ -262,6 +283,17 @@ def play(context, console, net: Net, leave_note: str = "", intro: tuple = ()) ->
             if isinstance(event, tcod.event.KeyDown):
                 if event.sym in sprint_keys:
                     send_sprint(True)
+                if view.prompt is not None and event.sym in yes_keys | no_keys:
+                    if event.sym in yes_keys:
+                        net.send({"t": "act", "a": "enhance", "x": view.prompt["x"], "y": view.prompt["y"]})
+                    view.prompt = None
+                    continue
+                if event.sym in console_keys and not event.repeat:
+                    view.console_open, view.console_buf = True, ""
+                    held.clear()
+                    auto_walk = False
+                    send_sprint(False)
+                    continue
                 if event.sym in enter_keys:
                     view.chat_mode, view.chat_buf = True, ""
                     held.clear()

@@ -2,6 +2,129 @@
 
 Versions are MAJOR.MINOR.PATCH. See "Versions" in the README for what each number means.
 
+## 2.2.0 - October 31, 2026
+
+### Added
+
+- A buried tower on floors 90 to 99: symmetrical, with several rooms and glowing green walls.
+- Floor 89, an empty hall and atrium leading down to it.
+- Floor 99 is now a great round room with pillars and smaller rooms off it.
+- Ponds of healing, which heal you and ward you against magic once.
+- A skeletal dragon on floor 80 that breathes fire.
+
+### Changed
+
+- Water and lava are animated.
+- Toxic gas fills the room and thins out from the edges before it's gone.
+- Magic armor now turns up on floors 60 to 70, and reflects magic.
+
+Players need 2.2.0 or newer to join each other's games. The same seed now builds a different
+dungeon.
+
+## 2.1.0 - October 31, 2026
+
+### Added
+
+- Cultists now surround a glowing purple altar. Walk into it to enhance your weapon, for good, in
+  one random way. Each altar works once.
+
+### Changed
+
+- A potion of teleportation now takes you to a random floor, from 1 to 99, instead of elsewhere on
+  this one. The console's `teleport` still stays on the floor.
+
+Players need 2.1.0 or newer to join each other's games.
+
+## 2.0.0 - October 31, 2026
+
+The dungeon now has an ending.
+
+### Added
+
+- Floor 99 is the last floor. The necromancer sleeps there beside the Amulet, which you must carry
+  up the stairs on floor 1 to win. Beat it, or sneak past it.
+- The necromancer raises 2 to 5 zombies at a time. Leave its floor with it awake and zombies keep
+  coming on every floor you climb to.
+- Packs of wolves, mushrooms that release toxic gas, and the wand of frost.
+- Tall grass and foliage, which block sight until something tramples them.
+
+### Changed
+
+- Moves now divide your score instead of adding to it.
+
+Players need 2.0.0 to join each other's games. The same seed now builds a different dungeon.
+
+## 1.10.0 - October 31, 2026
+
+### Changed
+
+- Lakes and rivers now cut off parts of a floor, which only water walking or levitation can reach.
+  The stairs, locked doors, keys, cloaks and merchants always stay reachable on foot.
+- From an island you can swim back, at half speed.
+
+The same seed now builds a different dungeon.
+
+## 1.9.0 - October 31, 2026
+
+### Added
+
+- A `collision` console command. With it off, you walk through walls, enemies and hazards.
+
+## 1.8.0 - October 31, 2026
+
+### Added
+
+- A `floor` console command, which moves you or another player to any floor.
+
+## 1.7.0 - October 31, 2026
+
+### Added
+
+- A test console, opened with `` ` `` or F2. Only someone playing on the host's computer can use
+  it, and everyone else is told when a command runs.
+- Potion of teleportation, found on any floor, which jumps you to a random spot well away from
+  where you are.
+
+Players need 1.7.0 or newer to join each other's games. The same seed now places items
+differently.
+
+## 1.6.0 - October 31, 2026
+
+### Added
+
+- Lava from floor 51 down. A pit can drop you into it with no warning, for 25 damage on top of the
+  fall.
+- Potions of water walking and lava walking, on floors 18 to 42.
+- Groups of 6 to 12 cultists from floor 10 down. Their leader drops a wand of fire, which breaks
+  after 10 uses.
+
+### Changed
+
+- A cloak now cuts detection range by 50%.
+- Items and monsters with a last floor past the end of the lists now stop there properly.
+
+Players need 1.6.0 or newer to join each other's games. The same seed now builds a different
+dungeon.
+
+## 1.5.0 - October 31, 2026
+
+### Added
+
+- Cloaks: one per player in each run, on a random floor. Wearing one cuts your detection range by
+  25% and takes 20 off the noise of your gear.
+- Critical hits: attacking a sleeping monster with at least 30% stealth does five times normal
+  damage.
+
+### Changed
+
+- Monsters share their route maps, so big fights cost the server far less.
+- Auto-walk only works out a new route when something has changed.
+
+### Fixed
+
+- Leaving while holding Shift no longer keeps you sprinting when you rejoin.
+- Typos in the README and comments, and the README's code formatting.
+
 ## 1.4.0 - October 31, 2026
 
 ### Added

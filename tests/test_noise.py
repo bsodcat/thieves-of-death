@@ -1,4 +1,4 @@
-﻿"""Equipped gear capping stealth, and the help panel."""
+"""Equipped gear capping stealth, and the help panel."""
 import unittest
 
 from game import protocol
