@@ -101,6 +101,9 @@ ICE = (70, 130, 190)
 AURA = np.array((165, 60, 250), np.float32)      # added to the background right beside an altar
 AURA_RADIUS = 5.0
 ULTRABRIGHT = 1.5
+WARNING_RED = (255, 50, 40)
+WARNING_RISE = 3          # the warning builds as (share of the swing gone) ** this
+WARNING_BLINKS = 4.5      # how fast the blinking speeds up: more is more frantic
 MARK_MONSTER, MARK_ITEM = (150, 30, 45), (125, 105, 15)   # behind whatever reveal is showing you
 GAS = np.array((50, 120, 30), np.float32)
 WIN_BG = (30, 26, 6)
@@ -427,6 +430,11 @@ class ClientView:
             f["fg"][MAP_X + e["x"], MAP_Y + e["y"]] = color
             if e.get("hl"):
                 f["bg"][MAP_X + e["x"], MAP_Y + e["y"]] = MARK_MONSTER
+            heat = self.warning(e)
+            if heat:
+                at = (MAP_X + e["x"], MAP_Y + e["y"])
+                f["fg"][at] = [int(c + (r - c) * min(1.0, heat * 2)) for c, r in zip(color, WARNING_RED)]
+                f["bg"][at] = scale(WARNING_RED, heat)
             if e.get("lev"):
                 self._draw_float(f, e)
             if e.get("burn"):
@@ -477,6 +485,16 @@ class ClientView:
             heat = 1 - (now - fired) / BOLT_SECONDS
             for x, y in cells:
                 f["bg"][MAP_X + x, MAP_Y + y] = scale(color, heat)
+
+    def warning(self, e: dict) -> float:
+        """How strongly a monster should show it's about to hit you, from 0 to 1. Both the red
+        and the speed of the blinking climb exponentially as the moment gets close."""
+        if "strike" not in e:
+            return 0.0
+        left = e["strike"] - (time.monotonic() - self.clock_at)
+        share = max(0.0, min(1.0, 1 - left / e["swing"]))
+        blink = 0.65 + 0.35 * math.cos(math.exp(share * WARNING_BLINKS))
+        return share ** WARNING_RISE * blink
 
     def _torchlight(self) -> np.ndarray | None:
         """How brightly torches light each tile right now, with each one flickering by itself."""

@@ -2,6 +2,12 @@
 
 Versions are MAJOR.MINOR.PATCH. See "Versions" in the README for what each number means.
 
+## 2.4.0 - October 31, 2026
+
+### Added
+
+- Monsters about to land a melee hit turn red and blink, faster and brighter as it gets close.
+
 ## 2.3.0 - October 31, 2026
 
 ### Added

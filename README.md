@@ -282,6 +282,10 @@ you sparkle, and magic aimed at you goes straight back at whoever cast it. The p
 Magic armor has the same ward for as long as you wear it. So far the dragon's fire is the only magic
 aimed at players.
 
+A monster about to hit you in melee warns you first: it turns red and blinks, faster and brighter
+as the blow gets close. Most monsters swing quickly, so it's a flash, but slow hitters like ogres give
+you time to step away.
+
 ## Plants
 
 Some floors have patches of tall grass (`"`) and thicker foliage (`τ`). You can walk through them, but

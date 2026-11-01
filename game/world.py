@@ -1663,6 +1663,16 @@ class World:
                 return ["revive", f"Reviving {other.name}... {self._revive_percent(other)}%"]
         return ["go", ""]
 
+    def _windup(self, m, lvl: Level) -> dict:
+        """For a monster about to land a melee hit: seconds until it can, and how long its
+        swing takes. The client turns these into a warning, so it stays smooth between states."""
+        if (not isinstance(m, Monster) or m.state != "hunting" or not m.damage[1] or m.frozen_until > self.clock
+                or not any(cheb(m, p) <= 1 and not lvl.diagonal_blocked(m.x, m.y, p.x, p.y)
+                           for p in self._living_on(m.depth))):
+            return {}
+        return {"strike": max(0.0, (m.next_time - self.clock) / TICKS_PER_SECOND),
+                "swing": m.attack_cost * self.monster_time / TICKS_PER_SECOND}
+
     def _hardest_name(self, p: Player) -> str:
         if not p.hardest:
             return ""
@@ -1688,7 +1698,7 @@ class World:
                              "kind": getattr(a, "kind", ""), "lev": a.is_player and self._levitating(a),
                              "burn": getattr(a, "burning", 0) > 0,
                              "frozen": getattr(a, "frozen_until", 0) > self.clock,
-                             "ward": a.is_player and self._reflecting(a)})
+                             "ward": a.is_player and self._reflecting(a), **self._windup(a, lvl)})
         for a in lvl.downed:
             ents.append({"id": a.id, "g": BONES_GLYPH, "c": list(BONE), "x": a.x, "y": a.y, "name": a.name,
                          "hp": 0, "mhp": a.max_hp, "p": True, "seen": bool(vis[a.x, a.y]), "st": "down"})
