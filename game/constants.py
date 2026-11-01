@@ -51,10 +51,11 @@ TOWER_MONSTERS = (("skeleton_warrior", 6), ("zombie", 3), ("cultist", 2), ("wolf
 # Ogres stop at their last floor in the list, and are this many times as common here.
 OGRE_PEAK = (45, 55)
 OGRE_PEAK_WEIGHT = 3
+OGRE_LATE_SHARE = 0.4      # below the peak, nearly alone on the lists, only this many of them come
 
 # Skeleton archers try to stay this many tiles from their target: closer and they back away,
 # further and they come closer. They shoot every ARCHER_RELOAD seconds.
-ARCHER_RANGE = (5, 9)
+ARCHER_RANGE = (6, 11)
 ARCHER_RELOAD = 2.5
 
 # Slimes crawl about in numbers on these floors. Their hits, and walking through the trail they
@@ -95,6 +96,8 @@ WOLF_SIZE = (3, 6)
 # Mushrooms never move. Get within GAS_TRIGGER tiles and one fills the open space around it,
 # up to GAS_REACH tiles away in any direction. The edges clear first, and the last of it goes
 # after GAS_SECONDS.
+MUSHROOM_SHARE = 0.6       # of the mushrooms a floor would get, how many it really does
+MUSHROOM_MOST = 8          # on any one floor
 GAS_TRIGGER = 2
 GAS_REACH = 4
 GAS_SECONDS = 12.0
@@ -104,7 +107,7 @@ GAS_DAMAGE = 2             # each second spent in it
 # Ponds of healing. Stepping in heals you fully and wards you, which reflects magic, then the
 # pond is spent. Armor with `reflect` wards whoever wears it.
 POND_CHANCE = 0.12
-REFLECT_SECONDS = 60.0
+REFLECT_SECONDS = 180.0
 
 # The skeletal dragon sleeps on DRAGON_FLOOR. It breathes fire along a line at whoever it's
 # hunting, every BREATH_SECONDS.

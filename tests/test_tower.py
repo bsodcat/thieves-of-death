@@ -5,7 +5,7 @@ from unittest import mock
 import numpy as np
 
 from game import mapgen
-from game.constants import (ATRIUM_FLOOR, BREATH_DAMAGE, DRAGON_FLOOR, GAS_REACH, GAS_SECONDS, LAST_FLOOR,
+from game.constants import (ATRIUM_FLOOR, BREATH_DAMAGE, DRAGON_FLOOR, GAS_REACH, GAS_SECONDS, LAST_FLOOR, LAVA_FIRST,
                             REFLECT_SECONDS, TICKS_PER_SECOND, TOWER_FIRST)
 from game.entities import make_monster
 from game.items import ITEMS, make_item
@@ -218,12 +218,16 @@ class PondTests(unittest.TestCase):
         self.assertTrue(e["ward"])
         v.apply(w.state_for(p))
         self.assertIn("Reflecting magic", str(v._describe_actor(e)))
-        stars = 0
-        for t in range(8):
-            with mock.patch("game.render.time.monotonic", return_value=t / 7):
-                frame = v.draw()
-            stars += int((frame["ch"] == ord("*")).sum())
-        self.assertGreater(stars, 0)
+
+    def test_the_ward_lasts_3_minutes(self):
+        self.assertEqual(REFLECT_SECONDS, 180)
+        w, lvl, p, cells = self.pond_floor()
+        lvl.move(p, *cells[0])
+        w._step_onto(p, lvl)
+        w.advance(int(179 * TICKS_PER_SECOND))
+        self.assertTrue(w._reflecting(p))
+        w.advance(int(2 * TICKS_PER_SECOND))
+        self.assertFalse(w._reflecting(p))
 
     def test_it_is_bright_teal(self):
         from game.tiles import BG, FG
@@ -341,6 +345,32 @@ class DragonTests(unittest.TestCase):
 def algo_sees(lvl, cell, m):
     from game import algo
     return algo.compute_fov(lvl._base_transparent, m.x, m.y, 0)[cell]
+
+
+class MushroomCountTests(unittest.TestCase):
+    def counts(self, depth, seeds=30):
+        return [sum(m.kind == "mushroom" for m in World(s).level(depth).monsters) for s in range(seeds)]
+
+    def test_never_more_than_8(self):
+        for depth in (10, 30, 50):
+            self.assertLessEqual(max(self.counts(depth)), 8, depth)
+
+    def test_40_percent_fewer(self):
+        with mock.patch("game.world.MUSHROOM_SHARE", 1.1), mock.patch("game.world.MUSHROOM_MOST", 999):
+            before = sum(self.counts(20))
+        after = sum(self.counts(20))
+        self.assertAlmostEqual(after / before, 0.6, delta=0.12)
+
+    def test_none_from_the_lava_floors_down(self):
+        for depth in (LAVA_FIRST, 52, 60, 64):
+            self.assertEqual(sum(self.counts(depth, 10)), 0, depth)
+        self.assertGreater(sum(self.counts(LAVA_FIRST - 1, 10)), 0)
+
+    def test_floors_with_nothing_on_the_lists_still_build(self):
+        for depth in (66, 67, 68, 69):
+            lvl = World(2).level(depth)
+            self.assertTrue(lvl.monsters, depth)                       # slimes at least
+            self.assertFalse(any(m.kind == "mushroom" for m in lvl.monsters))
 
 
 class GasTests(unittest.TestCase):

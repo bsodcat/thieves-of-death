@@ -259,12 +259,43 @@ class GlowTests(unittest.TestCase):
         self.assertFalse(e["ward"])
         self.assertIn("Reflecting magic", str(v._describe_actor(e)))
 
-    def test_a_ponds_ward_still_sparkles(self):
+    def ward_glow(self, v, p, dx, dy):
+        with_glow = v.draw()["bg"][21 + p.x + dx, 3 + p.y + dy]
+        ents, v.ents = v.ents, [{k: val for k, val in e.items() if k != "ward"} for e in v.ents]
+        without = v.draw()["bg"][21 + p.x + dx, 3 + p.y + dy]
+        v.ents = ents
+        return [int(a) - int(b) for a, b in zip(with_glow, without)]
+
+    def warded(self):
         w, lvl, p, v = self.player_view()
         p.reflect_until = w.clock + 10 ** 6
-        e = next(e for e in w.state_for(p)["ents"] if e["id"] == p.id)
-        self.assertTrue(e["ward"])
-        self.assertFalse(e["aura"])
+        v.apply(w.state_for(p))
+        v.visible[:] = True
+        return w, p, v
+
+    def test_a_ponds_ward_is_a_blue_gradient(self):
+        w, p, v = self.warded()
+        with mock.patch("game.render.time.monotonic", return_value=0.0):
+            glow = [self.ward_glow(v, p, dx, 0) for dx in (0, 1, 2, 3)]
+            outside = self.ward_glow(v, p, 4, 0)
+        blue = [g[2] for g in glow]
+        self.assertEqual(blue, sorted(blue, reverse=True))
+        self.assertGreater(blue[0], 100)
+        self.assertGreater(blue[0], glow[0][0] * 3)
+        self.assertGreater(blue[0], glow[0][1] * 2)
+        self.assertEqual(outside, [0, 0, 0])
+
+    def test_it_uses_no_symbols(self):
+        w, p, v = self.warded()
+        plain = ClientView()
+        plain.apply({"t": "welcome", "id": p.id, "name": p.name})
+        plain.apply(w.level_msg(1))
+        p.reflect_until = 0
+        plain.apply(w.state_for(p))
+        plain.visible[:] = True
+        for t in range(10):
+            with mock.patch("game.render.time.monotonic", return_value=t / 3):
+                self.assertTrue((v.draw()["ch"] == plain.draw()["ch"]).all())
 
 
 if __name__ == "__main__":

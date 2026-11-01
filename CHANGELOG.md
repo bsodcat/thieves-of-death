@@ -2,6 +2,24 @@
 
 Versions are MAJOR.MINOR.PATCH. See "Versions" in the README for what each number means.
 
+## 2.7.4 - November 1, 2026
+
+### Changed
+
+- 40% fewer mushrooms, with at most 8 on a floor, and none from floor 51 down.
+
+## 2.7.3 - November 1, 2026
+
+### Changed
+
+- Skeleton archers now move a third slower, and hold 6 to 11 tiles away instead of 5 to 9.
+
+## 2.7.2 - November 1, 2026
+
+### Changed
+
+- A pond's ward now shows as a blue glow around you instead of sparks, and lasts 3 minutes.
+
 ## 2.7.1 - October 31, 2026
 
 ### Changed

@@ -37,7 +37,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from . import algo, mapgen, protocol, seasons
-from .constants import (GHOST_DISTANCE, GHOST_FLOORS, UNDEAD_BONUS, ARCHER_RANGE, ARCHER_RELOAD, OGRE_PEAK, OGRE_PEAK_WEIGHT, SLIME_COUNT, SLIME_FLOORS, SLIME_TRAIL,
+from .constants import (OGRE_LATE_SHARE, MUSHROOM_MOST, MUSHROOM_SHARE, GHOST_DISTANCE, GHOST_FLOORS, UNDEAD_BONUS, ARCHER_RANGE, ARCHER_RELOAD, OGRE_PEAK, OGRE_PEAK_WEIGHT, SLIME_COUNT, SLIME_FLOORS, SLIME_TRAIL,
                         SLOW_FACTOR, SLOW_SECONDS, TOXIN_DAMAGE, TOXIN_SECONDS, ARROW_PILE, ATRIUM_FLOOR, ATTACK_STAMINA, BONES_GLYPH, BREATH_DAMAGE, BREATH_RANGE, BREATH_SECONDS,
                         CLOAK_FLOORS, CRIT_DAMAGE, CRIT_STEALTH, CULT_CHANCE, CULT_FIRST,
                         DRAGON_FLOOR, HOARD_GOLD, HOARD_PILES, POTION_ROOM, TOWER_FIRST, TOWER_MONSTERS, GAS_COOLDOWN, GAS_DAMAGE, GAS_REACH, GAS_SECONDS, GAS_TRIGGER, LAST_FLOOR,
@@ -370,8 +370,15 @@ class World:
         if OGRE_PEAK[0] <= lvl.depth <= OGRE_PEAK[1]:
             kinds = [(k, w * OGRE_PEAK_WEIGHT if k == "ogre" else w) for k, w in kinds]
         rng.shuffle(spots)
-        for x, y in spots[:4 + lvl.depth // 2 + rng.randint(0, 3)]:
+        mushrooms = 0
+        for x, y in spots[:4 + lvl.depth // 2 + rng.randint(0, 3)] if kinds else ():  # some floors only have packs
             kind = rng.choices([k for k, _ in kinds], [w for _, w in kinds])[0]
+            if kind == "ogre" and lvl.depth > OGRE_PEAK[1] and rng.random() >= OGRE_LATE_SHARE:
+                continue
+            if kind == "mushroom":
+                if mushrooms >= MUSHROOM_MOST or rng.random() >= MUSHROOM_SHARE:
+                    continue
+                mushrooms += 1
             m = seasons.dress_monster(make_monster(kind, next(self._ids)), self.season)
             m.state = "sleeping" if rng.random() < 0.6 else "wandering"
             m.lag = m.next_time = rng.randrange(TICKS_PER_TURN)

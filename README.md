@@ -270,13 +270,13 @@ fall and can kill you. If you live, you end up on the nearest ground.
 
 - **Wolves** (`w`): from floor 3 down, a floor has a 20% chance of a pack of 3 to 6. They're twice as
   fast as you, and when one notices you they all do.
-- **Mushrooms** (`f`): they never move and don't attack. Get within 2 tiles and one fills the space
+- **Mushrooms** (`f`): floors 3 to 50, and never more than 8 on a floor. They never move and don't attack. Get within 2 tiles and one fills the space
   around it with toxic gas, up to 4 tiles away in any direction, however stealthy you are. Walls and
   doors stop it. It thins from the edges inward and is gone
   in 12 seconds. Gas does 2 damage a second, and the mushroom can do it again after 20 seconds. Kill
   it from a distance, or go around.
 - **Ogres** (`O`): from floor 7 to floor 65, and most common on floors 45 to 55.
-- **Skeleton archers** (`s`): floors 70 to 90. They try to stay 5 to 9 tiles from you, backing away if
+- **Skeleton archers** (`s`): floors 70 to 90. They move slowly, and try to stay 6 to 11 tiles from you, backing away if
   you close in and following if you run, and shoot every 2.5 seconds for 3 to 7 damage.
 - **Skeleton warriors** (`S`): the main enemy from floor 80 down through the tower to floor 98.
 - **Slimes** (`b`): 4 or 5 on every floor from 25 to 85. They're slow and only hit for 1 or 2, but their
@@ -288,10 +288,9 @@ fall and can kill you. If you live, you end up on the nearest ground.
 
 ## Ponds of healing
 
-About 1 floor in 8 has a small bright teal pond. Step in to heal fully and be warded for 60 seconds:
-you sparkle, and magic aimed at you goes straight back at whoever cast it. The pond is then spent.
-Magic armor has the same ward for as long as you wear it, with a slow blue glow instead of the
-sparkle. So far the dragon's fire is the only magic
+About 1 floor in 8 has a small bright teal pond. Step in to heal fully and be warded for 3 minutes:
+a blue glow surrounds you, and magic aimed at you goes straight back at whoever cast it. The pond is then spent.
+Magic armor has the same ward for as long as you wear it, with a smaller, slower glow. So far the dragon's fire is the only magic
 aimed at players.
 
 A monster about to hit you in melee warns you first: it blinks, faster and faster as the blow gets

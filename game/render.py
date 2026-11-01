@@ -118,6 +118,8 @@ HIT_RADIUS, HIT_SECONDS = 2.5, 0.35
 WATER_GLOW = np.array((30, 95, 190), np.float32)
 WATER_GLOW_RADIUS = 5.0
 ARMOR_GLOW = np.array((50, 110, 240), np.float32)
+WARD_GLOW = np.array((35, 90, 235), np.float32)   # a pond's ward
+WARD_GLOW_RADIUS = 3.5
 MARK_MONSTER, MARK_ITEM = (150, 30, 45), (125, 105, 15)   # behind whatever reveal is showing you
 GAS = np.array((50, 120, 30), np.float32)
 WIN_BG = (30, 26, 6)
@@ -467,8 +469,6 @@ class ClientView:
                 f["bg"][MAP_X + e["x"], MAP_Y + e["y"]] = scale(FLAME, 0.7 + 0.3 * math.sin(time.monotonic() * 11))
             if e.get("frozen"):
                 f["bg"][MAP_X + e["x"], MAP_Y + e["y"]] = ICE
-            if e.get("ward"):
-                self._draw_sparkle(f, e)
         self._draw_bolts(f)
         self._draw_throws(f)
 
@@ -494,16 +494,6 @@ class ClientView:
             glow = 0.85 + 0.15 * math.sin(now * 1.5)
             fg, bg = np.where(walls, fg * glow, fg), np.where(walls, bg * glow, bg)
         return ch, fg, bg
-
-    @staticmethod
-    def _draw_sparkle(f, e: dict) -> None:
-        """Motes of teal light come and go around someone warded."""
-        tick = int(time.monotonic() * 7)
-        for i, (dx, dy) in enumerate(((-1, -1), (1, -1), (-1, 1), (1, 1), (0, -1), (0, 1), (-1, 0), (1, 0))):
-            x, y = e["x"] + dx, e["y"] + dy
-            if (tick * 5 + i * 3) % 4 == 0 and 0 <= x < MAP_W and 0 <= y < MAP_H:
-                f["ch"][MAP_X + x, MAP_Y + y] = ord("*")
-                f["fg"][MAP_X + x, MAP_Y + y] = SPARKLE
 
     def _draw_throws(self, f) -> None:
         """One tile at a time from the thrower to the target, spinning all the way."""
@@ -539,6 +529,9 @@ class ClientView:
             if e.get("wet"):
                 reach = np.clip(1 - np.hypot(XS - e["x"], YS - e["y"]) / WATER_GLOW_RADIUS, 0, 1) ** 1.5
                 bg = bg + (reach * (0.85 + 0.15 * math.sin(now * 2)))[..., None] * WATER_GLOW
+            if e.get("ward"):
+                reach = np.clip(1 - np.hypot(XS - e["x"], YS - e["y"]) / WARD_GLOW_RADIUS, 0, 1) ** 1.5
+                bg = bg + (reach * (0.8 + 0.2 * math.sin(now * 1.5)))[..., None] * WARD_GLOW
             if e.get("aura"):
                 near = np.maximum(abs(XS - e["x"]), abs(YS - e["y"])) <= 1
                 reach = near * (1 - np.hypot(XS - e["x"], YS - e["y"]) / 2)

@@ -75,6 +75,29 @@ class SkeletonSpawnTests(unittest.TestCase):
 
 
 class ArcherTests(unittest.TestCase):
+    def test_a_third_slower_than_a_walking_pace(self):
+        self.assertEqual(make_monster("skeleton_archer", 1).move_cost, TICKS_PER_TURN * 3 // 2)
+
+    def test_it_shoots_from_the_new_longest_range(self):
+        for seed in (3, 20, 40):
+            try:
+                w, lvl, p, m = alone(gap=ARCHER_RANGE[1], seed=seed)
+            except AssertionError:
+                continue
+            spot = (m.x, m.y)
+            w._monster_turn(m, lvl)
+            self.assertGreater(m.ready_at, 0)
+            self.assertEqual((m.x, m.y), spot)
+            return
+        self.skipTest("no long enough view")
+
+    def test_it_backs_off_inside_the_new_shortest_range(self):
+        self.assertEqual(ARCHER_RANGE, (6, 11))
+        w, lvl, p, m = alone(gap=ARCHER_RANGE[0] - 1)
+        before = lvl.distances_to(p.x, p.y)[m.x, m.y]
+        w._monster_turn(m, lvl)
+        self.assertGreater(lvl.distances_to(p.x, p.y)[m.x, m.y], before)
+
     def test_it_shoots_from_range(self):
         w, lvl, p, m = alone()
         hits = 0
@@ -108,7 +131,7 @@ class ArcherTests(unittest.TestCase):
         self.assertEqual(m.ready_at, 0)
 
     def test_it_closes_in_when_you_are_far(self):
-        for gap in (11, 12, 10):
+        for gap in (13, 14, 12):
             try:
                 w, lvl, p, m = alone(gap=gap)
             except AssertionError:
