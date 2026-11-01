@@ -2,6 +2,12 @@
 
 Versions are MAJOR.MINOR.PATCH. See "Versions" in the README for what each number means.
 
+## 2.4.1 - October 31, 2026
+
+### Changed
+
+- Monsters' melee attacks now come half as often, which also gives twice as long to see them coming.
+
 ## 2.4.0 - October 31, 2026
 
 ### Added

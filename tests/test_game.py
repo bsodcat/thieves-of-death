@@ -4,7 +4,7 @@ import unittest
 import numpy as np
 
 from game import mapgen
-from game.constants import MAP_H, MAP_W, MONSTER_TIME, REGEN_TURNS, TICKS_PER_TURN
+from game.constants import MAP_H, MAP_W, MONSTER_SWING, MONSTER_TIME, REGEN_TURNS, TICKS_PER_TURN
 from game.entities import make_monster
 from game.tiles import DEEP, DOOR, FLOOR, STAIRS_DOWN, STAIRS_UP, WALKABLE
 from game.world import World
@@ -130,7 +130,7 @@ class RealTimeTests(unittest.TestCase):
         rat = add_monster(self.w, self.lvl, "rat", self.a, "hunting")
         rat.target_id = self.a.id
         self.w.advance(rat.next_time)
-        self.assertEqual(rat.next_time, self.w.clock + int(TICKS_PER_TURN * MONSTER_TIME))
+        self.assertEqual(rat.next_time, self.w.clock + int(TICKS_PER_TURN * MONSTER_SWING * MONSTER_TIME))
 
     def test_hunter_attacks_an_idle_player(self):
         goblin = add_monster(self.w, self.lvl, "goblin", self.a, "hunting")

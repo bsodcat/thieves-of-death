@@ -17,6 +17,7 @@ TICKS_PER_TURN = 100
 TURN_SECONDS = 0.16
 TICKS_PER_SECOND = TICKS_PER_TURN / TURN_SECONDS
 MONSTER_TIME = 1.5
+MONSTER_SWING = 2          # monsters' melee attacks take this many times as long on top of that
 TICK_RATE = 30             # server updates per second
 PING_SECONDS = 1.0         # how often each player's ping is measured
 PING_TIMEOUT = 5.0         # give up on an unanswered ping after this long

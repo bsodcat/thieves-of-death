@@ -283,8 +283,9 @@ Magic armor has the same ward for as long as you wear it. So far the dragon's fi
 aimed at players.
 
 A monster about to hit you in melee warns you first: it turns red and blinks, faster and brighter
-as the blow gets close. Most monsters swing quickly, so it's a flash, but slow hitters like ogres give
-you time to step away.
+as the blow gets close. Most monsters give you about half a second, and slow hitters like ogres nearly a
+second, so you can step away. Monsters attack half as often as they did before 2.4.1: change
+`MONSTER_SWING` in `game/constants.py` to adjust it.
 
 ## Plants
 

@@ -8,7 +8,7 @@ from unittest import mock
 
 import client
 from game import settings
-from game.constants import MONSTER_TIME, TICKS_PER_TURN
+from game.constants import MONSTER_SWING, MONSTER_TIME, TICKS_PER_TURN
 from game.entities import PLAYER_COLOR_NAMES, PLAYER_GLYPHS, make_monster
 from game.menu import ROW_STEP, ROW_Y, Form, Row
 from game.world import World
@@ -118,7 +118,7 @@ class SetupTests(unittest.TestCase):
             lvl.place(rat, *lvl.free_near(a.x, a.y))
             lvl.monsters.append(rat)
             w.advance(0)
-            self.assertEqual(rat.next_time, int(TICKS_PER_TURN * time_scale))
+            self.assertEqual(rat.next_time, int(TICKS_PER_TURN * MONSTER_SWING * time_scale))
 
 
 class SettingsTests(unittest.TestCase):

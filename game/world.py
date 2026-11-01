@@ -42,7 +42,7 @@ from .constants import (ATRIUM_FLOOR, ATTACK_STAMINA, BONES_GLYPH, BREATH_DAMAGE
                         DRAGON_FLOOR, GAS_COOLDOWN, GAS_DAMAGE, GAS_REACH, GAS_SECONDS, GAS_TRIGGER, LAST_FLOOR,
                         REFLECT_SECONDS, SCORE_STEPS,
                         SUMMON_SECONDS, SUMMON_SIZE, TIDE_MAX, TIDE_SECONDS, TIDE_SIZE, VICTORY_SECONDS, WIN_POINTS,
-                        WEAPON_DRAIN, WEAPON_FREEZE_CHANCE, WEAPON_FREEZE_SECONDS, WOLF_CHANCE, WOLF_FIRST, WOLF_SIZE,
+                        MONSTER_SWING, WEAPON_DRAIN, WEAPON_FREEZE_CHANCE, WEAPON_FREEZE_SECONDS, WOLF_CHANCE, WOLF_FIRST, WOLF_SIZE,
                         CULT_SIZE, DEEPEST_TABLE, DEFENSE_FACTOR, FALL_DAMAGE, GOLD_DROP, LAVA_DAMAGE, SNEAK_DAMAGE,
                         WAND_BURN, WAND_BURN_TURNS, WAND_DAMAGE, WAND_RANGE,
                         KEY_DISTANCE, SPRINT_MOVE_COST, SPRINT_STAMINA, STAMINA_FILL_SECONDS, STAMINA_MAX,
@@ -1604,7 +1604,7 @@ class World:
                 return m.attack_cost
             if cheb(m, t) == 1 and not lvl.diagonal_blocked(m.x, m.y, t.x, t.y):
                 self._attack(m, t)
-                return m.attack_cost
+                return m.attack_cost * MONSTER_SWING
             return self._step_toward(m, lvl, t.x, t.y) or TICKS_PER_TURN
 
         if m.state == "hunting":  # lost sight: go to where the prey was last seen
@@ -1671,7 +1671,7 @@ class World:
                            for p in self._living_on(m.depth))):
             return {}
         return {"strike": max(0.0, (m.next_time - self.clock) / TICKS_PER_SECOND),
-                "swing": m.attack_cost * self.monster_time / TICKS_PER_SECOND}
+                "swing": m.attack_cost * MONSTER_SWING * self.monster_time / TICKS_PER_SECOND}
 
     def _hardest_name(self, p: Player) -> str:
         if not p.hardest:

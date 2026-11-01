@@ -3,6 +3,7 @@ import math
 import unittest
 from unittest import mock
 
+from game.constants import MONSTER_SWING
 from game.entities import make_monster
 from game.render import WARNING_RED, ClientView
 from game.world import World
@@ -48,7 +49,24 @@ class ServerTests(unittest.TestCase):
         w, lvl, p, m = setup()
         e = entity(w, p, m)
         self.assertAlmostEqual(e["strike"], 0.16)
-        self.assertAlmostEqual(e["swing"], m.attack_cost * w.monster_time / 625)
+        self.assertAlmostEqual(e["swing"], m.attack_cost * MONSTER_SWING * w.monster_time / 625)
+
+    def test_monsters_swing_half_as_often(self):
+        w, lvl, p, m = setup()
+        p.hp = p.max_hp = 100000
+        w._hunt(m, p)
+        w.clock = m.next_time
+        w._monster_act(m)
+        self.assertEqual(m.next_time - w.clock, int(m.attack_cost * MONSTER_SWING * w.monster_time))
+
+    def test_they_still_walk_at_the_same_speed(self):
+        w, lvl, p, m = setup()
+        spot = next(c for c in lvl.land_cells if 4 <= max(abs(c[0] - p.x), abs(c[1] - p.y)) <= 8)
+        lvl.move(m, *spot)
+        w._hunt(m, p)
+        w.clock = m.next_time
+        w._monster_act(m)
+        self.assertEqual(m.next_time - w.clock, int(m.move_cost * w.monster_time))
 
     def test_out_of_reach_there_is_no_warning(self):
         w, lvl, p, m = setup()
