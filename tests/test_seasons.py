@@ -226,7 +226,7 @@ class InGameTests(unittest.TestCase):
         lvl.monsters.append(m)
         w.drain_outbox()
         w.submit(a, {"a": "move", "dx": dx, "dy": dy})
-        said = " ".join(msg["text"] for _, msg in w.drain_outbox())
+        said = " ".join(msg["text"] for _, msg in w.drain_outbox() if msg["t"] == "msg")
         self.assertIn("skeletal rat", said)
         st = w.state_for(a)
         self.assertEqual(st["tally"], {"skeletal rat": 1})

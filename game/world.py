@@ -1377,6 +1377,8 @@ class World:
         hidden = att.is_player and att.stealth >= CRIT_STEALTH  # as they struck, not after
         if att.is_player:
             att.stealth = 0.0  # fighting is loud
+            for v in self._living_on(att.depth):
+                self.outbox.append((v.id, {"t": "fx", "kind": "hit", "cells": [(dfn.x, dfn.y)]}))
             self._note_fight(att, dfn)
         elif dfn.is_player:
             self._note_fight(dfn, att)
@@ -1698,7 +1700,9 @@ class World:
                              "kind": getattr(a, "kind", ""), "lev": a.is_player and self._levitating(a),
                              "burn": getattr(a, "burning", 0) > 0,
                              "frozen": getattr(a, "frozen_until", 0) > self.clock,
-                             "ward": a.is_player and self._reflecting(a), **self._windup(a, lvl)})
+                             "ward": a.is_player and a.reflect_until > self.clock,
+                             "aura": a.is_player and a.armor is not None and a.armor.reflect,
+                             "wet": a.is_player and a.waterwalk_until > self.clock, **self._windup(a, lvl)})
         for a in lvl.downed:
             ents.append({"id": a.id, "g": BONES_GLYPH, "c": list(BONE), "x": a.x, "y": a.y, "name": a.name,
                          "hp": 0, "mhp": a.max_hp, "p": True, "seen": bool(vis[a.x, a.y]), "st": "down"})

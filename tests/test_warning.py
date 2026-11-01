@@ -1,11 +1,11 @@
-"""The warning a monster gives before a melee hit."""
-import math
+"""The blink before a monster's melee hit, the red of a player's, and glows on players."""
 import unittest
 from unittest import mock
 
 from game.constants import MONSTER_SWING
 from game.entities import make_monster
-from game.render import WARNING_RED, ClientView
+from game.items import make_item
+from game.render import ClientView
 from game.world import World
 
 
@@ -34,14 +34,6 @@ def view_of(w, p):
 
 def entity(w, p, m):
     return next(e for e in w.state_for(p)["ents"] if e["id"] == m.id)
-
-
-def at_share(v, e, share):
-    """The warning a share of the way through a swing."""
-    v.clock_at = 100.0
-    e = {**e, "swing": 1.0, "strike": 1.0}
-    with mock.patch("game.render.time.monotonic", return_value=100.0 + share):
-        return v.warning(e)
 
 
 class ServerTests(unittest.TestCase):
@@ -107,63 +99,172 @@ class ServerTests(unittest.TestCase):
             self.assertNotIn("strike", entity(w, p, m))
 
 
+def blinking(v, swing_share):
+    """Whether a monster with a 1 second swing is dark at this point in it."""
+    v.clock_at = 100.0
+    with mock.patch("game.render.time.monotonic", return_value=100.0 + swing_share):
+        return v.blinked_off({"strike": 1.0, "swing": 1.0})
+
+
 class ClientTests(unittest.TestCase):
     def test_nothing_without_a_swing(self):
-        self.assertEqual(ClientView().warning({"id": 1}), 0.0)
-
-    def test_the_red_climbs_exponentially(self):
-        v = ClientView()
-        rise = [at_share(v, {}, s) / (0.65 + 0.35 * math.cos(math.exp(s * 4.5)))
-                for s in (0.25, 0.5, 0.75, 1.0)]
-        self.assertEqual(rise, sorted(rise))
-        self.assertLess(rise[1], rise[3] / 5)
-        self.assertGreater(rise[3] - rise[2], rise[1] - rise[0])
+        self.assertFalse(ClientView().blinked_off({"id": 1}))
 
     def test_it_blinks_faster_near_the_end(self):
         v = ClientView()
-        flips = []
-        for start, stop in ((0.0, 0.5), (0.5, 1.0)):
-            values = [at_share(v, {}, start + (stop - start) * i / 400) for i in range(401)]
-            ratio = [b / a if a else 1 for a, b in zip(values, values[1:])]
-            flips.append(sum((x > 1) != (y > 1) for x, y in zip(ratio, ratio[1:])))
-        self.assertGreater(flips[1], flips[0])
+        changes = []
+        for start, stop in ((0.3, 0.65), (0.65, 1.0)):
+            states = [blinking(v, start + (stop - start) * i / 2000) for i in range(2001)]
+            changes.append(sum(a != b for a, b in zip(states, states[1:])))
+        self.assertGreater(changes[1], changes[0] * 2)
 
-    def test_nearly_invisible_early_and_strong_at_the_end(self):
+    def test_it_doesnt_start_right_away(self):
         v = ClientView()
-        self.assertLess(at_share(v, {}, 0.2), 0.02)
-        self.assertGreater(max(at_share(v, {}, 0.9 + i / 1000) for i in range(100)), 0.6)
+        self.assertFalse(any(blinking(v, i / 100) for i in range(28)))
 
     def test_it_counts_down_by_itself_between_states(self):
         v = ClientView()
-        v.clock_at = 50.0
-        e = {"strike": 1.0, "swing": 1.0}
-        with mock.patch("game.render.time.monotonic", return_value=50.2):
-            early = v.warning(e)
-        with mock.patch("game.render.time.monotonic", return_value=50.97):
-            late = v.warning(e)
-        self.assertGreater(late, early)
+        self.assertEqual({blinking(v, i / 100) for i in range(30, 100)}, {True, False})
 
-    def test_a_late_state_stays_at_full_rather_than_breaking(self):
+    def test_a_late_state_leaves_it_showing(self):
         v = ClientView()
         v.clock_at = 10.0
         with mock.patch("game.render.time.monotonic", return_value=99.0):
-            self.assertGreaterEqual(v.warning({"strike": 0.5, "swing": 0.5}), 0.0)
+            self.assertFalse(v.blinked_off({"strike": 0.5, "swing": 0.5}))
 
-    def test_the_monster_is_drawn_red(self):
+    def test_a_warning_only_dims_the_monster_and_adds_no_red(self):
         w, lvl, p, m = setup()
         v = view_of(w, p)
         at = (21 + m.x, 3 + m.y)
-        e = next(e for e in v.ents if e["id"] == m.id)
-        with mock.patch("game.render.time.monotonic", return_value=v.clock_at + e["strike"] - 0.0001):
-            with mock.patch.object(ClientView, "warning", lambda self, ent: 1.0 if ent["id"] == m.id else 0.0):
-                frame = v.draw()
-        self.assertEqual(tuple(int(c) for c in frame["bg"][at]), WARNING_RED)
-        self.assertEqual(tuple(int(c) for c in frame["fg"][at]), WARNING_RED)
+        calm = v.draw()
+        with mock.patch.object(ClientView, "blinked_off", lambda self, ent: ent["id"] == m.id):
+            dark = v.draw()
+        self.assertLess(sum(int(c) for c in dark["fg"][at]), sum(int(c) for c in calm["fg"][at]))
+        self.assertEqual(tuple(int(c) for c in dark["bg"][at]), tuple(int(c) for c in calm["bg"][at]))
 
     def test_without_a_warning_its_normal(self):
         w, lvl, p, m = setup(state="sleeping")
         frame = view_of(w, p).draw()
         self.assertEqual(tuple(int(c) for c in frame["fg"][21 + m.x, 3 + m.y]), m.color)
+
+
+class HitTests(unittest.TestCase):
+    def struck(self):
+        w, lvl, p, m = setup()
+        m.hp = m.max_hp = 100000
+        v = view_of(w, p)
+        w.drain_outbox()
+        w._attack(p, m)
+        for _, msg in w.drain_outbox():
+            v.apply(msg)
+        return w, p, m, v
+
+    def test_a_players_blow_shows_red_on_the_monster_and_fades(self):
+        w, p, m, v = self.struck()
+        at = (21 + m.x, 3 + m.y)
+        struck = v.hits[0][2]
+        with mock.patch("game.render.time.monotonic", return_value=struck):
+            fresh = v.draw()["bg"][at].copy()
+        with mock.patch("game.render.time.monotonic", return_value=struck + 0.25):
+            later = v.draw()["bg"][at].copy()
+        self.assertGreater(int(fresh[0]), 200)
+        self.assertGreater(int(fresh[0]), int(fresh[2]) * 3)
+        self.assertLess(int(later[0]), int(fresh[0]))
+
+    def test_it_is_a_gradient(self):
+        w, p, m, v = self.struck()
+        struck = v.hits[0][2]
+        with mock.patch("game.render.time.monotonic", return_value=struck):
+            frame = v.draw()
+        lit = [int(frame["bg"][21 + m.x + dx, 3 + m.y][0]) for dx in (0, 1, -1)]
+        self.assertEqual(max(lit), lit[0])
+
+    def test_it_clears(self):
+        w, p, m, v = self.struck()
+        with mock.patch("game.render.time.monotonic", return_value=v.hits[0][2] + 1):
+            v.draw()
+        self.assertEqual(v.hits, [])
+
+    def test_a_monsters_blow_shows_nothing(self):
+        w, lvl, p, m = setup()
+        p.hp = p.max_hp = 100000
+        w.drain_outbox()
+        w._attack(m, p)
+        self.assertFalse([msg for _, msg in w.drain_outbox() if msg.get("kind") == "hit"])
+
+
+class GlowTests(unittest.TestCase):
+    def player_view(self):
+        w = World(3)
+        p = w.join("A")
+        lvl = w.levels[1]
+        v = view_of(w, p)
+        return w, lvl, p, v
+
+    def glow_at(self, v, p, dx, dy, channel=2):
+        with_glow = v.draw()["bg"][21 + p.x + dx, 3 + p.y + dy]
+        ents, v.ents = v.ents, [{k: val for k, val in e.items() if k not in ("wet", "aura")} for e in v.ents]
+        without = v.draw()["bg"][21 + p.x + dx, 3 + p.y + dy]
+        v.ents = ents
+        return int(with_glow[channel]) - int(without[channel])
+
+    def test_water_walking_glows_out_to_5_tiles_and_fades(self):
+        w, lvl, p, v = self.player_view()
+        p.waterwalk_until = w.clock + 10 ** 6
+        v.apply(w.state_for(p))
+        v.visible[:] = True
+        with mock.patch("game.render.time.monotonic", return_value=0.0):
+            glow = [self.glow_at(v, p, dx, 0) for dx in (0, 1, 2, 3, 4)]
+            outside = self.glow_at(v, p, 6, 0)
+        self.assertEqual(glow, sorted(glow, reverse=True))
+        self.assertGreater(glow[0], 100)
+        self.assertGreater(glow[4], 0)
+        self.assertEqual(outside, 0)
+
+    def test_it_ends_with_the_potion(self):
+        w, lvl, p, v = self.player_view()
+        v.apply(w.state_for(p))
+        self.assertFalse(next(e for e in v.ents if e["id"] == p.id)["wet"])
+
+    def test_magic_armor_glows_3x3_with_a_gradient(self):
+        w, lvl, p, v = self.player_view()
+        p.armor = make_item("magic")
+        v.apply(w.state_for(p))
+        v.visible[:] = True
+        with mock.patch("game.render.time.monotonic", return_value=0.0):
+            center, side, corner = (self.glow_at(v, p, x, y) for x, y in ((0, 0), (1, 0), (1, 1)))
+            outside = self.glow_at(v, p, 2, 0)
+        self.assertGreater(center, side)
+        self.assertGreater(side, corner)
+        self.assertGreater(corner, 0)
+        self.assertEqual(outside, 0)
+
+    def test_it_pulses_slowly(self):
+        w, lvl, p, v = self.player_view()
+        p.armor = make_item("magic")
+        v.apply(w.state_for(p))
+        v.visible[:] = True
+
+        def brightness(t):
+            with mock.patch("game.render.time.monotonic", return_value=t):
+                return self.glow_at(v, p, 0, 0)
+        self.assertLess(abs(brightness(0.0) - brightness(0.1)), 25)
+        self.assertGreater(max(brightness(t / 2) for t in range(11)) - min(brightness(t / 2) for t in range(11)), 40)
+
+    def test_magic_armor_doesnt_sparkle(self):
+        w, lvl, p, v = self.player_view()
+        p.armor = make_item("magic")
+        e = next(e for e in w.state_for(p)["ents"] if e["id"] == p.id)
+        self.assertTrue(e["aura"])
+        self.assertFalse(e["ward"])
+        self.assertIn("Reflecting magic", str(v._describe_actor(e)))
+
+    def test_a_ponds_ward_still_sparkles(self):
+        w, lvl, p, v = self.player_view()
+        p.reflect_until = w.clock + 10 ** 6
+        e = next(e for e in w.state_for(p)["ents"] if e["id"] == p.id)
+        self.assertTrue(e["ward"])
+        self.assertFalse(e["aura"])
 
 
 if __name__ == "__main__":

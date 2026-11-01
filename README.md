@@ -279,11 +279,12 @@ fall and can kill you. If you live, you end up on the nearest ground.
 
 About 1 floor in 8 has a small bright teal pond. Step in to heal fully and be warded for 60 seconds:
 you sparkle, and magic aimed at you goes straight back at whoever cast it. The pond is then spent.
-Magic armor has the same ward for as long as you wear it. So far the dragon's fire is the only magic
+Magic armor has the same ward for as long as you wear it, with a slow blue glow instead of the
+sparkle. So far the dragon's fire is the only magic
 aimed at players.
 
-A monster about to hit you in melee warns you first: it turns red and blinks, faster and brighter
-as the blow gets close. Most monsters give you about half a second, and slow hitters like ogres nearly a
+A monster about to hit you in melee warns you first: it blinks, faster and faster as the blow gets
+close. When a player strikes a monster, a red glow flares around it and fades. Most monsters give you about half a second, and slow hitters like ogres nearly a
 second, so you can step away. Monsters attack half as often as they did before 2.4.1: change
 `MONSTER_SWING` in `game/constants.py` to adjust it.
 
@@ -366,7 +367,7 @@ doesn't pause while the pack is open; the panel opens on the far side of the map
 | Potion of haste | `!` | Double speed for 10 seconds | |
 | Potion of levitation | `!` | Float for 9 seconds, out of reach of ground monsters | |
 | Potion of teleportation | `!` | Jump to a random spot on a random floor, anywhere from 1 to 99. A real gamble | |
-| Potion of water walking | `!` | Walk on deep water for 15 seconds. Floors 18 to 42 | |
+| Potion of water walking | `!` | Walk on deep water for 15 seconds, in a blue glow reaching 5 tiles. Floors 18 to 42 | |
 | Potion of lava walking | `!` | Walk on lava for 15 seconds. Floors 18 to 42 | |
 | Dagger | `)` | 3-5 damage | 5 |
 | Sword | `)` | 5-9 damage | 15 |

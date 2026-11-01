@@ -174,7 +174,7 @@ class CombatTests(unittest.TestCase):
         w.drain_outbox()
         w.submit(a, {"a": "move", "dx": spot[0] - a.x, "dy": 0})  # sleeping rat: sneak attack always hits
         self.assertNotIn(rat, lvl.monsters)
-        texts = [m["text"] for _, m in w.drain_outbox()]
+        texts = [m["text"] for _, m in w.drain_outbox() if m["t"] == "msg"]
         self.assertIn("You hit the rat by surprise!", texts)
         self.assertIn("You kill the rat.", texts)
         self.assertEqual(a.kills, 1)

@@ -2,6 +2,15 @@
 
 Versions are MAJOR.MINOR.PATCH. See "Versions" in the README for what each number means.
 
+## 2.4.2 - October 31, 2026
+
+### Changed
+
+- Water walking now gives you a blue glow reaching 5 tiles.
+- Magic armor now shows a slowly pulsing 3x3 glow.
+- Monsters about to hit you now only blink. Instead, the red glow appears on a monster when a
+  player strikes it.
+
 ## 2.4.1 - October 31, 2026
 
 ### Changed

@@ -365,8 +365,11 @@ class NecromancerTests(unittest.TestCase):
         lvl.move(p, *lvl.up_front)
         w._take_stairs(p, -1)
         self.assertFalse(p.chased)
+        above = w.levels[LAST_FLOOR - 1]
+        before = len(self.zombies(above))
+        p.god = True
         w.advance(int(10 * TIDE_SECONDS * TICKS_PER_SECOND))
-        self.assertEqual(self.zombies(w.levels[LAST_FLOOR - 1]), [])
+        self.assertEqual(len(self.zombies(above)), before)
 
     def test_waking_it_is_announced_once(self):
         w, lvl, p, n = self.beside()

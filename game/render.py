@@ -101,9 +101,13 @@ ICE = (70, 130, 190)
 AURA = np.array((165, 60, 250), np.float32)      # added to the background right beside an altar
 AURA_RADIUS = 5.0
 ULTRABRIGHT = 1.5
-WARNING_RED = (255, 50, 40)
-WARNING_RISE = 3          # the warning builds as (share of the swing gone) ** this
+WARNING_START = 0.3       # the share of a swing gone before it starts to blink
 WARNING_BLINKS = 4.5      # how fast the blinking speeds up: more is more frantic
+HIT_RED = np.array((230, 35, 25), np.float32)     # at the center of a blow
+HIT_RADIUS, HIT_SECONDS = 2.5, 0.35
+WATER_GLOW = np.array((30, 95, 190), np.float32)
+WATER_GLOW_RADIUS = 5.0
+ARMOR_GLOW = np.array((50, 110, 240), np.float32)
 MARK_MONSTER, MARK_ITEM = (150, 30, 45), (125, 105, 15)   # behind whatever reveal is showing you
 GAS = np.array((50, 120, 30), np.float32)
 WIN_BG = (30, 26, 6)
@@ -161,6 +165,7 @@ class ClientView:
         self.levitate = False
         self.waterwalk = self.lavawalk = False
         self.bolts: list[tuple] = []              # (tiles, when, color) of magic still on screen
+        self.hits: list[tuple] = []               # (x, y, when) of blows still showing
         self.gas: list = []                       # tiles of toxic gas in sight
         self.prompt: dict | None = None           # a yes or no question waiting for an answer
         self.bright = False                       # console: draw the whole floor fully lit
@@ -250,6 +255,8 @@ class ClientView:
         elif t == "shop":
             self.shop, self.shop_name, self.shop_pos = msg["stock"], msg["name"], (msg["x"], msg["y"])
             self.show_pack = self.drop_mode = self.show_help = self.show_tally = False
+        elif t == "fx" and msg.get("kind") == "hit":
+            self.hits += [(x, y, time.monotonic()) for x, y in msg["cells"]]
         elif t == "fx":
             self.bolts.append((msg["cells"], time.monotonic(), BOLT_COLORS.get(msg.get("kind"), FLAME)))
         elif t == "console":
@@ -397,6 +404,7 @@ class ClientView:
         for x, y in np.argwhere(tiles == ALTAR):
             pulse = 0.75 + 0.25 * math.sin(time.monotonic() * 3 + x)
             lit_bg = lit_bg + (np.clip(1 - np.hypot(XS - x, YS - y) / AURA_RADIUS, 0, 1) * pulse)[..., None] * AURA
+        lit_bg = self._add_glows(lit_bg)
         out_fg = np.where(v, lit_fg, np.where(s, mem_fg, 0))
         out_bg = np.where(v, lit_bg, np.where(s, mem_bg, 0))
         area = (slice(MAP_X, MAP_X + MAP_W), slice(MAP_Y, MAP_Y + MAP_H))
@@ -430,11 +438,8 @@ class ClientView:
             f["fg"][MAP_X + e["x"], MAP_Y + e["y"]] = color
             if e.get("hl"):
                 f["bg"][MAP_X + e["x"], MAP_Y + e["y"]] = MARK_MONSTER
-            heat = self.warning(e)
-            if heat:
-                at = (MAP_X + e["x"], MAP_Y + e["y"])
-                f["fg"][at] = [int(c + (r - c) * min(1.0, heat * 2)) for c, r in zip(color, WARNING_RED)]
-                f["bg"][at] = scale(WARNING_RED, heat)
+            if self.blinked_off(e):
+                f["fg"][MAP_X + e["x"], MAP_Y + e["y"]] = scale(color, 0.2)
             if e.get("lev"):
                 self._draw_float(f, e)
             if e.get("burn"):
@@ -486,15 +491,31 @@ class ClientView:
             for x, y in cells:
                 f["bg"][MAP_X + x, MAP_Y + y] = scale(color, heat)
 
-    def warning(self, e: dict) -> float:
-        """How strongly a monster should show it's about to hit you, from 0 to 1. Both the red
-        and the speed of the blinking climb exponentially as the moment gets close."""
+    def blinked_off(self, e: dict) -> bool:
+        """Whether a monster about to hit you is in the dark part of its blink, which comes
+        exponentially faster as the moment gets close."""
         if "strike" not in e:
-            return 0.0
+            return False
         left = e["strike"] - (time.monotonic() - self.clock_at)
-        share = max(0.0, min(1.0, 1 - left / e["swing"]))
-        blink = 0.65 + 0.35 * math.cos(math.exp(share * WARNING_BLINKS))
-        return share ** WARNING_RISE * blink
+        share = 1 - left / e["swing"]
+        return WARNING_START < share < 1 and math.cos(math.exp(share * WARNING_BLINKS)) < 0
+
+    def _add_glows(self, bg: np.ndarray) -> np.ndarray:
+        """Light that moves with people, and the red that shows where a player struck."""
+        now = time.monotonic()
+        for e in self.ents:
+            if e.get("wet"):
+                reach = np.clip(1 - np.hypot(XS - e["x"], YS - e["y"]) / WATER_GLOW_RADIUS, 0, 1) ** 1.5
+                bg = bg + (reach * (0.85 + 0.15 * math.sin(now * 2)))[..., None] * WATER_GLOW
+            if e.get("aura"):
+                near = np.maximum(abs(XS - e["x"]), abs(YS - e["y"])) <= 1
+                reach = near * (1 - np.hypot(XS - e["x"], YS - e["y"]) / 2)
+                bg = bg + (reach * (0.7 + 0.3 * math.sin(now * 1.2)))[..., None] * ARMOR_GLOW
+        self.hits = [h for h in self.hits if now - h[2] < HIT_SECONDS]
+        for x, y, struck in self.hits:
+            reach = np.clip(1 - np.hypot(XS - x, YS - y) / HIT_RADIUS, 0, 1)
+            bg = bg + (reach * (1 - (now - struck) / HIT_SECONDS))[..., None] * HIT_RED
+        return bg
 
     def _torchlight(self) -> np.ndarray | None:
         """How brightly torches light each tile right now, with each one flickering by itself."""
@@ -537,7 +558,7 @@ class ClientView:
             lines = [(f"{e['g']} {name}", color), (f"Health {e['hp']}/{e['mhp']}", TEXT)]
             if e.get("lev"):
                 lines.append(("Levitating", FLOAT_TEXT))
-            if e.get("ward"):
+            if e.get("ward") or e.get("aura"):
                 lines.append(("Reflecting magic", SPARKLE))
             return lines
         lines = [(f"{e['g']} {e['name'].capitalize()}", color),

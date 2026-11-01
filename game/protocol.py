@@ -16,7 +16,8 @@ Server -> client
     {"t": "level", "depth": 1, "run": 1, "w": 79, "h": 29, "tiles": <base64 uint8>,
      "lights": [<base64 uint8>, ...]}   one brightness map per torch
     {"t": "state", ...}      see World.state_for
-    {"t": "fx", "kind": "fire", "cells": [[x, y], ...]}   a wand's bolt, or "blink" for a teleport
+    {"t": "fx", "kind": "fire", "cells": [[x, y], ...]}   a wand's bolt, "blink" for a teleport,
+                             or "hit" where a player has just struck a monster
     {"t": "console", "text": "...", "c": [r, g, b]}       a line for the test console
     {"t": "prompt", "text": "...", "x": 1, "y": 2}   a yes or no question about an altar
     {"t": "tiles", "depth": 1, "cells": [[x, y, tile], ...]}   tiles that changed
