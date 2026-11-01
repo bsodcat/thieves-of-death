@@ -2,6 +2,19 @@
 
 Versions are MAJOR.MINOR.PATCH. See "Versions" in the README for what each number means.
 
+## 2.5.0 - October 31, 2026
+
+### Added
+
+- Bows, arrows in piles of 20 to 30, and the boomerang, with a range of 9.
+- A hoard of gold and a store of potions in the side rooms of floor 99.
+- Ranged weapons and wands now aim at the strongest monster, with an option for the weakest.
+
+### Changed
+
+- Floors 90 to 99 have zombies, cultists and wolves, instead of ogres and mushrooms.
+- The Amulet now lies well away from the doors of the necromancer's room.
+
 ## 2.4.2 - October 31, 2026
 
 ### Changed

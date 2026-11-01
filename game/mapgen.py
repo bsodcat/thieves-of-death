@@ -45,6 +45,7 @@ class GeneratedLevel:
     lock: Point | None = None         # its door
     torches: tuple = ()               # (torch, the floor cell in front of it)
     lair: Point | None = None         # the last floor has no way down, and this instead
+    side_rooms: tuple = ()            # and these: each one a list of its floor tiles
 
 
 # --------------------------------------------------------------- helpers
@@ -601,14 +602,21 @@ def _lair(rng: random.Random) -> GeneratedLevel | None:
     _pillars(half, MIDDLE_X, 15, 11, 6.5, 8)
     _pillars(half, MIDDLE_X, 15, 5.5, 3.2, 4)
     _rect(half, MIDDLE_X - 1, 3, MIDDLE_X, 6)
+    rooms = []
     for row in (8, 21):
-        _rect(half, 9, row - rng.randint(1, 2), 17, row + 2)
+        top = row - rng.randint(1, 2)
+        _rect(half, 9, top, 17, row + 2)
+        rooms.append((top, row + 2))
         _rect(half, 18, row, 28, row)
         doors.add((18, row))
     stone = _ellipse(MIDDLE_X, MIDDLE_Y, 37, 13.6)
     fl = _mirror(half) & stone
     doors |= {(MAP_W - 1 - x, y) for x, y in doors}
-    return _built(fl, doors, stone, (MIDDLE_X, 2), (MIDDLE_X, 3), lair=(MIDDLE_X, 15))
+    level = _built(fl, doors, stone, (MIDDLE_X, 2), (MIDDLE_X, 3), lair=(MIDDLE_X, 15))
+    if level is not None:
+        left = [[(x, y) for x in range(9, 18) for y in range(top, bottom + 1) if fl[x, y]] for top, bottom in rooms]
+        level.side_rooms = tuple(left) + tuple([(MAP_W - 1 - x, y) for x, y in room] for room in left)
+    return level
 
 
 def _atrium(rng: random.Random) -> GeneratedLevel | None:

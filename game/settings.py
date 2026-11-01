@@ -17,6 +17,7 @@ DEFAULTS = {
     "shape": "@",
     "color": "Gold",
     "holiday_themes": "On",
+    "ranged_target": "Strongest",
 }
 
 

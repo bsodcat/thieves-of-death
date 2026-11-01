@@ -45,6 +45,14 @@ LEVITATION_STOCK_CHANCE = 0.3
 ATRIUM_FLOOR = 89
 TOWER_FIRST = 90
 
+# The tower has its own monsters, not the ordinary lists: (kind, weight).
+TOWER_MONSTERS = (("zombie", 3), ("cultist", 2), ("wolf", 1))
+
+# The lair's side rooms: one holds a hoard, one holds potions, and the others stand empty.
+HOARD_PILES = 14
+HOARD_GOLD = (300, 700)
+POTION_ROOM = 8
+
 # The goal. The dungeon ends at LAST_FLOOR, where the Amulet lies in the necromancer's room.
 # Whoever carries it up the stairs on floor 1 wins the run for the whole party.
 LAST_FLOOR = 99
@@ -119,6 +127,9 @@ LAVA_DAMAGE = 25
 CULT_FIRST = 10
 CULT_CHANCE = 0.2
 CULT_SIZE = (6, 12)
+
+# Arrows lie about in piles of this many. See items.py for the bow and boomerang.
+ARROW_PILE = (20, 30)
 
 # The wand of fire the leader drops. It aims at the nearest monster in sight, and each one
 # burns for WAND_BURN_TURNS of its own turns.

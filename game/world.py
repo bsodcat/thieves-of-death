@@ -37,9 +37,9 @@ from dataclasses import dataclass
 import numpy as np
 
 from . import algo, mapgen, protocol, seasons
-from .constants import (ATRIUM_FLOOR, ATTACK_STAMINA, BONES_GLYPH, BREATH_DAMAGE, BREATH_RANGE, BREATH_SECONDS,
+from .constants import (ARROW_PILE, ATRIUM_FLOOR, ATTACK_STAMINA, BONES_GLYPH, BREATH_DAMAGE, BREATH_RANGE, BREATH_SECONDS,
                         CLOAK_FLOORS, CRIT_DAMAGE, CRIT_STEALTH, CULT_CHANCE, CULT_FIRST,
-                        DRAGON_FLOOR, GAS_COOLDOWN, GAS_DAMAGE, GAS_REACH, GAS_SECONDS, GAS_TRIGGER, LAST_FLOOR,
+                        DRAGON_FLOOR, HOARD_GOLD, HOARD_PILES, POTION_ROOM, TOWER_FIRST, TOWER_MONSTERS, GAS_COOLDOWN, GAS_DAMAGE, GAS_REACH, GAS_SECONDS, GAS_TRIGGER, LAST_FLOOR,
                         REFLECT_SECONDS, SCORE_STEPS,
                         SUMMON_SECONDS, SUMMON_SIZE, TIDE_MAX, TIDE_SECONDS, TIDE_SIZE, VICTORY_SECONDS, WIN_POINTS,
                         MONSTER_SWING, WEAPON_DRAIN, WEAPON_FREEZE_CHANCE, WEAPON_FREEZE_SECONDS, WOLF_CHANCE, WOLF_FIRST, WOLF_SIZE,
@@ -73,6 +73,7 @@ PURPLE = (225, 140, 255)
 TEAL = (150, 255, 240)
 
 PACK_KINDS = ("cultist", "cult_leader", "wolf")
+AMULET_FROM_DOORS, AMULET_FROM_STAIRS = 15, 20  # steps' walk
 PATH_MAPS = 256  # distance maps a level keeps before starting over
 WEAR_OFF = (("levitate_until", "You drift back down to the ground."),
             ("waterwalk_until", "Your feet stop feeling so light."),
@@ -138,7 +139,7 @@ class Level:
         self.plants = (self.tiles == GRASS) | (self.tiles == FOLIAGE)
         self.changes: list[list[int]] = []  # tiles to tell the players about
         self.gas: dict[tuple[int, int], int] = {}  # toxic gas, and the tick each tile clears
-        self.lair = gen.lair
+        self.lair, self.side_rooms = gen.lair, gen.side_rooms
         self._base_transparent = TRANSPARENT[self.tiles]
         self.vault, self.lock = gen.vault, gen.lock
         open_floor = self.walkable if gen.vault is None else self.walkable & ~gen.vault
@@ -362,6 +363,8 @@ class World:
         if quiet:
             spots = []
         kinds = [(k, t["weight"]) for k, t in MONSTERS.items() if appears_on(t, lvl.depth)]
+        if lvl.depth >= TOWER_FIRST:
+            kinds = list(TOWER_MONSTERS)
         rng.shuffle(spots)
         for x, y in spots[:4 + lvl.depth // 2 + rng.randint(0, 3)]:
             kind = rng.choices([k for k, _ in kinds], [w for _, w in kinds])[0]
@@ -451,7 +454,21 @@ class World:
         walk = lvl.distances_to(x, y) // algo.CARDINAL_COST
         spots = [c for c in lvl.land_cells if c not in lvl.occupant and c not in lvl.items]
         near = [c for c in spots if sight[c] and 7 <= max(abs(c[0] - x), abs(c[1] - y)) <= 9 and walk[c] <= 13]
-        lvl.items[rng.choice(near) if near else min(spots, key=lambda c: abs(walk[c] - 8))] = make_amulet()
+        # Well away from the ways in, so getting to it means going around the necromancer.
+        doors = [(int(dx), int(dy)) for dx, dy in np.argwhere(lvl.is_door)]
+        from_doors = algo.dijkstra(lvl.walkable, doors) // algo.CARDINAL_COST
+        from_stairs = lvl.distances_to(*lvl.up_front) // algo.CARDINAL_COST
+        far = [c for c in near if from_doors[c] >= AMULET_FROM_DOORS and from_stairs[c] >= AMULET_FROM_STAIRS]
+        lvl.items[rng.choice(far or near) if near else min(spots, key=lambda c: abs(walk[c] - 8))] = make_amulet()
+        self._fill_side_rooms(lvl, rng)
+
+    def _fill_side_rooms(self, lvl: Level, rng: random.Random) -> None:
+        hoard, potions = rng.sample(list(lvl.side_rooms), 2)
+        for spot in rng.sample(hoard, min(HOARD_PILES, len(hoard))):
+            lvl.items[spot] = self._gold(rng.randint(*HOARD_GOLD))
+        kinds = [k for k, t in ITEMS.items() if t["category"] == "potion"]
+        for spot in rng.sample(potions, min(POTION_ROOM, len(potions))):
+            lvl.items[spot] = self._item(rng.choice(kinds))
 
     def _add_merchant(self, lvl: Level) -> None:
         rng = random.Random(f"{self.seed}:{lvl.depth}:merchant")
@@ -477,7 +494,10 @@ class World:
         kinds = [(k, t["weight"]) for k, t in ITEMS.items() if appears_on(t, lvl.depth)]
         for _ in range(3 + rng.randint(0, 2)):
             kind = rng.choices([k for k, _ in kinds], [w for _, w in kinds])[0]
-            lvl.items[spots.pop()] = self._item(kind)
+            item = self._item(kind)
+            if item.category == "ammo":
+                item.count = rng.randint(*ARROW_PILE)
+            lvl.items[spots.pop()] = item
         for _ in range(2 + rng.randint(0, 2)):
             lvl.items[spots.pop()] = self._gold(rng.randint(5, 15) * lvl.depth + 5)
 
@@ -1173,6 +1193,11 @@ class World:
             return 0
         if item.category == "wand":
             return self._zap(p, item)
+        if item.category == "ranged":
+            return self._shoot(p, item)
+        if item.category == "ammo":
+            self.tell(p, "Use a bow to fire these.", GRAY)
+            return 0
         if item.category == "amulet":
             self.tell(p, "It's your way out. Carry it up the stairs on floor 1.", GRAY)
             return 0
@@ -1247,15 +1272,57 @@ class World:
         lvl.place(p, *lvl.free_near(*lvl.up_front))
         p.pending, p.hold, p.needs_level = None, None, True
 
-    def _zap(self, p: Player, wand: Item) -> int:
-        """Fires at the nearest monster in sight. After its last use the wand breaks."""
-        lvl = self.levels[p.depth]
+    def _target(self, p: Player, lvl: Level, reach: int) -> Monster | None:
+        """What ranged weapons aim at: whatever is fighting first, then the strongest or the
+        weakest, as this player has chosen, and the nearest of any that are equal."""
         sight = self.fov(p)
-        targets = [m for m in lvl.monsters if sight[m.x, m.y] and cheb(p, m) <= WAND_RANGE]
-        if not targets:
+        near = [m for m in lvl.monsters if sight[m.x, m.y] and cheb(p, m) <= reach]
+        fighting = [m for m in near if m.state == "hunting"] or near
+        if not fighting:
+            return None
+        order = 1 if p.aim == "Weakest" else -1
+        return min(fighting, key=lambda m: (order * danger(m.kind), cheb(p, m), m.id))
+
+    def _shoot(self, p: Player, weapon: Item) -> int:
+        """A bow or boomerang. A sneak shot works like a sneak attack."""
+        lvl = self.levels[p.depth]
+        ammo = next((i for i in p.pack if i.category == "ammo"), None)
+        if weapon.fires and ammo is None:
+            self.tell(p, f"You have no {weapon.fires}s.", GRAY)
+            return 0
+        m = self._target(p, lvl, weapon.reach)
+        if m is None:
             self.tell(p, "There's nothing in range to aim at.", GRAY)
             return 0
-        m = min(targets, key=lambda m: (cheb(p, m), m.id))
+        if weapon.fires:
+            self._take_one(p, ammo)
+        shot = {"t": "fx", "kind": weapon.kind, "cells": line_between((p.x, p.y), (m.x, m.y))}
+        for v in self._living_on(p.depth):
+            self.outbox.append((v.id, shot))
+        p.stealth = 0.0
+        self._note_fight(p, m)
+        sneak = m.state != "hunting"
+        where = [(p.x, p.y), (m.x, m.y)]
+        if sneak or self.rng.random() * 100 < p.accuracy * DEFENSE_FACTOR ** m.defense:
+            m.hp -= self.rng.randint(*weapon.damage) * (SNEAK_DAMAGE if sneak else 1)
+            self._narrate(lvl, where, {p}, lambda v: (
+                f"{self._n(p, v, True)} {self._verb(p, v, ('hits', 'hit'))} {self._n(m, v)}.", WHITE))
+        else:
+            self._narrate(lvl, where, {p}, lambda v: (
+                f"{self._n(p, v, True)} {self._verb(p, v, ('misses', 'miss'))} {self._n(m, v)}.", GRAY))
+        if m.hp <= 0:
+            self._kill(m, p)
+        else:
+            self._hunt(m, p)
+        return TICKS_PER_TURN
+
+    def _zap(self, p: Player, wand: Item) -> int:
+        """Fires at a monster in sight. After its last use the wand breaks."""
+        lvl = self.levels[p.depth]
+        m = self._target(p, lvl, WAND_RANGE)
+        if m is None:
+            self.tell(p, "There's nothing in range to aim at.", GRAY)
+            return 0
         bolt = {"t": "fx", "kind": "frost" if wand.freeze else "fire", "cells": line_between((p.x, p.y), (m.x, m.y))}
         for v in self._living_on(p.depth):
             self.outbox.append((v.id, bolt))

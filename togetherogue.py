@@ -163,7 +163,7 @@ class App:
                 Row("Game mode", "game_mode", c["game_mode"], choices=GAME_MODES)]
 
     def look(self) -> dict:
-        return {"glyph": self.config["shape"], "color": self.config["color"]}
+        return {"aim": self.config["ranged_target"], "glyph": self.config["shape"], "color": self.config["color"]}
 
     def run_game(self, net, leave_note: str = "", intro: tuple = ()) -> None:
         try:
@@ -317,6 +317,8 @@ class App:
         form = Form("Options", [Row("Font", "font", self.config["font"], choices=tuple(FONTS)),
                                 Row("Holiday themes", "holiday_themes", self.config["holiday_themes"],
                                     choices=("On", "Off")),
+                                Row("Ranged weapons aim at", "ranged_target", self.config["ranged_target"],
+                                    choices=("Strongest", "Weakest")),
                                 Row("Save", action="save"), Row("Back", action="back")],
                     note="Holiday themes follow the host's setting.")
         if self.show(form) != "save":

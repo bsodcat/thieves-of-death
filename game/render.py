@@ -67,7 +67,9 @@ HELP_TIPS = (
     "Each player has a cloak out there. Wear one to hide better.",
     "Strike a sleeper with 30% stealth for a critical hit.",
     "Cultists come in packs. Their leader carries a wand of fire.",
-    "A wand aims itself at the nearest enemy you can see.",
+    "Ranged weapons aim at the strongest foe. Change it in Options.",
+    "A boomerang needs no ammo, but a bow reaches further.",
+    "The necromancer's side rooms hide a hoard and a potion store.",
     "Past floor 50, a pit might drop you straight into lava.",
     "Every move lowers your score. Gold raises it.",
     "Mushrooms never move, but don't get close without a plan.",
@@ -92,7 +94,8 @@ TORCH_TEXT = (255, 180, 70)
 DEATH_BG = (40, 10, 10)
 BOLT_SECONDS = 0.35
 FLAME = (255, 120, 20)
-BOLT_COLORS = {"fire": FLAME, "blink": (230, 120, 255), "frost": (150, 215, 255), "sparkle": (150, 255, 240)}
+BOLT_COLORS = {"fire": FLAME, "blink": (230, 120, 255), "frost": (150, 215, 255), "sparkle": (150, 255, 240),
+               "bow": (225, 215, 180), "boomerang": (235, 190, 100)}
 SPARKLE = (90, 240, 220)
 # Each animated tile cycles through glyphs that look alike: (tile, glyphs, steps a second).
 RIPPLES = ((DEEP, (0x2248, ord("~"), 0x2248, 0x2248), 3), (SHALLOW, (ord("~"), 0x2248, ord("~"), ord("-")), 2),

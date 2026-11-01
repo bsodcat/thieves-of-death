@@ -32,7 +32,7 @@ that one file. The main menu has:
 - **Server Tool**: runs a server without playing, and shows the address to share, who's
   connected, their floor and ping, and a log.
 - **Character**: your name, shape and color.
-- **Options**: the font, and whether to show the holiday themes.
+- **Options**: the font, whether to show the holiday themes, and what ranged weapons aim at.
 
 Use the arrow keys and Enter, or the mouse. Your choices are saved in
 `%APPDATA%\Togetherogue\settings.json`. In the game, press `Q` twice to leave.
@@ -134,13 +134,14 @@ Others see the shape and color you pick, in the dungeon and in the Players list.
 Floor 89 has no monsters: a long pillared hall opens into a round atrium with green walls, and the
 stairs at the far side lead into the tower. Floors 90 to 99 are the tower itself, buried in the rock.
 Its walls glow green, and every floor is a mirror image, with a shaft and central hall and rooms
-down each side. The last floor is a great round room with pillars and smaller rooms off it, and nothing lives
-there but the necromancer.
+down each side. The tower has its own monsters: zombies, cultists and wolves, with no ogres or mushrooms. The last
+floor is a great round room with pillars and smaller rooms off it, and nothing lives there but the
+necromancer. One side room holds a hoard of gold, and another a store of potions.
 
 ## The goal
 
 Floor 99 is the last floor, and has no stairs down. The necromancer sleeps in the middle of the great
-round room, with the Amulet (`§`) lying across it. Press `g` to pick it up, then carry it to the
+round room, with the Amulet (`§`) lying across it, well away from the ways in. Press `g` to pick it up, then carry it to the
 upward stairs on floor 1. When anyone in the party walks out with it, the whole party wins. Without
 it, that staircase stays sealed. If whoever has it leaves the game, it drops to the floor.
 
@@ -377,6 +378,9 @@ doesn't pause while the pack is open; the panel opens on the far side of the map
 | Plate armor | `[` | +60 armor, moves take 25% longer | 40 |
 | Magic armor | `[` | +40 armor, and wards you against magic while worn. Floors 60 to 70 only | 10 |
 | Cloak | `¶` | Monsters notice you from half as far. Worn alongside weapon and armor | -45 |
+| Bow | `}` | Fires an arrow at a monster up to 12 tiles away, for 4 to 8 damage | |
+| Arrows | `\|` | Found in piles of 20 to 30, and picked up by walking over them | |
+| Boomerang | `}` | Thrown at a monster up to 9 tiles away, for 3 to 6 damage. It comes back, so it's never used up | |
 | Wand of frost | `/` | Freezes the nearest monster in sight for 30 seconds, without waking it. Rare. Breaks after 10 uses | |
 | Wand of fire | `/` | Burns the nearest monster in sight within 10 tiles. Breaks after 10 uses | |
 | Gold | `*` | Goes to your purse, not a pack slot | |
@@ -386,6 +390,10 @@ Add or change items in `game/items.py`. Stronger items appear deeper down.
 There's exactly one cloak per player in each run, and merchants don't sell them. Each lies on a
 random floor among the 4 starting from the one its player joined on, so a late arrival adds one
 near the party. Anyone can pick one up, and it takes one slot like any other gear.
+
+Use a bow or boomerang from the pack, like a wand. Ranged weapons and wands aim for you: at monsters
+already fighting first, then the strongest of them, or the weakest if you change **Ranged weapons aim
+at** in Options. A change takes effect the next time you join a game.
 
 ## Versions
 

@@ -6,15 +6,16 @@ from dataclasses import dataclass
 from .constants import ENHANCE_ACCURACY, ENHANCE_DAMAGE, ENHANCE_NOISE, TICKS_PER_TURN, WAND_CHARGES
 from .tiles import LOCK_COLORS
 
-GLYPHS = {"potion": "!", "weapon": ")", "armor": "[", "gold": "*", "key": "\u2640", "cloak": "¶", "wand": "/", "amulet": "§"}
-AUTO_PICKUP = ("potion", "gold", "key")   # collected by walking over them; the rest wait for a key press
+GLYPHS = {"potion": "!", "weapon": ")", "armor": "[", "gold": "*", "key": "\u2640", "cloak": "¶", "wand": "/", "amulet": "§", "ranged": "}",
+          "ammo": "|"}
+AUTO_PICKUP = ("potion", "gold", "key", "ammo")   # collected by walking over them; the rest wait for a key press
 
 
 @dataclass(eq=False)
 class Item:
     kind: str
     name: str
-    category: str               # potion / weapon / armor / cloak / gold / key / wand / amulet
+    category: str               # potion / weapon / armor / cloak / gold / key / wand / amulet / ranged / ammo
     color: tuple
     count: int = 1              # stack size, or the amount for gold
     heal: int = 0
@@ -35,6 +36,8 @@ class Item:
     freeze: float = 0.0         # seconds a wand holds its target still
     accuracy: int = 0           # added to the wielder's chance to hit
     reflect: bool = False       # armor that sends magic back
+    reach: int = 0              # how far a ranged weapon can hit
+    fires: str = ""             # what it uses up, if anything
     magic: tuple = ()           # an enhanced weapon's spells: fire, frost, drain
     enhanced: int = 0           # how many times an altar has improved it
 
@@ -44,7 +47,7 @@ class Item:
 
     @property
     def stacks(self) -> bool:
-        return self.category == "potion"
+        return self.category in ("potion", "ammo")
 
     @property
     def label(self) -> str:
@@ -62,6 +65,11 @@ class Item:
             speed = ", heavy" if self.move_cost > TICKS_PER_TURN else ""
             ward = ", warded" if self.reflect else ""
             return f"armor +{self.armor}{speed}, noise {self.noise}{ward}"
+        if self.category == "ranged":
+            ammo = f", uses {self.fires}s" if self.fires else ", comes back"
+            return f"dmg {self.damage[0]}-{self.damage[1]}, range {self.reach}{ammo}"
+        if self.category == "ammo":
+            return "for a bow"
         if self.category == "cloak":
             return f"detection -{self.hush:.0%}, noise {self.noise}"
         if self.heal:
@@ -102,6 +110,11 @@ ITEMS = {
                          depths=(18, 42), weight=3),
     "lavawalking": dict(name="potion of lava walking", category="potion", color=(255, 130, 40), lavawalk=15.0,
                         depths=(18, 42), weight=3),
+    "bow": dict(name="bow", category="ranged", color=(180, 135, 80), damage=(4, 8), reach=12, fires="arrow",
+                depths=(1, 26), weight=3),
+    "arrows": dict(name="arrow", category="ammo", color=(205, 195, 170), depths=(1, 26), weight=4),
+    "boomerang": dict(name="boomerang", category="ranged", color=(225, 175, 90), damage=(3, 6), reach=9,
+                      depths=(2, 26), weight=2),
     "dagger": dict(name="dagger", category="weapon", color=(200, 200, 210), damage=(3, 5), noise=5, price=40,
                    depths=(1, 6), weight=6),
     "sword": dict(name="sword", category="weapon", color=(220, 220, 240), damage=(5, 9), noise=15, price=120,
