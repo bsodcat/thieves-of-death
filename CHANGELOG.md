@@ -2,6 +2,12 @@
 
 Versions are MAJOR.MINOR.PATCH. See "Versions" in the README for what each number means.
 
+## 2.2.1 - October 31, 2026
+
+### Changed
+
+- Toxic gas now spreads no more than 4 tiles from the mushroom in any direction.
+
 ## 2.2.0 - October 31, 2026
 
 ### Added

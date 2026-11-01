@@ -80,7 +80,7 @@ HELP_TIPS = (
     "A ward sends magic back at whoever cast it.",
     "The skeletal dragon on floor 80 breathes fire along a line.",
     "Magic armor turns up on floors 60 to 70. It reflects magic.",
-    "Toxic gas fills a whole room. Shut a door behind you, or run.",
+    "Toxic gas only spreads 4 tiles. Back away, or shut a door.",
     "Cultists guard altars. One use each, and the weapon keeps it.",
     "Water and lava walking potions turn up around floors 20 to 40.",
 )

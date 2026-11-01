@@ -39,7 +39,7 @@ import numpy as np
 from . import algo, mapgen, protocol, seasons
 from .constants import (ATRIUM_FLOOR, ATTACK_STAMINA, BONES_GLYPH, BREATH_DAMAGE, BREATH_RANGE, BREATH_SECONDS,
                         CLOAK_FLOORS, CRIT_DAMAGE, CRIT_STEALTH, CULT_CHANCE, CULT_FIRST,
-                        DRAGON_FLOOR, GAS_COOLDOWN, GAS_DAMAGE, GAS_MOST_TILES, GAS_SECONDS, GAS_TRIGGER, LAST_FLOOR,
+                        DRAGON_FLOOR, GAS_COOLDOWN, GAS_DAMAGE, GAS_REACH, GAS_SECONDS, GAS_TRIGGER, LAST_FLOOR,
                         REFLECT_SECONDS, SCORE_STEPS,
                         SUMMON_SECONDS, SUMMON_SIZE, TIDE_MAX, TIDE_SECONDS, TIDE_SIZE, VICTORY_SECONDS, WIN_POINTS,
                         WEAPON_DRAIN, WEAPON_FREEZE_CHANCE, WEAPON_FREEZE_SECONDS, WOLF_CHANCE, WOLF_FIRST, WOLF_SIZE,
@@ -288,13 +288,16 @@ class Level:
         return sorted(pond)
 
     def room_around(self, x: int, y: int) -> dict[tuple[int, int], int]:
-        """The open tiles around a spot, each with how far off it is. Doors and walls end it."""
+        """The open tiles within GAS_REACH of a spot, each with how many steps off it is.
+        Doors and walls end it, so it spreads around corners but not through them."""
         room, queue = {(x, y): 0}, deque([(x, y)])
-        while queue and len(room) < GAS_MOST_TILES:
+        while queue:
             cx, cy = queue.popleft()
             for dx, dy in DIRS8:
                 n = (cx + dx, cy + dy)
-                if n not in room and self.in_bounds(*n) and self.hover[n] and not self.is_door[n]:
+                if n in room or max(abs(n[0] - x), abs(n[1] - y)) > GAS_REACH:
+                    continue
+                if self.in_bounds(*n) and self.hover[n] and not self.is_door[n]:
                     room[n] = room[(cx, cy)] + 1
                     queue.append(n)
         return room

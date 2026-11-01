@@ -149,7 +149,7 @@ class WearingTests(unittest.TestCase):
 
     def test_shown_in_the_pack(self):
         self.assertEqual(make_cloak().info, "detection -50%, noise -45")
-        self.assertEqual(make_cloak().glyph, "ï")
+        self.assertEqual(make_cloak().glyph, "¶")
 
 
 class CriticalTests(unittest.TestCase):

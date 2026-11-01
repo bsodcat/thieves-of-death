@@ -5,7 +5,7 @@ from unittest import mock
 import numpy as np
 
 from game import mapgen
-from game.constants import (ATRIUM_FLOOR, BREATH_DAMAGE, DRAGON_FLOOR, GAS_MOST_TILES, GAS_SECONDS, LAST_FLOOR,
+from game.constants import (ATRIUM_FLOOR, BREATH_DAMAGE, DRAGON_FLOOR, GAS_REACH, GAS_SECONDS, LAST_FLOOR,
                             REFLECT_SECONDS, TICKS_PER_SECOND, TOWER_FIRST)
 from game.entities import make_monster
 from game.items import ITEMS, make_item
@@ -359,18 +359,27 @@ class GasTests(unittest.TestCase):
         lvl.monsters.append(m)
         return w, lvl, p, m
 
-    def test_it_fills_the_room_not_just_nearby(self):
+    def test_it_spreads_as_far_as_it_may_and_no_further(self):
         w, lvl, p, m = self.room()
         w._monster_turn(m, lvl)
         far = max(max(abs(c[0] - m.x), abs(c[1] - m.y)) for c in lvl.gas)
-        self.assertGreater(far, 5)
+        self.assertEqual(far, GAS_REACH)
         self.assertGreater(len(lvl.gas), 25)
+
+    def test_never_further_anywhere(self):
+        for seed in range(12):
+            w = World(seed)
+            lvl = w.level(4)
+            for x, y in lvl.land_cells[::9]:
+                room = lvl.room_around(x, y)
+                self.assertLessEqual(max(max(abs(c[0] - x), abs(c[1] - y)) for c in room), GAS_REACH)
+                self.assertLessEqual(len(room), (2 * GAS_REACH + 1) ** 2)
 
     def test_doors_and_walls_hold_it(self):
         w, lvl, p, m = self.room()
         w._monster_turn(m, lvl)
-        self.assertFalse(any(lvl.is_door[c] or not lvl.hover[c] for c in lvl.gas))
-        self.assertLessEqual(len(lvl.gas), GAS_MOST_TILES + 8)
+        self.assertTrue(all(lvl.hover[c] for c in lvl.gas))
+        self.assertFalse(any(lvl.is_door[c] for c in lvl.gas if c != (m.x, m.y)))
 
     def test_the_edges_clear_first_and_then_its_gone(self):
         w, lvl, p, m = self.room()

@@ -64,10 +64,11 @@ WOLF_FIRST = 3
 WOLF_CHANCE = 0.2
 WOLF_SIZE = (3, 6)
 
-# Mushrooms never move. Get within GAS_TRIGGER tiles and one fills the room around it, up to
-# GAS_MOST_TILES. The edges clear first, and the last of it goes after GAS_SECONDS.
+# Mushrooms never move. Get within GAS_TRIGGER tiles and one fills the open space around it,
+# up to GAS_REACH tiles away in any direction. The edges clear first, and the last of it goes
+# after GAS_SECONDS.
 GAS_TRIGGER = 2
-GAS_MOST_TILES = 220
+GAS_REACH = 4
 GAS_SECONDS = 12.0
 GAS_COOLDOWN = 20.0
 GAS_DAMAGE = 2             # each second spent in it

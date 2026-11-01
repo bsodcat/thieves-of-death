@@ -267,8 +267,9 @@ fall and can kill you. If you live, you end up on the nearest ground.
 
 - **Wolves** (`w`): from floor 3 down, a floor has a 20% chance of a pack of 3 to 6. They're twice as
   fast as you, and when one notices you they all do.
-- **Mushrooms** (`f`): they never move and don't attack. Get within 2 tiles and one fills the room
-  with toxic gas, however stealthy you are. Doors stop it. It thins from the edges inward and is gone
+- **Mushrooms** (`f`): they never move and don't attack. Get within 2 tiles and one fills the space
+  around it with toxic gas, up to 4 tiles away in any direction, however stealthy you are. Walls and
+  doors stop it. It thins from the edges inward and is gone
   in 12 seconds. Gas does 2 damage a second, and the mushroom can do it again after 20 seconds. Kill
   it from a distance, or go around.
 - **Zombies** (`z`): slow, and only raised by the necromancer.
@@ -304,8 +305,8 @@ and if there's nothing to aim at, a use isn't spent.
 ## Locked rooms
 
 Each of floors 4 to 14 has a 15% chance of a locked room, in red, blue, green or yellow. Its key is
-the same color and lies exactly 2 floors above or below, so you may have to come back for it. Press
-`g` to pick up a key, then walk into the door. Anyone in the party can use it, and it's used up.
+the same color and lies exactly 2 floors above or below, so you may have to come back for it. Walk over a
+key to pick it up, then walk into the door. Anyone in the party can use it, and it's used up.
 Inside are two pieces of gear from deeper down, a potion and a big pile of gold.
 
 ## Merchants
@@ -343,7 +344,7 @@ empties as you attack, so wait a moment beside a sleeper first.
 
 ## Items
 
-Walking over a potion or gold picks it up. Weapons and armor stay on the floor until you
+Walking over a potion, a key or gold picks it up. Weapons and armor stay on the floor until you
 stand on them and press `g`. Anyone can collect what another player drops. Something you've
 just dropped stays there until you step off and back on, or press `g`. When a player dies,
 everything they carried lands around them for the party to collect.
@@ -368,7 +369,7 @@ doesn't pause while the pack is open; the panel opens on the far side of the map
 | Scale armor | `[` | +35 armor | 25 |
 | Plate armor | `[` | +60 armor, moves take 25% longer | 40 |
 | Magic armor | `[` | +40 armor, and wards you against magic while worn. Floors 60 to 70 only | 10 |
-| Cloak | `ï` | Monsters notice you from half as far. Worn alongside weapon and armor | -45 |
+| Cloak | `¶` | Monsters notice you from half as far. Worn alongside weapon and armor | -45 |
 | Wand of frost | `/` | Freezes the nearest monster in sight for 30 seconds, without waking it. Rare. Breaks after 10 uses | |
 | Wand of fire | `/` | Burns the nearest monster in sight within 10 tiles. Breaks after 10 uses | |
 | Gold | `*` | Goes to your purse, not a pack slot | |

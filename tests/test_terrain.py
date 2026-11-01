@@ -511,7 +511,7 @@ class LockedRoomTests(unittest.TestCase):
         w.advance(100)
         self.assertEqual(len(p.pack), 1)
 
-    def test_keys_arent_picked_up_by_walking(self):
+    def test_keys_are_picked_up_by_walking(self):
         w, room = self.locked_world()
         lvl = w.level(room.key_depth)
         spot, key = next((c, i) for c, i in lvl.items.items() if i.category == "key")
@@ -519,9 +519,8 @@ class LockedRoomTests(unittest.TestCase):
         w.levels[p.depth].remove(p)
         lvl.place(p, *spot)
         w._step_onto(p, lvl)
-        self.assertEqual(p.pack, [])
-        self.assertTrue(w._pick_up(p, lvl))
         self.assertEqual(p.pack, [key])
+        self.assertNotIn(spot, lvl.items)
 
     def test_a_new_run_plans_new_rooms(self):
         w = World(5)
