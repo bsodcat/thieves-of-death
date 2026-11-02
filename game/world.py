@@ -61,6 +61,7 @@ from .items import (AUTO_PICKUP, ITEMS, Item, enhance_weapon, make_amulet, make_
 from .tiles import (ALTAR, ALTAR_SPENT, DEEP, DOOR, FLOOR, FOLIAGE, GRASS, HOVER, LAVA, LOCK_COLORS, LOCKED, PIT, POND,
                     SHALLOW, STAIRS_DOWN, STAIRS_UP, TRAMPLED, TRANSPARENT,
                     WALKABLE)
+from .version import VERSION
 
 DIRS8 = [(dx, dy) for dx in (-1, 0, 1) for dy in (-1, 0, 1) if dx or dy]
 
@@ -76,6 +77,7 @@ TEAL = (150, 255, 240)
 PACK_KINDS = ("cultist", "cult_leader", "wolf")
 AMULET_FROM_DOORS, AMULET_FROM_STAIRS = 15, 20  # steps' walk
 PATH_MAPS = 256  # distance maps a level keeps before starting over
+PACK_ORDER = ("potion", "wand", "ranged", "ammo", "weapon", "armor", "cloak", "key", "amulet", "gold")
 WEAR_OFF = (("levitate_until", "You drift back down to the ground."),
             ("waterwalk_until", "Your feet stop feeling so light."),
             ("lavawalk_until", "The heat starts to reach your feet."))
@@ -345,6 +347,7 @@ class World:
         self.run_start = 0                     # the tick this run began, for the UI clock
         self.reset_at: float | None = None
         self._ids = itertools.count(1)
+        self.ledger: list[dict] = [self.ledger_head()]  # action log messages to send out
 
     # ------------------------------------------------------------ levels
 
@@ -609,6 +612,7 @@ class World:
             self.players[p.id] = p
             self.dirty = True
             self.broadcast(f"{p.name} returns.", p.color)
+            self.note(p, f"returned hp {self._hp(p)}")
             self._check_all_dead()
             return p
         taken = {q.name for q in self.players.values()}
@@ -629,6 +633,7 @@ class World:
         self.players[p.id] = p
         self.dirty = True
         self.broadcast(f"{p.name} enters the dungeon.", p.color)
+        self.note(p, f"joined hp {self._hp(p)}")
         if self.season:
             self.tell(p, seasons.joined_message(self.season), GOLD)
         return p
@@ -648,6 +653,7 @@ class World:
             p.revive_ticks = 0
         self.offline[p.name] = p
         self.broadcast(f"{p.name} leaves.", GRAY)
+        self.note(p, f"left hp {self._hp(p)}")
         self._check_all_dead()
 
     def submit(self, p: Player, msg: dict) -> None:
@@ -691,7 +697,7 @@ class World:
             if not isinstance(slot, int) or isinstance(slot, bool) or not 0 <= slot < PACK_SIZE:
                 return
             p.pending = {"a": a, "slot": slot}
-        elif a in ("descend", "ascend", "pickup", "dropgold"):
+        elif a in ("descend", "ascend", "pickup", "dropgold", "quickheal", "sort"):
             p.pending = {"a": a}
         else:
             return
@@ -713,6 +719,33 @@ class World:
 
     def broadcast(self, text: str, color: tuple = WHITE) -> None:
         self.outbox.append((None, {"t": "msg", "text": text, "c": list(color)}))
+
+    def ledger_head(self) -> dict:
+        """Starts a run's action log. Someone joining later is sent this too."""
+        return {"t": "log", "run": self.run, "seed": self.seed,
+                "head": f"Togetherogue {VERSION} | run {self.run} | seed {self.seed} | {self.mode}"}
+
+    def note(self, who, text: str, depth: int | None = None) -> None:
+        """A line in the action log. `who` is a player, a monster or just a name."""
+        seconds = max(0, self.clock - self.run_start) / TICKS_PER_SECOND
+        stamp = f"{int(seconds // 3600)}:{int(seconds // 60 % 60):02d}:{seconds % 60:04.1f}"
+        depth = getattr(who, "depth", 0) if depth is None else depth
+        self.ledger.append({"t": "log", "line": f"{stamp} F{depth:02d} {self._tag(who)} {text}"})
+
+    @staticmethod
+    def _tag(who) -> str:
+        """A name for the log. Monsters get their number, to tell one goblin from the next."""
+        if isinstance(who, Monster):
+            return f"{who.name}#{who.id}"
+        return getattr(who, "name", None) or str(who)
+
+    @staticmethod
+    def _hp(a) -> str:
+        return f"{max(a.hp, 0)}/{a.max_hp}"
+
+    def drain_ledger(self) -> list[dict]:
+        out, self.ledger = self.ledger, []
+        return out
 
     def drain_outbox(self) -> list[tuple[int | None, dict]]:
         for lvl in self.levels.values():
@@ -799,6 +832,7 @@ class World:
                         ends = getattr(p, effect)
                         if ends and self.clock >= ends and p.alive:
                             setattr(p, effect, 0)
+                            self.note(p, f"{effect.removesuffix('_until')} wore off")
                             self.dirty = True
                             self._touch_down(p, text)
             self._tick_revives(ticks)
@@ -826,6 +860,7 @@ class World:
             return
         p.gas_ticks -= int(TICKS_PER_SECOND)
         p.hp -= GAS_DAMAGE
+        self.note(p, f"gas -{GAS_DAMAGE} hp {self._hp(p)}")
         self.tell(p, "You choke on the gas.", ORANGE)
         if p.hp <= 0:
             self._kill(p, None, f"Choked on toxic gas on depth {p.depth}.")
@@ -836,6 +871,7 @@ class World:
             return
         p.toxin_ticks -= int(TICKS_PER_SECOND)
         p.hp -= TOXIN_DAMAGE
+        self.note(p, f"toxin -{TOXIN_DAMAGE} hp {self._hp(p)}")
         self.dirty = True
         if p.hp <= 0:
             self._kill(p, None, f"Poisoned by a slime on depth {p.depth}.")
@@ -846,6 +882,7 @@ class World:
             return
         if p.toxin_until <= self.clock:
             self.tell(p, "Slime clings to you. It burns, and you can hardly move.", ORANGE)
+            self.note(p, "slimed: poisoned and slowed")
         p.toxin_until = self.clock + int(TOXIN_SECONDS * TICKS_PER_SECOND)
         p.slow_until = self.clock + int(SLOW_SECONDS * TICKS_PER_SECOND)
 
@@ -856,6 +893,7 @@ class World:
             for floor in due:
                 p.haunts.remove(floor)
                 self._raise_ghost(p, self.levels[p.depth])
+                self.note(p, f"haunted: ghost rose for the altar on F{floor:02d}")
 
     def _raise_ghost(self, p: Player, lvl: Level) -> None:
         """Anywhere out of sight, walls included: it doesn't need to stand on floor."""
@@ -938,6 +976,7 @@ class World:
         p.next_time = self.clock
         lvl.place(p, *lvl.free_near(p.x, p.y))
         self.broadcast(f"{rescuer.name} revives {p.name}!", GOLD)
+        self.note(p, f"revived by {rescuer.name} hp {self._hp(p)}")
 
     def _revive_percent(self, p: Player) -> int:
         return int(100 * p.revive_ticks / (REVIVE_SECONDS * TICKS_PER_SECOND))
@@ -1013,6 +1052,10 @@ class World:
             cost = self._drop(p, lvl, act["slot"])
         elif a == "dropgold":
             cost = self._drop_gold(p, lvl)
+        elif a == "quickheal":
+            cost = self._quick_heal(p)
+        elif a == "sort":
+            self._sort_pack(p)
         elif a == "buy":
             cost = self._buy(p, lvl, act["id"])
         elif a == "enhance":
@@ -1044,17 +1087,8 @@ class World:
                 self.outbox.append((p.id, self._shop_msg(other)))
                 self.tell(p, f"The {other.name} shows you what's for sale.", GOLD)
                 return 0
-            if other.is_player:  # swap places with an ally, as in Brogue
-                ox, oy = p.x, p.y
-                if not (self._can_be_at(p, lvl, nx, ny) and self._can_be_at(other, lvl, ox, oy)):
-                    return 0
-                lvl.remove(p)
-                lvl.remove(other)
-                lvl.place(p, nx, ny)
-                lvl.place(other, ox, oy)
-                self.tell(other, f"{p.name} swaps places with you.", GRAY)
-                self._step_onto(p, lvl)
-                return self._stride(p)
+            if other.is_player:
+                return self._pass_ally(p, other, lvl, dx, dy)
             self._attack(p, other)
             return self._swing_cost(p)
         if tile == ALTAR:
@@ -1075,6 +1109,41 @@ class World:
         lvl.move(p, nx, ny)
         self._step_onto(p, lvl)
         return self._stride(p)
+
+    def _pass_ally(self, p: Player, other: Player, lvl: Level, dx: int, dy: int) -> int:
+        """Allies never block each other. You walk straight past them, which leaves them where
+        they are, or trade places if there's nowhere to land. You must be able to stand where
+        they're standing, or someone floating over a lake would be a bridge across it."""
+        x, y = other.x, other.y
+        while self._can_be_at(p, lvl, x, y) and lvl.in_bounds(x + dx, y + dy) \
+                and not lvl.diagonal_blocked(x, y, x + dx, y + dy):
+            x, y = x + dx, y + dy
+            ahead = lvl.actor_at(x, y)
+            if ahead is None:
+                if self._can_land(p, lvl, x, y):
+                    lvl.move(p, x, y)
+                    self._step_onto(p, lvl)
+                    return self._stride(p)
+                break
+            if not ahead.is_player:
+                break
+        ox, oy, nx, ny = p.x, p.y, other.x, other.y
+        if not (self._can_be_at(p, lvl, nx, ny) and self._can_be_at(other, lvl, ox, oy)):
+            self.tell(p, f"There's no way past {other.name} here.", GRAY)
+            return 0
+        lvl.remove(p)
+        lvl.remove(other)
+        lvl.place(p, nx, ny)
+        lvl.place(other, ox, oy)
+        self.tell(other, f"{p.name} swaps places with you.", GRAY)
+        self._step_onto(p, lvl)
+        return self._stride(p)
+
+    def _can_land(self, p: Player, lvl: Level, x: int, y: int) -> bool:
+        """Whether a step past an ally can end here, which must never be anywhere a step
+        wouldn't normally just walk onto."""
+        return (self._can_be_at(p, lvl, x, y) and (x, y) != lvl.lock
+                and lvl.tiles[x, y] not in (STAIRS_DOWN, STAIRS_UP, PIT, ALTAR))
 
     def _offer(self, p: Player, x: int, y: int) -> int:
         if p.weapon is None:
@@ -1098,6 +1167,7 @@ class World:
         apply_gear(p)
         p.pack_dirty = True
         self.tell(p, f"Purple fire sinks into your {p.weapon.name}: {result}.", PURPLE)
+        self.note(p, f"enhanced {p.weapon.name}: {result}")
         self._narrate(lvl, [(x, y)], set(), lambda v: (f"The altar's light goes out around {p.name}.", PURPLE), exclude=p)
         return TICKS_PER_TURN
 
@@ -1139,6 +1209,7 @@ class World:
             q.needs_level = True
         self.dirty = True
         self.tell(p, f"The {room.color} key turns, and the door swings open.", GOLD)
+        self.note(p, f"unlocked the {room.color} door")
         return TICKS_PER_TURN
 
     def _fall(self, p: Player, lvl: Level, at: tuple[int, int] | None = None) -> None:
@@ -1152,6 +1223,7 @@ class World:
             p.hp = max(1, p.hp - self.rng.randint(*FALL_DAMAGE))
         p.pending, p.hold, p.needs_level = None, None, True
         self.tell(p, f"You fall into the pit and land hard on depth {p.depth}!", ORANGE)
+        self.note(p, f"fell F{lvl.depth:02d}->F{p.depth:02d} hp {self._hp(p)}")
         self._hear_merchant(p, below)
         if not self._can_be_at(p, below, p.x, p.y):
             self._burn(p, below)
@@ -1161,6 +1233,7 @@ class World:
         self.tell(p, "You're in lava!", RED)
         if not p.god:
             p.hp -= LAVA_DAMAGE
+        self.note(p, f"lava -{0 if p.god else LAVA_DAMAGE} hp {self._hp(p)}")
         if p.hp <= 0:
             self._kill(p, None, f"Burned in lava on depth {p.depth}.")
         else:
@@ -1195,6 +1268,7 @@ class World:
         p.hp = p.max_hp
         p.reflect_until = self.clock + int(REFLECT_SECONDS * TICKS_PER_SECOND)
         self.tell(p, "The water sparkles around you. You feel whole, and warded against magic.", TEAL)
+        self.note(p, f"pond: healed and warded hp {self._hp(p)}")
 
     def _reflecting(self, p: Player) -> bool:
         return p.reflect_until > self.clock or (p.armor is not None and p.armor.reflect)
@@ -1213,6 +1287,7 @@ class World:
             self.broadcast(f"{p.name} has the Amulet! Get it to the stairs on floor 1!", GOLD)
         p.pack_dirty = True
         self.tell(p, f"You pick up {self._a(item)}.", GOLD)
+        self.note(p, f"got {item.label}" + (f" gold now {p.gold}" if item.category == "gold" else ""))
         self._narrate(lvl, [(p.x, p.y)], set(), lambda v: (f"{p.name} picks up {self._a(item)}.", GRAY), exclude=p)
         return True
 
@@ -1252,6 +1327,7 @@ class World:
         p.gold -= item.price
         p.pack_dirty = True
         self.tell(p, f"You buy {self._a(item)} for {item.price}.", GOLD)
+        self.note(p, f"bought {item.label} for {item.price} gold now {p.gold}")
         for q in self._living_on(p.depth):  # everyone at the shop sees it sell out
             if cheb(q, m) <= 1:
                 self.outbox.append((q.id, self._shop_msg(m)))
@@ -1292,6 +1368,7 @@ class World:
             return 0
         else:
             p.hp = min(p.max_hp, p.hp + item.heal)
+            self.note(p, f"drank {item.name} hp {self._hp(p)}")
             if item.haste:
                 p.haste_until = self.clock + int(item.haste * TICKS_PER_SECOND)
             if item.levitate:
@@ -1313,7 +1390,27 @@ class World:
         p.pack_dirty = True
         equipped = item in (p.weapon, p.armor, p.cloak)
         self.tell(p, f"You {'equip' if equipped else 'remove'} the {item.name}.", WHITE)
+        self.note(p, f"{'equipped' if equipped else 'removed'} {item.name}")
         return TICKS_PER_TURN
+
+    def _quick_heal(self, p: Player) -> int:
+        """Drinks the smallest healing potion that fills you up, or failing that, the biggest."""
+        potions = [i for i in p.pack if i.heal]
+        if not potions:
+            self.tell(p, "You have no healing potions.", GRAY)
+            return 0
+        enough = [i for i in potions if p.hp + i.heal >= p.max_hp]
+        item = min(enough, key=lambda i: i.heal) if enough else max(potions, key=lambda i: i.heal)
+        return self._use(p, p.pack.index(item))
+
+    @staticmethod
+    def _sort_pack(p: Player) -> None:
+        """What you're wearing first, then the things you reach for in a hurry. It takes no time."""
+        def order(item: Item) -> tuple:
+            worn = item in (p.weapon, p.armor, p.cloak)
+            return (not worn, PACK_ORDER.index(item.category), -item.heal, item.name)
+        p.pack.sort(key=order)
+        p.pack_dirty = True
 
     def _teleport_floor(self, p: Player) -> None:
         """The potion: a random spot on a random other floor, from the first to the last."""
@@ -1324,6 +1421,7 @@ class World:
         if old.depth == LAST_FLOOR and self.necro_awake:
             p.chased = True
         depth = self.rng.choice([d for d in range(1, LAST_FLOOR + 1) if d != p.depth])
+        self.note(p, f"teleported F{old.depth:02d}->F{depth:02d}")
         old.remove(p)
         lvl = self.level(depth)
         lvl.place(p, *self._empty_floor(lvl, self.rng))
@@ -1384,10 +1482,13 @@ class World:
         sneak = m.state != "hunting"
         where = [(p.x, p.y), (m.x, m.y)]
         if sneak or self.rng.random() * 100 < p.accuracy * DEFENSE_FACTOR ** m.defense:
-            m.hp -= self.rng.randint(*weapon.damage) * (SNEAK_DAMAGE if sneak else 1)
+            dmg = self.rng.randint(*weapon.damage) * (SNEAK_DAMAGE if sneak else 1)
+            m.hp -= dmg
+            self.note(p, f"shot {self._tag(m)} with {weapon.name} -{dmg}{' sneak' if sneak else ''} hp {self._hp(m)}")
             self._narrate(lvl, where, {p}, lambda v: (
                 f"{self._n(p, v, True)} {self._verb(p, v, ('hits', 'hit'))} {self._n(m, v)}.", WHITE))
         else:
+            self.note(p, f"shot {self._tag(m)} with {weapon.name}: missed")
             self._narrate(lvl, where, {p}, lambda v: (
                 f"{self._n(p, v, True)} {self._verb(p, v, ('misses', 'miss'))} {self._n(m, v)}.", GRAY))
         if m.hp <= 0:
@@ -1410,11 +1511,14 @@ class World:
         self._note_fight(p, m)
         if wand.freeze:  # it never knew what hit it, so nothing wakes
             m.frozen_until = self.clock + int(wand.freeze * TICKS_PER_SECOND)
+            self.note(p, f"zapped {self._tag(m)} with {wand.name}: frozen {wand.freeze:.0f}s")
             self._narrate(lvl, [(m.x, m.y)], {p}, lambda v: (
                 f"{self._n(p, v, True)} {self._verb(p, v, ('freezes', 'freeze'))} {self._n(m, v)} solid.", WHITE))
         else:
-            m.hp -= self.rng.randint(*WAND_DAMAGE)
+            dmg = self.rng.randint(*WAND_DAMAGE)
+            m.hp -= dmg
             m.burning, m.burned_by = WAND_BURN_TURNS, p
+            self.note(p, f"zapped {self._tag(m)} with {wand.name} -{dmg} burning hp {self._hp(m)}")
             self._narrate(lvl, [(m.x, m.y)], {p}, lambda v: (
                 f"{self._n(p, v, True)} {self._verb(p, v, ('burns', 'burn'))} {self._n(m, v)}.", ORANGE))
             if m.hp <= 0:
@@ -1426,6 +1530,7 @@ class World:
         if wand.charges <= 0:
             self._take_one(p, wand)
             self.tell(p, f"The {wand.name} crumbles to ash.", ORANGE)
+            self.note(p, f"{wand.name} broke")
         return TICKS_PER_TURN
 
     def _take_one(self, p: Player, item: Item) -> Item:
@@ -1450,6 +1555,7 @@ class World:
         item = self._take_one(p, p.pack[slot])
         lvl.items[lvl.free_item_spot(p.x, p.y)] = item
         self.tell(p, f"You drop {self._a(item)}.", WHITE)
+        self.note(p, f"dropped {item.label}")
         self._narrate(lvl, [(p.x, p.y)], set(), lambda v: (f"{p.name} drops {self._a(item)}.", GRAY), exclude=p)
         return TICKS_PER_TURN
 
@@ -1463,6 +1569,7 @@ class World:
         item = self._gold(amount)
         lvl.items[lvl.free_item_spot(p.x, p.y)] = item
         self.tell(p, f"You drop {item.label}.", WHITE)
+        self.note(p, f"dropped {item.label} gold now {p.gold}")
         self._narrate(lvl, [(p.x, p.y)], set(), lambda v: (f"{p.name} drops {item.label}.", GRAY), exclude=p)
         return TICKS_PER_TURN
 
@@ -1486,6 +1593,7 @@ class World:
         if old.depth == LAST_FLOOR and self.necro_awake and step < 0 and not p.chased:
             p.chased = True
             self.tell(p, "Behind you, the dead begin to rise...", RED)
+            self.note(p, "chased by the rising dead")
         verb = "descends" if step > 0 else "climbs"
         self._narrate(old, [(p.x, p.y)], set(), lambda v: (f"{p.name} {verb} the stairs.", GRAY), exclude=p)
         old.remove(p)
@@ -1493,6 +1601,7 @@ class World:
         lvl.place(p, *lvl.free_near(*(lvl.up_front if step > 0 else lvl.down_front)))
         p.needs_level = True
         self.tell(p, f"You {'descend' if step > 0 else 'ascend'} to depth {new_depth}.", WHITE)
+        self.note(p, f"stairs F{old.depth:02d}->F{new_depth:02d} hp {self._hp(p)}")
         self._hear_merchant(p, lvl)
         return p.move_cost
 
@@ -1503,6 +1612,7 @@ class World:
         self.victory = p.name
         self.reset_at = time.monotonic() + VICTORY_SECONDS
         self.broadcast(f"{p.name} carries the Amulet out of the dungeon. The party wins!", GOLD)
+        self.note(p, "WON: escaped with the Amulet")
         for q in sorted(self.players.values(), key=self.score_of, reverse=True):
             self.broadcast(f"{q.name}: {self.score_of(q)} points, {q.kills} kills", GOLD)
 
@@ -1532,6 +1642,7 @@ class World:
         elif dfn.is_player:
             self._note_fight(dfn, att)
             if self._levitating(dfn) or dfn.god:
+                self.note(att, f"can't reach {self._tag(dfn)}")
                 self._narrate(lvl, [(att.x, att.y), (dfn.x, dfn.y)], {dfn}, lambda v: (
                     f"{self._n(att, v, True)} can't reach {self._n(dfn, v)}.", GRAY))
                 return
@@ -1544,6 +1655,8 @@ class World:
             if att.is_player and att.weapon is not None and att.weapon.enhanced and dfn.kind in UNDEAD:
                 dmg = int(dmg * UNDEAD_BONUS)
             dfn.hp -= dmg
+            kind = " crit" if crit else " sneak" if sneak else ""
+            self.note(att, f"hit {self._tag(dfn)} -{dmg}{kind} hp {self._hp(dfn)}")
 
             def hit(v):
                 tail = " with a critical hit!" if crit else " by surprise!" if sneak else "."
@@ -1555,6 +1668,7 @@ class World:
             if isinstance(att, Monster) and att.kind == "slime" and dfn.hp > 0:
                 self._slimed(dfn)
         else:
+            self.note(att, f"missed {self._tag(dfn)} ({prob:.0f}% to hit)")
             self._narrate(lvl, where, {att, dfn}, lambda v: (
                 f"{self._n(att, v, True)} {self._verb(att, v, ('misses', 'miss'))} {self._n(dfn, v)}.", GRAY))
         if isinstance(dfn, Monster) and dfn.hp > 0:
@@ -1569,8 +1683,10 @@ class World:
         if "frost" in spells and self.rng.random() < WEAPON_FREEZE_CHANCE:
             m.frozen_until = self.clock + int(WEAPON_FREEZE_SECONDS * TICKS_PER_SECOND)
             self.tell(p, f"The {m.name} freezes solid!", WHITE)
+            self.note(p, f"froze {self._tag(m)}")
         if "drain" in spells:
             p.hp = min(p.max_hp, p.hp + max(1, damage // WEAPON_DRAIN))
+            self.note(p, f"drained {self._tag(m)} hp {self._hp(p)}")
 
     @staticmethod
     def _note_fight(p: Player, m: Monster) -> None:
@@ -1581,6 +1697,7 @@ class World:
         lvl = self.levels[victim.depth]
         where = [(victim.x, victim.y)]
         if isinstance(victim, Monster):
+            self.note(victim, f"killed by {self._tag(killer)}" if killer is not None else "died")
             if victim is self.necromancer:
                 self.necromancer, self.necro_awake = None, False
                 for p in self.players.values():
@@ -1594,6 +1711,7 @@ class World:
             if victim.kind == "cult_leader":
                 lvl.items[lvl.free_item_spot(victim.x, victim.y)] = seasons.dress_item(make_wand(), self.season)
                 self._narrate(lvl, where, {killer}, lambda v: (f"The {victim.name} drops a wand!", GOLD))
+                self.note(victim, "dropped a wand")
             if killer is not None and killer.is_player:
                 killer.kills += 1
                 killer.kill_tally[victim.name] = killer.kill_tally.get(victim.name, 0) + 1
@@ -1609,6 +1727,9 @@ class World:
             lvl.move(victim, *lvl.free_near(victim.x, victim.y))
         victim.final_gold = victim.gold
         victim.death = cause or (f"Killed by {_article(killer.name)} on depth {victim.depth}." if killer else "Died.")
+        gear = ", ".join(i.name for i in (victim.weapon, victim.armor, victim.cloak) if i is not None) or "no gear"
+        self.note(victim, f"{'DOWN' if revivable else 'DIED'}: {victim.death} {victim.kills} kills, "
+                          f"{victim.gold} gold, wearing {gear}")
         lvl.remove(victim)
         if revivable:  # they keep their gear; it comes back with them
             victim.downed, victim.revive_ticks = True, 0
@@ -1637,6 +1758,7 @@ class World:
             self.broadcast("The whole party has fallen. A new dungeon takes shape...", RED)
             for p in sorted(self.players.values(), key=self.score_of, reverse=True):
                 self.broadcast(f"{p.name}: {self.score_of(p)} points, {p.kills} kills", GOLD)
+                self.note(p, f"RUN OVER: party fell, {self.score_of(p)} points, {p.kills} kills")
 
     def reset_run(self) -> None:
         self.seed = random.randrange(1, 2 ** 31)
@@ -1657,6 +1779,7 @@ class World:
             lvl.place(p, *lvl.free_near(*lvl.up_front))
             p.needs_level = True
         self.dirty = True
+        self.ledger.append(self.ledger_head())
         self.broadcast(f"Run {self.run} begins. Good luck!", GOLD)
 
     # ---------------------------------------------------------------- AI
@@ -1666,6 +1789,7 @@ class World:
         if m is self.necromancer and not self.necro_awake:
             self.necro_awake = True
             self.broadcast(f"The {m.name} has woken!", RED)
+            self.note(m, f"woke, hunting {self._tag(target)}")
         if m.kind in PACK_KINDS:  # one sees you and they all come
             head = m.leader or m
             for other in self.levels[m.depth].monsters:
@@ -1686,7 +1810,9 @@ class World:
             return
         if m.burning:
             m.burning -= 1
-            m.hp -= self.rng.randint(*WAND_BURN)
+            burn = self.rng.randint(*WAND_BURN)
+            m.hp -= burn
+            self.note(m, f"burned -{burn} hp {self._hp(m)}")
             if m.hp <= 0:
                 self._kill(m, m.burned_by)
                 return
@@ -1704,6 +1830,7 @@ class World:
                 share = 1 - 0.5 * away / furthest - 0.15 * self.rng.random()
                 lvl.gas[cell] = self.clock + int(share * GAS_SECONDS * TICKS_PER_SECOND)
             self._narrate(lvl, [(m.x, m.y)], set(), lambda v: (f"The {m.name} bursts into a cloud of toxic gas!", ORANGE))
+            self.note(m, f"released gas over {len(room)} tiles")
         return TICKS_PER_TURN
 
     def _haunt(self, m: Monster, lvl: Level) -> int:
@@ -1759,11 +1886,14 @@ class World:
         self._note_fight(target, m)
         where = [(m.x, m.y), (target.x, target.y)]
         if self.rng.random() * 100 >= m.accuracy * DEFENSE_FACTOR ** target.defense:
+            self.note(m, f"shot {self._tag(target)}: missed")
             self._narrate(lvl, where, {target}, lambda v: (f"The {m.name}'s arrow misses {self._n(target, v)}.", GRAY))
             return m.attack_cost
         self._narrate(lvl, where, {target}, lambda v: (f"The {m.name}'s arrow hits {self._n(target, v)}!", RED))
         if not target.god:
-            target.hp -= self.rng.randint(*m.damage)
+            dmg = self.rng.randint(*m.damage)
+            target.hp -= dmg
+            self.note(m, f"shot {self._tag(target)} -{dmg} hp {self._hp(target)}")
             if target.hp <= 0:
                 self._kill(target, m)
         return m.attack_cost
@@ -1780,12 +1910,14 @@ class World:
             damage = self.rng.randint(*BREATH_DAMAGE)
             if self._reflecting(p):
                 m.hp -= damage
+                self.note(m, f"fire reflected by {self._tag(p)} -{damage} hp {self._hp(m)}")
                 self._narrate(lvl, [(p.x, p.y)], {p}, lambda v: (f"The flames rebound off {self._n(p, v)}!", TEAL))
                 if m.hp <= 0:
                     self._kill(m, p)
                     return
             elif not p.god:
                 p.hp -= damage
+                self.note(m, f"burned {self._tag(p)} -{damage} hp {self._hp(p)}")
                 self.tell(p, "The flames wash over you!", RED)
                 if p.hp <= 0:
                     self._kill(p, m)
@@ -1796,6 +1928,7 @@ class World:
         for _ in range(min(room, self.rng.randint(*SUMMON_SIZE))):
             self._raise_zombie(lvl, lvl.free_near(m.x, m.y), target)
         self._narrate(lvl, [(m.x, m.y)], set(), lambda v: (f"The {m.name} raises the dead!", RED))
+        self.note(m, "raised the dead")
 
     def _monster_turn(self, m: Monster, lvl: Level) -> int:
         if m.kind == "mushroom":

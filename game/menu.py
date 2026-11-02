@@ -41,8 +41,9 @@ class Row:
 
 
 class Form:
-    def __init__(self, title: str, rows: list, note: str = ""):
+    def __init__(self, title: str, rows: list, note: str = "", top: int = ROW_Y, step: int = ROW_STEP):
         self.title, self.rows, self.note = title, rows, note
+        self.top, self.step = top, step
         self.index = 0
         self.error = ""
         self.message = ""
@@ -63,7 +64,7 @@ class Form:
 
     def row_at(self, y: int) -> int | None:
         for i in range(len(self.rows)):
-            if y == ROW_Y + i * ROW_STEP:
+            if y == self.top + i * self.step:
                 return i
         return None
 
@@ -106,8 +107,12 @@ class Form:
         console.print((SCREEN_W - len(title)) // 2, TITLE_Y, title, fg=GOLD)
         console.print((SCREEN_W - len(self.title)) // 2, TITLE_Y + 2, self.title, fg=WHITE)
         for i, row in enumerate(self.rows):
-            y = ROW_Y + i * ROW_STEP
+            y = self.top + i * self.step
             selected = i == self.index
+            if row.action and row.value:  # a button that shows a setting, such as a key
+                console.print(LABEL_X, y, row.label, fg=WHITE if selected else TEXT)
+                console.print(VALUE_X, y, f" {row.value} ", fg=WHITE, bg=SELECTED_BG if selected else FIELD_BG)
+                continue
             if row.action:
                 text = f"  {row.label}  "
                 x = (SCREEN_W - len(text)) // 2
@@ -117,7 +122,7 @@ class Form:
             shown = f"< {row.value} >" if row.choices else row.value + ("_" if selected else "")
             console.print(VALUE_X, y, shown.ljust(row.limit + 1 if row.is_text else len(shown)), fg=WHITE,
                           bg=SELECTED_BG if selected else FIELD_BG)
-        y = ROW_Y + len(self.rows) * ROW_STEP + 1
+        y = self.top + len(self.rows) * self.step + 1
         for text, color in ((self.note, DIM), (self.error, RED), (self.message, GREEN)):
             for line in text.splitlines():
                 console.print(LABEL_X, y, line, fg=color)

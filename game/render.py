@@ -9,13 +9,14 @@ from __future__ import annotations
 
 import math
 import random
+import re
 import textwrap
 import time
 from collections import deque
 
 import numpy as np
 
-from . import pathing, protocol, seasons
+from . import controls, pathing, protocol, seasons
 from .constants import (ATTACK_STAMINA, BONES_GLYPH, LOOK_Y, MAP_H, MAP_W, MAP_X, MAP_Y, MSG_LINES, PACK_SIZE,
                         REVIVE_SECONDS, SCREEN_H, SCREEN_W, SCORE_PER_GOLD, SIDEBAR_W, STAMINA_MAX, STEALTH_MAX,
                         TICKS_PER_TURN, VICTORY_SECONDS)
@@ -30,18 +31,18 @@ PANEL_BG = (20, 20, 34)
 DIM = (130, 130, 140)
 HEADING = (180, 170, 140)
 HELP_LINES = (
-    ("Arrows, numpad, hjklyubn", "Move or attack; hold to keep going"),
+    ("Arrows, {keys}, hjklyubn", "Move or attack; hold to keep going"),
     ("Two arrows together", "Move diagonally"),
-    ("Hold Shift", "Sprint, while you have the stamina"),
-    ("> or <", "Take the stairs, or walk into them"),
-    ("1-9, 0", "Use the item in that pack slot"),
-    ("i or t", "Show or hide your pack, or your tally"),
-    ("d, then 1-0 or $", "Drop an item, or 25 gold"),
+    ("Hold {sprint}", "Sprint, while you have the stamina"),
+    ("{descend} or {ascend}", "Take the stairs, or walk into them"),
+    ("1-9, 0, or {heal}", "Use a pack slot, or quick heal"),
+    ("{pack} or {tally}", "Show or hide your pack, or your tally"),
+    ("{drop}, then 1-0 or $", "Drop an item, or 25 gold"),
     ("Mouse", "Point to identify, hold right to walk"),
-    ("g", "Pick up what you're standing on"),
+    ("{pickup} or {log}", "Pick up, or show the action log"),
     ("Enter, or ` or F2", "Chat, or the test console (host only)"),
-    ("? or F1, Esc", "Show or hide this help, or close a panel"),
-    ("Q twice", "Leave the game"),
+    ("{help} or F1, Esc", "Show or hide this help, or close a panel"),
+    ("{quit} twice", "Leave the game"),
 )
 HELP_TIPS = (
     "Stand still to build stealth. Attacks empty it; gear limits it.",
@@ -111,6 +112,13 @@ ICE = (70, 130, 190)
 AURA = np.array((165, 60, 250), np.float32)      # added to the background right beside an altar
 AURA_RADIUS = 5.0
 ULTRABRIGHT = 1.5
+PACK_WIDTH = 62
+PACK_HOVER = (45, 45, 70)
+LOG_KEPT = 2000           # lines of the action log kept for reading in the game
+LOG_ROWS, LOG_ROWS_DEAD, LOG_SCROLL = 12, 26, 6  # it's only tall once there's nobody to keep in view
+WHEEL_LINES = 3           # lines a notch of the mouse wheel scrolls
+LOG_LOUD = (255, 150, 110)
+LOUD_LOG = re.compile(r" (DIED|DOWN|WON|RUN OVER|CONSOLE|ERROR)\b")
 WARNING_START = 0.3       # the share of a swing gone before it starts to blink
 WARNING_BLINKS = 2.6      # how fast the blinking speeds up: more is more frantic
 WARNING_DIM = 0.45        # how bright a monster stays in the dark part of a blink
@@ -150,7 +158,7 @@ def format_clock(seconds: float) -> str:
 
 
 class ClientView:
-    def __init__(self) -> None:
+    def __init__(self, config: dict | None = None) -> None:
         self.my_id: int | None = None
         self.name = ""
         self.run = None
@@ -176,6 +184,12 @@ class ClientView:
         self._walk_step = None
         self.show_help = False
         self.show_tally = False
+        self.show_log = False
+        self.keys = controls.labels(controls.load(config or {}))  # the player's keys, as shown on screen
+        self.log: deque[str] = deque(maxlen=LOG_KEPT)  # the action log, as far back as we keep
+        self.log_back = 0                         # lines scrolled up from the newest
+        self.log_run: tuple | None = None
+        self.log_path = ""                        # the file it's being saved to
         self.season = None
         self.shop: list | None = None             # the merchant's stock while you're at the shop
         self.shop_name = ""
@@ -196,6 +210,7 @@ class ClientView:
         self.console_log: deque = deque(maxlen=200)
         self.console_history: list[str] = []
         self.console_back = 0                     # how far back up the history you've gone
+        self.console_scroll = 0                   # lines scrolled up from the newest
         self.score = self.score_gold = 0
         self.tally: dict = {}                     # monster name -> kills
         self.hardest = ""
@@ -276,7 +291,7 @@ class ClientView:
             self.clock_base, self.clock_at = msg.get("time", 0.0), time.monotonic()
         elif t == "shop":
             self.shop, self.shop_name, self.shop_pos = msg["stock"], msg["name"], (msg["x"], msg["y"])
-            self.show_pack = self.drop_mode = self.show_help = self.show_tally = False
+            self.show_pack = self.drop_mode = self.show_help = self.show_tally = self.show_log = False
         elif t == "fx" and msg.get("kind") == "boomerang":
             self.throws.append((msg["cells"], time.monotonic()))
         elif t == "fx" and msg.get("kind") == "hit":
@@ -286,6 +301,7 @@ class ClientView:
         elif t == "console":
             for line in textwrap.wrap(msg["text"], CONSOLE_WIDTH - 4, replace_whitespace=False, drop_whitespace=False):
                 self.console_log.append((line, tuple(msg.get("c", TEXT))))
+                self.console_scroll += 1 if self.console_scroll else 0  # stay put while reading
         elif t == "prompt":
             self.prompt = msg
         elif t == "reject":
@@ -295,13 +311,46 @@ class ClientView:
             self.dmg, self.stealth_cap = msg["dmg"], msg.get("stealth_cap", STEALTH_MAX)
         elif t == "msg":
             self.messages.append((msg["text"], tuple(msg.get("c", TEXT))))
+        elif t == "log":
+            self._add_log(msg)
         elif t == "_disconnected":
             self.connected = False
             self.messages.append(("Disconnected from the server.", (255, 90, 90)))
 
+    def _add_log(self, msg: dict) -> None:
+        if "head" not in msg:
+            self.log.append(msg["line"])
+            self.log_back = self.log_back + 1 if self.log_back else 0  # stay put while reading
+        elif (msg["run"], msg["seed"]) != self.log_run:
+            self.log_run = msg["run"], msg["seed"]
+            self.log.clear()
+            self.log_back = 0
+            self.log.append(msg["head"])
+
+    def log_rows(self) -> int:
+        return LOG_ROWS if self.alive or self.downed else LOG_ROWS_DEAD
+
+    def toggle_log(self) -> None:
+        self.show_log = not self.show_log
+        self.log_back = 0
+        self.show_pack = self.drop_mode = self.show_help = self.show_tally = False
+
+    def scroll_log(self, step: int, lines: int = LOG_SCROLL) -> None:
+        """Up shows older lines. It stops with the oldest line at the top of the panel."""
+        self.log_back = max(0, min(len(self.log) - self.log_rows(), self.log_back + step * lines))
+
+    def wheel(self, notches: int) -> None:
+        """The mouse wheel scrolls whichever is on top, away from you showing older lines."""
+        if self.console_open:
+            rows = CONSOLE_ROWS - 2
+            self.console_scroll = max(0, min(len(self.console_log) - rows, self.console_scroll + notches * WHEEL_LINES))
+        elif self.show_log:
+            self.scroll_log(notches, WHEEL_LINES)
+
     def console_submit(self) -> str:
         """Takes the typed line. Returns what to send the server, if anything."""
         text, self.console_buf, self.console_back = self.console_buf.strip(), "", 0
+        self.console_scroll = 0
         if not text:
             return ""
         self.console_history.append(text)
@@ -319,7 +368,7 @@ class ClientView:
     def toggle_help(self) -> None:
         """Each time the help opens it shows the next tip, in a shuffled order."""
         self.show_help = not self.show_help
-        self.show_pack = self.drop_mode = self.show_tally = False
+        self.show_pack = self.drop_mode = self.show_tally = self.show_log = False
         if self.show_help:
             if not self.tips:
                 self.tips = random.sample([t for t in HELP_TIPS if t != self.tip], len(HELP_TIPS) - 1)
@@ -338,8 +387,8 @@ class ClientView:
         if goal == start:
             return None
         seen = self.seen[self.depth]
-        others = {(e["x"], e["y"]) for e in self.ents
-                  if e["id"] != self.my_id and e["st"] != "down" and (e["seen"] or e["p"])}
+        others = {(e["x"], e["y"]) for e in self.ents  # allies don't count: you walk past them
+                  if e["id"] != self.my_id and e["st"] != "down" and e["seen"] and not e["p"]}
         stairs = tiles[x, y] == STAIRS_DOWN or (tiles[x, y] == STAIRS_UP and self.depth > 1)
         key = (id(tiles), start, goal, frozenset(others), int(seen.sum()))
         if key != self._walk_key:  # this is asked every frame, but the answer rarely changes
@@ -372,6 +421,8 @@ class ClientView:
             self._draw_shop(f)
         if self.show_tally:
             self._draw_tally(f)
+        if self.show_log:
+            self._draw_log(f)
         if self.show_help:
             self._draw_help(f)
         if self.prompt:
@@ -755,15 +806,18 @@ class ClientView:
             self.text(f, MAP_X, y + 1, "Say: " + self.chat_buf[-(MAP_W - 7):] + "_", (255, 255, 255))
         else:
             self.text(f, MAP_X, y + 1,
-                      "arrows/numpad/hjklyubn  1-0 use  i pack  t tally  d drop  g get  ? help  Q quit",
+                      self._key_text("{keys}/arrows  1-0 use  {heal} heal  {pack} pack  {tally} tally  {log} log  "
+                                     "{drop} drop  {pickup} get  {help} help  {quit} quit"),
                       DIM, width=MAP_W)
 
     def _draw_pack(self, f) -> None:
         """The game keeps running behind this, so it stays clear of you; see _panel_pos."""
-        bw, panel_bg = 62, PANEL_BG
+        bw, panel_bg = PACK_WIDTH, PANEL_BG
         rows = PACK_SIZE + 4
         x0, y0 = self._panel_pos(bw, rows)
-        title = "Drop what? 1-0, $ for gold, Esc cancels" if self.drop_mode else "Pack: 1-0 use or equip, i closes"
+        title = ("Drop what? 1-0 or click, $ for gold, Esc cancels" if self.drop_mode
+                 else self._key_text("Pack: 1-0 or click to use, {sort} sorts, {pack} closes"))
+        hovered = self.pack_slot_at(self.mouse) if self.mouse else None
         for j in range(rows):
             self.text(f, x0, y0 + j, " " * bw, TEXT, panel_bg)
         self.text(f, x0 + 2, y0 + 1, title, HEADING, width=bw - 4)
@@ -773,6 +827,9 @@ class ClientView:
             if i >= len(self.pack):
                 continue
             item = self.pack[i]
+            if i == hovered:
+                self.text(f, x0 + 1, y, " " * (bw - 2), TEXT, PACK_HOVER)
+            self.text(f, x0 + 2, y, str((i + 1) % 10), DIM)
             self.text(f, x0 + 4, y, item["g"], tuple(item["c"]))
             self.text(f, x0 + 6, y, item["name"], (255, 255, 255) if item["eq"] else TEXT, width=26)
             note = item["info"] + (" (on)" if item["eq"] else "")
@@ -780,6 +837,20 @@ class ClientView:
         self.text(f, x0 + 2, y0 + rows - 1, f"{self.gold} {seasons.gold_name(self.season)}", (255, 215, 90))
         note = f"Equipped gear limits stealth to {self.stealth_cap}%"
         self.text(f, x0 + bw - 2 - len(note), y0 + rows - 1, note, DIM)
+
+    def pack_slot_at(self, tile: tuple[int, int] | None) -> int | None:
+        """The pack slot at a place on the screen, if the pack is open and there's an item there."""
+        if tile is None or not (self.show_pack or self.drop_mode):
+            return None
+        x0, y0 = self._panel_pos(PACK_WIDTH, PACK_SIZE + 4)
+        slot = tile[1] - y0 - 2
+        return slot if x0 <= tile[0] < x0 + PACK_WIDTH and 0 <= slot < len(self.pack) else None
+
+    def _key_text(self, text: str) -> str:
+        """Fills in the player's own keys. {keys} is their four movement keys, if that's short."""
+        keys = self.keys
+        moves = keys["up"] + keys["left"] + keys["down"] + keys["right"]
+        return text.format(**keys, keys=moves if len(moves) == 4 else "keys")
 
     def _panel_pos(self, width: int, height: int) -> tuple[int, int]:
         """Where a panel goes to leave your character in view.
@@ -813,6 +884,18 @@ class ClientView:
             self.text(f, x, y, name, TEXT, width=16)
             self.text(f, x + 17, y, f"{count}", (255, 255, 255))
 
+    def _draw_log(self, f) -> None:
+        shown = self.log_rows()
+        bw, rows = MAP_W, shown + 2
+        x0, y0 = self._panel_pos(bw, rows) if shown == LOG_ROWS else (MAP_X, MAP_Y + (MAP_H - rows) // 2)
+        for j in range(rows):
+            self.text(f, x0, y0 + j, " " * bw, TEXT, PANEL_BG)
+        self.text(f, x0 + 2, y0, self._key_text("Action log: up, down or the wheel scroll, {log} or Esc closes"), HEADING)
+        end = len(self.log) - self.log_back
+        for j, line in enumerate(list(self.log)[max(0, end - shown):end]):
+            self.text(f, x0 + 2, y0 + 1 + j, line, LOG_LOUD if LOUD_LOG.search(line) else TEXT, width=bw - 4)
+        self.text(f, x0 + 2, y0 + rows - 1, self.log_path or "Not saving to a file.", DIM, width=bw - 4)
+
     def _draw_shop(self, f) -> None:
         bw, rows = 62, len(self.shop) + 4 if self.shop else 5
         x0, y0 = self._panel_pos(bw, rows)
@@ -842,7 +925,7 @@ class ClientView:
             self.text(f, x0, y0 + j, " " * bw, TEXT, PANEL_BG)
         self.text(f, x0 + 2, y0, "Controls (the game keeps running). ? or Esc closes", HEADING)
         for j, (keys, what) in enumerate(HELP_LINES):
-            self.text(f, x0 + 2, y0 + 1 + j, keys, (255, 215, 90))
+            self.text(f, x0 + 2, y0 + 1 + j, self._key_text(keys), (255, 215, 90), width=key_w - 1)
             self.text(f, x0 + 2 + key_w, y0 + 1 + j, what, TEXT)
         self.text(f, x0 + 2, y0 + rows - 1, self.tip, DIM)
 
@@ -870,8 +953,9 @@ class ClientView:
         x0, y0 = self._panel_pos(bw, rows)
         for j in range(rows):
             self.text(f, x0, y0 + j, " " * bw, TEXT, PANEL_BG)
-        self.text(f, x0 + 2, y0, "Test console. Type help for commands, Esc closes", HEADING)
-        for j, (line, color) in enumerate(list(self.console_log)[-(rows - 2):]):
+        self.text(f, x0 + 2, y0, "Test console. Type help for commands, wheel scrolls, Esc closes", HEADING)
+        end = len(self.console_log) - self.console_scroll
+        for j, (line, color) in enumerate(list(self.console_log)[max(0, end - (rows - 2)):end]):
             self.text(f, x0 + 2, y0 + 1 + j, line, color, width=bw - 4)
         self.text(f, x0 + 2, y0 + rows - 1, "> " + self.console_buf[-(bw - 7):] + "_", (255, 255, 255))
 
@@ -881,10 +965,11 @@ class ClientView:
                      "A teammate can revive you by standing next to your",
                      f"bones ({BONES_GLYPH}) for {REVIVE_SECONDS:.0f} seconds. You come back at half health",
                      "with all your gear.", "",
-                     "If everyone goes down, the run restarts.", "", *self.tally_lines()]
+                     "If everyone goes down, the run restarts.", "", *self.tally_lines(), "",
+                     self._key_text("Press {log} to see what happened.")]
         else:
-            lines = ["You have died.", self.death, "", *self.tally_lines(), "", "Waiting for the party.",
-                     "A new run starts when everyone has fallen."]
+            lines = ["You have died.", self.death, "", *self.tally_lines(), "", self._key_text("Press {log} to see what happened."),
+                     "Waiting for the party.", "A new run starts when everyone has fallen."]
 
         bw = max(len(s) for s in lines) + 4
         x0 = MAP_X + (MAP_W - bw) // 2

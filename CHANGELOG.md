@@ -2,6 +2,28 @@
 
 Versions are MAJOR.MINOR.PATCH. See "Versions" in the README for what each number means.
 
+## 2.9.0 - November 1, 2026
+
+### Added
+
+- WASD moves you. Arrows, the numpad and hjklyubn still work, and drop moves from d to x.
+- A quick heal key, q, which drinks the smallest healing potion that fills you up.
+- Options now has a Controls screen for changing keys.
+- The pack can be sorted with o, and its items can be clicked to use or drop them.
+
+### Changed
+
+- Players walk straight past each other now, and only swap places if there's nowhere to land.
+- Auto-walking goes through allies instead of treating them as walls.
+
+## 2.8.0 - November 1, 2026
+
+### Added
+
+- An action log. Press v to read it in the game, even after you die, or open the text file saved
+  for each run. It notes fights, damage, items, floors, deaths, test commands and game errors.
+- The mouse wheel scrolls the action log and the test console.
+
 ## 2.7.8 - November 1, 2026
 
 ### Changed

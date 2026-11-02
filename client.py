@@ -20,8 +20,9 @@ import tcod.context
 import tcod.event
 import tcod.tileset
 
-from game import fon, protocol
+from game import controls, fon, protocol, settings
 from game.constants import DEFAULT_PORT, PROTOCOL_VERSION, SCREEN_H, SCREEN_W
+from game.ledger import Ledger
 from game.render import ClientView
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -40,8 +41,9 @@ FONT_CANDIDATES = [
     "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
 ]
 
-# Single-character commands arrive as text, so they work on any keyboard layout.
-CHAR_ACTIONS = {">": "descend", "<": "ascend", "g": "pickup", "Q": "quit"}
+# Commands that go straight to the server, and what they're called there.
+SERVER_ACTIONS = {"descend": "descend", "ascend": "ascend", "pickup": "pickup", "quit": "quit", "heal": "quickheal",
+                  "sort": "sort"}
 
 # Two fingers never leave a diagonal at the same moment. Waiting this long before acting
 # on a partial release stops the last key from stepping you along it by accident.
@@ -51,9 +53,11 @@ RELEASE_GRACE = 0.05
 AUTO_RESEND = 0.3
 
 
-def build_keymap() -> dict:
-    """Movement keys. These are tracked as held or released, so holding one keeps moving."""
+def build_keymap(bindings: dict) -> dict:
+    """Movement keys. These are tracked as held or released, so holding one keeps moving.
+    Yours come first, then the fixed ones, except any you've given another job."""
     keys = tcod.event.KeySym
+    taken = {controls.key_id(action, key) for action, key in bindings.items()}
     table = {
         ("UP", "KP_8", "k"): (0, -1), ("DOWN", "KP_2", "j"): (0, 1),
         ("LEFT", "KP_4", "h"): (-1, 0), ("RIGHT", "KP_6", "l"): (1, 0),
@@ -64,8 +68,12 @@ def build_keymap() -> dict:
     for names, action in table.items():
         for name in names:
             sym = getattr(keys, name, None)
-            if sym is not None:
+            if sym is not None and name not in taken:
                 out[sym] = action
+    for action, step in controls.DIRECTIONS.items():
+        sym = getattr(keys, bindings[action], None)
+        if sym is not None:
+            out[sym] = step
     return out
 
 
@@ -183,21 +191,27 @@ def new_console() -> tcod.console.Console:
     return tcod.console.Console(SCREEN_W, SCREEN_H, order="F")
 
 
-def play(context, console, net: Net, leave_note: str = "", intro: tuple = ()) -> bool:
+def play(context, console, net: Net, leave_note: str = "", intro: tuple = (), config: dict | None = None) -> bool:
     """Runs the game until the player leaves. Returns False if they closed the window."""
-    view = ClientView()
+    bindings = controls.load(config or {})
+    view = ClientView(config)
+    ledger = Ledger()
     for line in intro:
         view.messages.append((line, (140, 230, 140)))
-    keymap = build_keymap()
+    keymap = build_keymap(bindings)
+    pressed = {action: key for action, key in bindings.items() if action not in controls.HELD}
+    typed_keys = {key: action for action, key in pressed.items() if len(key) == 1}
+    named_keys = {getattr(tcod.event.KeySym, key, None): action for action, key in pressed.items() if len(key) > 1}
     slot_keys = build_slot_keys()
     enter_keys = key_set("RETURN", "KP_ENTER", "RETURN2")
     escape_keys = key_set("ESCAPE")
     backspace_keys = key_set("BACKSPACE")
     help_keys = key_set("F1")
-    sprint_keys = key_set("LSHIFT", "RSHIFT")
+    sprint_keys = key_set(bindings["sprint"], "RSHIFT")
     console_keys = key_set("GRAVE", "F2")
     yes_keys, no_keys = key_set("y") | enter_keys, key_set("n") | escape_keys
     up_keys, down_keys = key_set("UP"), key_set("DOWN")
+    log_up_keys, log_down_keys = up_keys | key_set("PAGEUP"), down_keys | key_set("PAGEDOWN")
     held: dict = {}   # movement keys currently down, oldest first
     sent_dir = None   # the direction the server thinks is held
     settle_at = 0.0   # when a partial release takes effect
@@ -220,6 +234,8 @@ def play(context, console, net: Net, leave_note: str = "", intro: tuple = ()) ->
     while True:
         for msg in net.poll():
             view.apply(msg)
+            ledger.apply(msg)
+            view.log_path = ledger.path
 
         frame = view.draw()
         console.rgb["ch"] = frame["ch"]
@@ -239,6 +255,12 @@ def play(context, console, net: Net, leave_note: str = "", intro: tuple = ()) ->
             if isinstance(event, (tcod.event.MouseMotion, tcod.event.MouseButtonDown)):
                 tile = context.convert_event(event).position
                 view.mouse = (int(tile[0]), int(tile[1]))
+            if isinstance(event, tcod.event.MouseButtonDown) and event.button == tcod.event.MouseButton.LEFT \
+                    and not view.console_open and not view.chat_mode:
+                slot = view.pack_slot_at(view.mouse)
+                if slot is not None:
+                    net.send({"t": "act", "a": "drop" if view.drop_mode else "use", "slot": slot})
+                    view.drop_mode = False
             if isinstance(event, tcod.event.MouseButtonDown) and event.button == tcod.event.MouseButton.RIGHT:
                 auto_walk, auto_press, auto_depth = True, True, view.depth
             if isinstance(event, tcod.event.MouseButtonUp) and event.button == tcod.event.MouseButton.RIGHT:
@@ -248,7 +270,9 @@ def play(context, console, net: Net, leave_note: str = "", intro: tuple = ()) ->
                     send_sprint(False)
                 held.pop(event.sym, None)
                 settle_at = time.monotonic() + RELEASE_GRACE
-            action = None
+            if isinstance(event, tcod.event.MouseWheel):
+                view.wheel(event.y)
+            action = command = None
             if view.console_open:
                 if isinstance(event, tcod.event.TextInput):
                     if event.text not in ("`", "~"):  # the key that opened it
@@ -303,11 +327,15 @@ def play(context, console, net: Net, leave_note: str = "", intro: tuple = ()) ->
                 if event.sym in escape_keys:
                     if not view.connected:
                         return True
-                    view.show_pack = view.drop_mode = view.show_help = view.show_tally = False
+                    view.show_pack = view.drop_mode = view.show_help = view.show_tally = view.show_log = False
                     view.shop = None
                     view.leave_prompt = ""
+                elif view.show_log and event.sym in log_up_keys | log_down_keys:
+                    view.scroll_log(1 if event.sym in log_up_keys else -1)
                 elif event.sym in help_keys and not event.repeat:
                     view.toggle_help()
+                elif event.sym in named_keys and not event.repeat:
+                    command = named_keys[event.sym]
                 elif event.sym in keymap and not event.repeat:
                     held[event.sym] = keymap[event.sym]
                     sent_dir = held_direction(held)
@@ -324,29 +352,33 @@ def play(context, console, net: Net, leave_note: str = "", intro: tuple = ()) ->
                         view.drop_mode = False
             elif isinstance(event, tcod.event.TextInput):
                 if view.leave_prompt:
-                    if event.text in ("q", "Q"):
+                    if event.text in ("q", "Q") or typed_keys.get(event.text) == "quit":
                         return True
                     view.leave_prompt = ""
-                elif event.text == "?":
-                    view.toggle_help()
-                elif event.text == "t":
-                    view.show_tally = not view.show_tally
-                    view.show_pack = view.drop_mode = view.show_help = False
-                elif event.text == "i":
-                    view.show_pack = not view.show_pack
-                    view.drop_mode = view.show_help = view.show_tally = False
-                elif event.text == "d":
-                    view.drop_mode = True
-                    view.show_help = view.show_tally = False
-                    view.shop = None
                 elif event.text == "$" and view.drop_mode:
                     action, view.drop_mode = "dropgold", False
                 else:
-                    action = CHAR_ACTIONS.get(event.text)
+                    command = typed_keys.get(event.text)
+            if command == "help":
+                view.toggle_help()
+            elif command == "tally":
+                view.show_tally = not view.show_tally
+                view.show_pack = view.drop_mode = view.show_help = view.show_log = False
+            elif command == "log":
+                view.toggle_log()
+            elif command == "pack":
+                view.show_pack = not view.show_pack
+                view.drop_mode = view.show_help = view.show_tally = view.show_log = False
+            elif command == "drop":
+                view.drop_mode = True
+                view.show_help = view.show_tally = view.show_log = False
+                view.shop = None
+            elif command:
+                action = SERVER_ACTIONS[command]
             if action == "quit":
                 if not view.connected:
                     return True
-                view.leave_prompt = f"Press Q again to leave{leave_note}, Esc to stay."
+                view.leave_prompt = f"Press {view.keys['quit']} again to leave{leave_note}, Esc to stay."
             elif action:
                 net.send({"t": "act", "a": action})
 
@@ -384,7 +416,7 @@ def main() -> None:
         sys.exit(f"Could not connect to {args.host}:{args.port}: {exc}")
 
     with open_window(load_tileset(args.font, tw, th)) as context:
-        play(context, new_console(), net)
+        play(context, new_console(), net, config=settings.load())
     net.close()
 
 

@@ -250,6 +250,7 @@ def run(w, p, text: str) -> None:
         reply(line, GOOD)
     w.dirty = True
     if name not in ("help", "list", "info"):
+        w.note(p, "CONSOLE " + " ".join(words))
         for q in w.players.values():
             if q is not p:
                 w.tell(q, f"{p.name} used the console: {' '.join(words)[:60]}", GRAY)

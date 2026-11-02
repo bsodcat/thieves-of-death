@@ -11,7 +11,7 @@ import time
 import tcod.event
 
 import client
-from game import seasons, settings
+from game import controls, seasons, settings
 from game.constants import GAME_MODES, MONSTER_TIME, REVIVE_SECONDS
 from game.entities import PLAYER_COLOR_NAMES, PLAYER_GLYPHS
 from game.menu import DIM, GREEN, TEXT, WHITE, Form, Row
@@ -24,6 +24,7 @@ FONTS = {
     "Terminal wide (12x16)": ("C:/Windows/Fonts/dosapp.fon", 12, 16),
     "Consolas (11x20)":      ("C:/Windows/Fonts/consola.ttf", 11, 20),
 }
+TYPED_WAIT = 0.05  # how long after a key press what it typed can take to arrive
 MONSTER_SPEEDS = {"Slow": 2.0, "Normal": MONSTER_TIME, "Fast": 1.0}
 SETUP_NOTE = (f"Leave the seed blank for a random dungeon.\n"
               f"Classic: a fallen player is out until the next run.\n"
@@ -167,7 +168,7 @@ class App:
 
     def run_game(self, net, leave_note: str = "", intro: tuple = ()) -> None:
         try:
-            if not client.play(self.context, self.console, net, leave_note, intro):
+            if not client.play(self.context, self.console, net, leave_note, intro, self.config):
                 raise WindowClosed
         finally:
             net.close()
@@ -319,14 +320,72 @@ class App:
                                     choices=("On", "Off")),
                                 Row("Ranged weapons aim at", "ranged_target", self.config["ranged_target"],
                                     choices=("Strongest", "Weakest")),
+                                Row("Controls", action="controls"),
                                 Row("Save", action="save"), Row("Back", action="back")],
                     note="Holiday themes follow the host's setting.")
-        if self.show(form) != "save":
+        action = self.show(form)
+        while action == "controls":
+            self.controls_screen()
+            action = self.show(form)
+        if action != "save":
             return
         changed = form.values()["font"] != self.config["font"]
         self.remember(form.values())
         if changed:
             raise FontChanged
+
+
+    def controls_screen(self) -> None:
+        """Pick a row, then press the key for it. Each change saves straight away."""
+        def rows() -> list:
+            shown = controls.labels(keys)
+            return [*(Row(name, value=shown[action], action=f"bind {action}") for action, name, _ in controls.ACTIONS),
+                    Row("Reset to defaults", action="reset"), Row("Back", action="back")]
+
+        keys = controls.load(self.config)
+        form = Form("Controls", rows(), top=7, step=1,
+                    note="Choose one and press its new key. Arrows, numpad and hjkl keep working.")
+        while True:
+            action = self.show(form)
+            if action == "back":
+                return
+            form.error = form.message = ""
+            if action == "reset":
+                keys = controls.defaults()
+            else:
+                bind = action.split()[1]
+                form.message = "Press a key, or Esc to cancel."
+                self.present(form)
+                pressed = self.read_key(bind in controls.HELD)
+                form.message = ""
+                if pressed is None:
+                    continue
+                form.error = controls.assign(keys, bind, *pressed)
+            index = form.index
+            form.rows = rows()
+            form.index = index
+            self.remember({controls.setting(a): key for a, key in keys.items()})
+
+    def read_key(self, held: bool) -> tuple[str, str] | None:
+        """The next key pressed, as its name and what it typed, or None for Esc. Unless it's for
+        holding down, Shift alone doesn't count, as it may be on the way to a key like >."""
+        shifts = (tcod.event.KeySym.LSHIFT, tcod.event.KeySym.RSHIFT)
+        name = None
+        wait_until = None
+        text = ""
+        while wait_until is None or time.monotonic() < wait_until:
+            for event in tcod.event.get():
+                if isinstance(event, tcod.event.Quit):
+                    raise WindowClosed
+                if isinstance(event, tcod.event.KeyDown) and name is None and (held or event.sym not in shifts):
+                    if event.sym == tcod.event.KeySym.ESCAPE:
+                        return None
+                    name = event.sym.name
+                    wait_until = time.monotonic() + TYPED_WAIT  # what it types comes as its own event
+                elif isinstance(event, tcod.event.TextInput) and name is not None and not text:
+                    text = event.text
+            time.sleep(1 / 120)
+        return name, text
 
 
 def self_test() -> int:

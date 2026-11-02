@@ -203,13 +203,14 @@ class HelpTests(unittest.TestCase):
         v.show_help = True
         text = screen(v)
         for keys, what in HELP_LINES:
-            self.assertIn(keys, text)
+            self.assertIn(v._key_text(keys), text)
             self.assertIn(what, text)
         self.assertIn(v.tip, text)
 
     def test_every_control_in_the_real_key_handling_is_listed(self):
-        keys = " ".join(k for k, _ in HELP_LINES)
-        for needed in ("hjklyubn", "1-9, 0", "i", "d, then 1-0 or $", "Mouse", "g", "Enter", "Esc", "Q twice", "? or F1"):
+        keys = " ".join(self.view()._key_text(k) for k, _ in HELP_LINES)
+        for needed in ("hjklyubn", "wasd", "1-9, 0", "or q", "i", "x, then 1-0 or $", "Mouse", "g", "Enter", "Esc",
+                       "Q twice", "? or F1"):
             self.assertIn(needed, keys)
 
     def test_footer_mentions_it(self):
@@ -228,7 +229,7 @@ class HelpTests(unittest.TestCase):
                 self.assertIn(what, text)
 
     def test_panels_never_cover_the_player_anywhere_on_the_map(self):
-        for panel in ("show_help", "show_pack"):
+        for panel in ("show_help", "show_pack", "show_log"):
             v = self.view()
             setattr(v, panel, True)
             for x in range(MAP_W):

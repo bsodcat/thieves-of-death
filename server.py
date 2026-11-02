@@ -12,11 +12,13 @@ import asyncio
 import logging
 import threading
 import time
+import traceback
 from collections import deque
 
 from game import algo, commands, protocol, seasons
 from game.constants import (DEFAULT_PORT, GAME_MODES, MONSTER_TIME, PING_SECONDS, PING_TIMEOUT, PROTOCOL_VERSION,
                             TICK_RATE, TICKS_PER_SECOND)
+from game.ledger import Ledger
 from game.version import VERSION
 from game.world import World
 
@@ -33,8 +35,9 @@ def is_local(peer) -> bool:
 
 
 class GameServer:
-    def __init__(self, world: World):
+    def __init__(self, world: World, ledger: Ledger | None = None):
         self.world = world
+        self.ledger = ledger                            # a dedicated server's own action log
         self.writers: dict[int, asyncio.StreamWriter] = {}
         self.pings: dict[int, tuple[int, float]] = {}   # player -> (ping number, when sent)
         self.ping_count = 0
@@ -52,8 +55,18 @@ class GameServer:
         if w is not None and not w.is_closing():
             w.write(protocol.encode(msg))
 
+    def send_ledger(self) -> None:
+        for msg in self.world.drain_ledger():
+            if self.ledger is not None:
+                self.ledger.apply(msg)
+            data = protocol.encode(msg)
+            for w in self.writers.values():
+                if not w.is_closing():
+                    w.write(data)
+
     def flush(self) -> None:
         """Deliver queued messages, then a fresh state to every connected player."""
+        self.send_ledger()
         for pid, msg in self.world.drain_outbox():
             if pid is None:
                 data = protocol.encode(msg)
@@ -97,6 +110,11 @@ class GameServer:
             del self.pings[p.id]
             self.world.record_ping(p, (time.monotonic() - sent[1]) * 1000)
 
+    def note_error(self, depth: int) -> None:
+        """A game bug, in the action log with whatever led up to it."""
+        lines = traceback.format_exc().strip().splitlines()
+        self.world.note("ERROR", " | ".join(s.strip() for s in lines[-3:]), depth)
+
     async def handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         peer = writer.get_extra_info("peername")
         try:
@@ -122,6 +140,7 @@ class GameServer:
         self.writers[p.id] = writer
         log.info("%s joined from %s", p.name, peer[0] if peer else "unknown")
         self.send(p.id, {"t": "welcome", "id": p.id, "name": p.name, "version": PROTOCOL_VERSION})
+        self.send(p.id, self.world.ledger_head())
         self.flush()
         try:
             while True:
@@ -144,6 +163,7 @@ class GameServer:
                         self.on_pong(p, msg)
                 except Exception:  # a game bug shouldn't drop the connection
                     log.exception("error handling %r from %s", msg, p.name)
+                    self.note_error(p.depth)
                 self.flush()
                 await writer.drain()
         except (ConnectionError, asyncio.IncompleteReadError, asyncio.LimitOverrunError):
@@ -171,10 +191,11 @@ class GameServer:
             try:
                 self.world.advance(ticks)
                 self.world.check_reset(now)
-                if self.world.dirty or self.world.outbox:
+                if self.world.dirty or self.world.outbox or self.world.ledger:
                     self.flush()
             except Exception:  # keep the server alive if a game bug slips through
                 log.exception("error in tick loop")
+                self.note_error(0)
 
 
 class _RunnerLog(logging.Handler):
@@ -256,7 +277,7 @@ async def main() -> None:
 
     fixed = None if args.season == "none" else args.season
     world = World(args.seed, mode=args.mode, season_fn=seasons.current if args.season == "auto" else lambda: fixed)
-    game = GameServer(world)
+    game = GameServer(world, Ledger())
     server = await game.start(args.host, args.port)
     log.info("listening on %s:%d (seed %d, %s FOV/pathing)", args.host, args.port, world.seed, algo.BACKEND)
     async with server:

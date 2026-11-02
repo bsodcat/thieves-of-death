@@ -316,7 +316,7 @@ class TipTests(unittest.TestCase):
 
     def test_it_still_fits_half_the_map(self):
         self.assertLessEqual(len(HELP_LINES) + 2, 14)
-        self.assertIn("Hold Shift", " ".join(k for k, _ in HELP_LINES))
+        self.assertIn("Hold Shift", " ".join(ClientView()._key_text(k) for k, _ in HELP_LINES))
 
 
 class LookTests(unittest.TestCase):

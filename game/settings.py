@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 
+from . import controls
 from .constants import DEFAULT_PORT
 
 DEFAULTS = {
@@ -18,6 +19,7 @@ DEFAULTS = {
     "color": "Gold",
     "holiday_themes": "On",
     "ranged_target": "Strongest",
+    **{controls.setting(action): key for action, _, key in controls.ACTIONS},
 }
 
 

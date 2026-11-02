@@ -80,13 +80,14 @@ On Windows the client uses the classic Terminal font (`8514oem.fon`, 10x20), rea
 
 | Key | Action |
 | --- | --- |
-| Arrows, numpad, or `h j k l y u b n` | Move or attack (8 directions). Hold to keep going; two arrows move diagonally |
+| `W A S D`, arrows, numpad, or `h j k l y u b n` | Move or attack (8 directions). Hold to keep going; two keys together move diagonally |
 | Walk into `>` / `<`, or press `>` / `<` next to them | Take the stairs |
 | `1`-`9`, `0` | Use the item in that pack slot: drink a potion, or equip or remove gear |
-| `i` | Show or hide the pack |
+| `q` | Quick heal: drink the smallest healing potion that fills you up, or your biggest if none will |
+| `i` | Show or hide the pack. While it's open, click an item to use it, or press `o` to sort |
 | `t` | Show or hide your tally |
-| `d`, then a number | Drop one item from that slot |
-| `d`, then `$` | Drop 25 gold |
+| `x`, then a number or a click | Drop one item from that slot |
+| `x`, then `$` | Drop 25 gold |
 | `g` | Pick up what you're standing on |
 | `?` or F1 | Show or hide the controls |
 | Mouse | Point at the map to identify what's there |
@@ -94,7 +95,15 @@ On Windows the client uses the classic Terminal font (`8514oem.fon`, 10x20), rea
 | Hold right click | Walk toward the pointer, around walls. On a monster, chase and attack it. On stairs, take them |
 | Esc | Close a panel or cancel a drop |
 | Enter | Chat (Enter sends, Esc cancels) |
+| `v` | Show or hide the action log |
 | `Q` or close the window | Quit |
+
+Change any of these in Options, under Controls: choose one and press its new key. Each key can only
+do one thing, and giving `h j k l y u b n` another job takes it off movement. Numbers, Enter, Esc,
+`` ` ``, F1 and F2 can't be changed. The arrows and numpad always move you, unless you bind them.
+
+Walk into a teammate to go straight past them, which leaves them where they are. If there's nowhere
+to land on the far side you trade places instead, so nobody can block a corridor.
 
 ## How time works
 
@@ -172,6 +181,31 @@ The same numbers appear when you fall, and when the whole party falls everyone s
 scoreboard. Scores aren't kept between runs. Change the numbers with `SCORE_STEPS`,
 `SCORE_PER_GOLD` and `WIN_POINTS` in `game/constants.py`.
 
+## Action log
+
+Press `v` in a game to read what's happened this run, including after you die. Up, down and the
+mouse wheel scroll it, and `v` or Esc closes it. The game keeps running behind it.
+
+The same lines are saved as you play, one text file for each run, in
+`%APPDATA%\Togetherogue\logs`. The panel shows the file's full path. Everyone playing gets their
+own file, from the moment they joined, and only the newest 200 are kept. A server run on its own
+with `server.py` saves one too.
+
+```
+0:04:12.3 F03 Bob hit goblin#41 -5 hp 10/15
+0:04:12.9 F03 goblin#41 missed Bob (62% to hit)
+0:04:13.8 F03 Bob drank potion of healing hp 40/40
+0:05:02.1 F03 Bob stairs F03->F04 hp 40/40
+```
+
+Each line is the time since the run began, the floor, who, and what happened. `10/15` is health
+left of the most, `-5` is damage, and `goblin#41` is one particular goblin. Lines are marked
+`DIED`, `DOWN`, `WON` or `RUN OVER` at the end of things, `CONSOLE` for a test command, and `ERROR`
+for a bug in the game itself. To chase a bug, the file's first line has the version and seed, and
+`--seed` or the Seed option rebuilds the same floors.
+
+To log something new, call `World.note` where it happens.
+
 ## Look
 
 The bottom left of the sidebar is the Look panel. Point the mouse at the map and that tile is
@@ -214,7 +248,8 @@ Torchlit while you're in it.
 ## Test console
 
 Press `` ` `` or F2 in a game to open the console, type a command and press Enter. Up and down
-recall what you've typed, and Esc closes it. The game keeps running behind it.
+recall what you've typed, the mouse wheel scrolls back through what it's printed, and Esc closes
+it. The game keeps running behind it.
 
 | Command | Does |
 | --- | --- |
@@ -437,6 +472,8 @@ bot.py             headless test player bot
 game/world.py      game state, real-time clock, combat, monster AI   <- most of the game
 game/mapgen.py     level generator
 game/commands.py   the test console's commands
+game/controls.py   the keys a player can change
+game/ledger.py     saves the action log to a text file
 game/entities.py   players and the monster list (add more monsters here)
 game/items.py      the item list (add items here)
 game/seasons.py    holiday names, descriptions, colors and dates
