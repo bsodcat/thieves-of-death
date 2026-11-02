@@ -408,8 +408,8 @@ class ViewTests(unittest.TestCase):
         v.log_path = "x" * 500
         v.toggle_log()
         text = screen_text(v.draw())
-        self.assertIn("x" * (MAP_W - 4), text)
-        self.assertNotIn("x" * (MAP_W - 3), text)
+        self.assertIn("..." + "x" * (MAP_W - 7), text)  # the end is the part that differs
+        self.assertNotIn("x" * (MAP_W - 6), text)
 
 
 if __name__ == "__main__":

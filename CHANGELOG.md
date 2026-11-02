@@ -2,6 +2,17 @@
 
 Versions are MAJOR.MINOR.PATCH. See "Versions" in the README for what each number means.
 
+## 2.9.1 - November 1, 2026
+
+### Fixed
+
+- `killall` no longer fails partway when the player using it is down.
+- The pack and the shop show whole names, so stacks of greater healing show their count.
+- Long lines in the action log wrap instead of being cut off, and the file's name always shows.
+- The help panel, its tips, the Look panel, the hint line and "Press g to pick it up" all show your
+  own keys. The help panel only lists hjklyubn keys that still walk.
+- The hint line fits the screen again, so it no longer ends in a lone Q.
+
 ## 2.9.0 - November 1, 2026
 
 ### Added

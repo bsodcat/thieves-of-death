@@ -31,7 +31,7 @@ PANEL_BG = (20, 20, 34)
 DIM = (130, 130, 140)
 HEADING = (180, 170, 140)
 HELP_LINES = (
-    ("Arrows, {keys}, hjklyubn", "Move or attack; hold to keep going"),
+    ("Arrows, {keys}{letters}", "Move or attack; hold to keep going"),
     ("Two arrows together", "Move diagonally"),
     ("Hold {sprint}", "Sprint, while you have the stamina"),
     ("{descend} or {ascend}", "Take the stairs, or walk into them"),
@@ -44,14 +44,15 @@ HELP_LINES = (
     ("{help} or F1, Esc", "Show or hide this help, or close a panel"),
     ("{quit} twice", "Leave the game"),
 )
+VI_KEYS = "hjklyubn"      # they walk, unless given another job in Controls
 HELP_TIPS = (
     "Stand still to build stealth. Attacks empty it; gear limits it.",
     "Monsters notice you from further away in torchlight.",
-    "Hold Shift to sprint. It burns stamina and drains stealth fast.",
+    "Hold {sprint} to sprint. It burns stamina and stealth fast.",
     "With too little stamina, your attacks take twice as long.",
     "Stamina only refills once you stop spending it.",
     "A sneak attack on an unaware monster does triple damage.",
-    "Walking over potions and gold collects them. Gear needs g.",
+    "Walk over potions and gold to collect them. Gear needs {pickup}.",
     "A key always lies 2 floors from its door, above or below.",
     "A pit is a quick way down, but the fall hurts.",
     "Levitation carries you over water and pits, but not forever.",
@@ -117,6 +118,7 @@ PACK_HOVER = (45, 45, 70)
 LOG_KEPT = 2000           # lines of the action log kept for reading in the game
 LOG_ROWS, LOG_ROWS_DEAD, LOG_SCROLL = 12, 26, 6  # it's only tall once there's nobody to keep in view
 WHEEL_LINES = 3           # lines a notch of the mouse wheel scrolls
+LOG_WRAP_INDENT = 10      # lines it wraps line up under the text, past the time
 LOG_LOUD = (255, 150, 110)
 LOUD_LOG = re.compile(r" (DIED|DOWN|WON|RUN OVER|CONSOLE|ERROR)\b")
 WARNING_START = 0.3       # the share of a swing gone before it starts to blink
@@ -661,9 +663,8 @@ class ClientView:
             lines.append(("Frozen solid", ICE))
         return lines
 
-    @staticmethod
-    def _describe_item(item: dict, in_sight: bool) -> list:
-        how = "Walk over it to collect." if item.get("auto") else "Stand on it and press g."
+    def _describe_item(self, item: dict, in_sight: bool) -> list:
+        how = "Walk over it to collect." if item.get("auto") else f"Stand on it and press {self.keys['pickup']}."
         lines = [(f"{item['g']} {item['name'].capitalize()}", tuple(item["c"]))]
         if item.get("info"):
             lines.append((item["info"].capitalize(), TEXT))
@@ -806,7 +807,7 @@ class ClientView:
             self.text(f, MAP_X, y + 1, "Say: " + self.chat_buf[-(MAP_W - 7):] + "_", (255, 255, 255))
         else:
             self.text(f, MAP_X, y + 1,
-                      self._key_text("{keys}/arrows  1-0 use  {heal} heal  {pack} pack  {tally} tally  {log} log  "
+                      self._key_text("{keys}/arrows  {heal} heal  {pack} pack  {tally} tally  {log} log  "
                                      "{drop} drop  {pickup} get  {help} help  {quit} quit"),
                       DIM, width=MAP_W)
 
@@ -831,8 +832,8 @@ class ClientView:
                 self.text(f, x0 + 1, y, " " * (bw - 2), TEXT, PACK_HOVER)
             self.text(f, x0 + 2, y, str((i + 1) % 10), DIM)
             self.text(f, x0 + 4, y, item["g"], tuple(item["c"]))
-            self.text(f, x0 + 6, y, item["name"], (255, 255, 255) if item["eq"] else TEXT, width=26)
             note = item["info"] + (" (on)" if item["eq"] else "")
+            self.text(f, x0 + 6, y, item["name"], (255, 255, 255) if item["eq"] else TEXT, width=bw - 9 - len(note))
             self.text(f, x0 + bw - 2 - len(note), y, note, DIM)
         self.text(f, x0 + 2, y0 + rows - 1, f"{self.gold} {seasons.gold_name(self.season)}", (255, 215, 90))
         note = f"Equipped gear limits stealth to {self.stealth_cap}%"
@@ -850,7 +851,8 @@ class ClientView:
         """Fills in the player's own keys. {keys} is their four movement keys, if that's short."""
         keys = self.keys
         moves = keys["up"] + keys["left"] + keys["down"] + keys["right"]
-        return text.format(**keys, keys=moves if len(moves) == 4 else "keys")
+        letters = "".join(c for c in VI_KEYS if c not in keys.values())  # any reassigned no longer walk
+        return text.format(**keys, keys=moves if len(moves) == 4 else "keys", letters=", " + letters if letters else "")
 
     def _panel_pos(self, width: int, height: int) -> tuple[int, int]:
         """Where a panel goes to leave your character in view.
@@ -891,13 +893,29 @@ class ClientView:
         for j in range(rows):
             self.text(f, x0, y0 + j, " " * bw, TEXT, PANEL_BG)
         self.text(f, x0 + 2, y0, self._key_text("Action log: up, down or the wheel scroll, {log} or Esc closes"), HEADING)
+        for j, (row, color) in enumerate(self._log_lines(shown, bw - 4)):
+            self.text(f, x0 + 2, y0 + 1 + j, row, color)
+        self.text(f, x0 + 2, y0 + rows - 1, self._log_where(bw - 4), DIM)
+
+    def _log_lines(self, shown: int, width: int) -> list:
+        """The rows of text to show, with long lines wrapped. If that's too many, it keeps the
+        newest while following the log, and the oldest while scrolled back, so scrolling either
+        way can reach every line."""
         end = len(self.log) - self.log_back
-        for j, line in enumerate(list(self.log)[max(0, end - shown):end]):
-            self.text(f, x0 + 2, y0 + 1 + j, line, LOG_LOUD if LOUD_LOG.search(line) else TEXT, width=bw - 4)
-        self.text(f, x0 + 2, y0 + rows - 1, self.log_path or "Not saving to a file.", DIM, width=bw - 4)
+        rows = []
+        for line in list(self.log)[max(0, end - shown):end]:
+            color = LOG_LOUD if LOUD_LOG.search(line) else TEXT
+            parts = textwrap.wrap(line, width, subsequent_indent=" " * LOG_WRAP_INDENT) or [""]
+            rows += [(part, color) for part in parts]
+        return rows[:shown] if self.log_back else rows[-shown:]
+
+    def _log_where(self, width: int) -> str:
+        """The file it's saved to, keeping the end if it's too long, as that's the part that differs."""
+        path = self.log_path or "Not saving to a file."
+        return path if len(path) <= width else "..." + path[3 - width:]
 
     def _draw_shop(self, f) -> None:
-        bw, rows = 62, len(self.shop) + 4 if self.shop else 5
+        bw, rows = 66, len(self.shop) + 4 if self.shop else 5
         x0, y0 = self._panel_pos(bw, rows)
         for j in range(rows):
             self.text(f, x0, y0 + j, " " * bw, TEXT, PANEL_BG)
@@ -909,8 +927,8 @@ class ClientView:
             affordable = self.gold >= item["price"]
             self.text(f, x0 + 2, y, str((i + 1) % 10), DIM)
             self.text(f, x0 + 4, y, item["g"], tuple(item["c"]))
-            self.text(f, x0 + 6, y, item["name"], TEXT if affordable else DIM, width=21)
-            self.text(f, x0 + 28, y, item["info"], DIM)
+            self.text(f, x0 + 6, y, item["name"], TEXT if affordable else DIM, width=25)
+            self.text(f, x0 + 32, y, item["info"], DIM)
             price = str(item["price"])
             self.text(f, x0 + bw - 2 - len(price), y, price, (255, 215, 90) if affordable else (200, 80, 80))
         self.text(f, x0 + 2, y0 + rows - 1, f"{self.gold} {seasons.gold_name(self.season)}", (255, 215, 90))
@@ -923,11 +941,11 @@ class ClientView:
         x0, y0 = self._panel_pos(bw, rows)
         for j in range(rows):
             self.text(f, x0, y0 + j, " " * bw, TEXT, PANEL_BG)
-        self.text(f, x0 + 2, y0, "Controls (the game keeps running). ? or Esc closes", HEADING)
+        self.text(f, x0 + 2, y0, self._key_text("Controls (the game keeps running). {help} or Esc closes"), HEADING)
         for j, (keys, what) in enumerate(HELP_LINES):
             self.text(f, x0 + 2, y0 + 1 + j, self._key_text(keys), (255, 215, 90), width=key_w - 1)
             self.text(f, x0 + 2 + key_w, y0 + 1 + j, what, TEXT)
-        self.text(f, x0 + 2, y0 + rows - 1, self.tip, DIM)
+        self.text(f, x0 + 2, y0 + rows - 1, self._key_text(self.tip), DIM)
 
     def _draw_prompt(self, f) -> None:
         text, keys = self.prompt["text"], "y yes    n no"

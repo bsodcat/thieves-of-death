@@ -305,7 +305,7 @@ class TipTests(unittest.TestCase):
         v = ClientView()
         for _ in range(len(HELP_TIPS)):
             v.toggle_help()
-            self.assertIn(v.tip, rows_of(v.draw()))
+            self.assertIn(v._key_text(v.tip), rows_of(v.draw()))
             v.toggle_help()
 
     def test_opening_it_closes_other_panels(self):

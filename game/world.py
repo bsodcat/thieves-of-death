@@ -591,6 +591,12 @@ class World:
         return PLAYER_COLORS[len(self.players) % len(PLAYER_COLORS)]
 
     @staticmethod
+    def clean_key(key) -> str:
+        """A key name from a client, for showing in messages. It came over the network, so
+        anything that isn't a short, plain name gets the default."""
+        return key if isinstance(key, str) and 0 < len(key) <= 12 and key.isprintable() else "g"
+
+    @staticmethod
     def _dress(p: Player, glyph, color) -> None:
         """Applies a character's chosen look, ignoring anything not on the lists."""
         if glyph in PLAYER_GLYPHS:
@@ -1258,7 +1264,7 @@ class World:
         if item.category in AUTO_PICKUP:
             self._pick_up(p, lvl)
         else:
-            self.tell(p, f"You see {self._a(item)} here. Press g to pick it up.", GRAY)
+            self.tell(p, f"You see {self._a(item)} here. Press {p.pickup_key} to pick it up.", GRAY)
 
     def _bathe(self, p: Player, lvl: Level) -> None:
         """A pond heals you fully and wards you, and that's the end of the pond."""
@@ -1704,7 +1710,8 @@ class World:
                     p.chased = False
                 self.broadcast(f"The {victim.name} is destroyed, and the dead lie still!", GOLD)
             self._narrate(lvl, where, {killer, victim}, lambda v: (
-                f"{self._n(killer, v, True)} {self._verb(killer, v, ('kills', 'kill'))} {self._n(victim, v)}.",
+                (f"{self._n(killer, v, True)} {self._verb(killer, v, ('kills', 'kill'))} {self._n(victim, v)}."
+                 if killer is not None else f"{self._n(victim, v, True)} dies."),
                 WHITE if v is killer else GRAY))
             lvl.remove(victim)
             lvl.monsters.remove(victim)

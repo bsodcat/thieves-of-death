@@ -137,6 +137,7 @@ class GameServer:
         p = self.world.join(hello.get("name", ""), hello.get("glyph"), hello.get("color"))
         p.can_command = is_local(peer)
         p.aim = "Weakest" if hello.get("aim") == "Weakest" else "Strongest"
+        p.pickup_key = self.world.clean_key(hello.get("pickup"))
         self.writers[p.id] = writer
         log.info("%s joined from %s", p.name, peer[0] if peer else "unknown")
         self.send(p.id, {"t": "welcome", "id": p.id, "name": p.name, "version": PROTOCOL_VERSION})

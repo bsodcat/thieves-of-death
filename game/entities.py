@@ -53,6 +53,7 @@ class Player(Actor):
     stamina_rest: int = 0        # tick when stamina starts refilling
     sprinting: bool = False      # Shift is held down
     aim: str = "Strongest"       # which monster ranged weapons pick: Strongest or Weakest
+    pickup_key: str = "g"        # how this player's own copy shows their pick up key
     can_command: bool = False    # playing on the server's own computer, so the console works
     god: bool = False            # console: takes no damage
     chased: bool = False         # left the necromancer's floor with it awake

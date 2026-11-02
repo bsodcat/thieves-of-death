@@ -164,7 +164,8 @@ class App:
                 Row("Game mode", "game_mode", c["game_mode"], choices=GAME_MODES)]
 
     def look(self) -> dict:
-        return {"aim": self.config["ranged_target"], "glyph": self.config["shape"], "color": self.config["color"]}
+        return {"aim": self.config["ranged_target"], "glyph": self.config["shape"], "color": self.config["color"],
+                "pickup": controls.labels(controls.load(self.config))["pickup"]}
 
     def run_game(self, net, leave_note: str = "", intro: tuple = ()) -> None:
         try:

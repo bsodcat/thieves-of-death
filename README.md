@@ -187,7 +187,7 @@ Press `v` in a game to read what's happened this run, including after you die. U
 mouse wheel scroll it, and `v` or Esc closes it. The game keeps running behind it.
 
 The same lines are saved as you play, one text file for each run, in
-`%APPDATA%\Togetherogue\logs`. The panel shows the file's full path. Everyone playing gets their
+`%APPDATA%\Togetherogue\logs`. The panel shows the file's name. Everyone playing gets their
 own file, from the moment they joined, and only the newest 200 are kept. A server run on its own
 with `server.py` saves one too.
 
