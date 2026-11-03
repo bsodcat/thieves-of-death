@@ -2,6 +2,13 @@
 
 Versions are MAJOR.MINOR.PATCH. See "Versions" in the README for what each number means.
 
+## 2.10.1 - November 2, 2026
+
+### Changed
+
+- The title screen shows the date the project began, October 30, 2026, instead of the release
+  date.
+
 ## 2.10.0 - November 2, 2026
 
 Players need this version to play together: 2.9 and 2.10 can't join each other's games.

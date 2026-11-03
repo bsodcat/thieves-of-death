@@ -8,7 +8,7 @@ from game import protocol
 from game.constants import PROTOCOL_VERSION, SCREEN_H, SCREEN_W
 from game.menu import Form, Row
 from game.render import ClientView
-from game.version import AUTHOR, RELEASE_DATE, VERSION
+from game.version import AUTHOR, STARTED, VERSION
 from server import ServerRunner
 from togetherogue import title_footer
 
@@ -23,8 +23,9 @@ class TitleTests(unittest.TestCase):
 
     def test_footer_says_everything(self):
         footer = title_footer()
-        for part in (VERSION, RELEASE_DATE, "Made by bsodcat"):
+        for part in (VERSION, "October 30, 2026", "Made by bsodcat"):
             self.assertIn(part, footer)
+        self.assertEqual(STARTED, "October 30, 2026")
         self.assertEqual(AUTHOR, "bsodcat")
 
     def test_footer_is_at_the_bottom_and_centered(self):

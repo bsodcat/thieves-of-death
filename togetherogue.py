@@ -15,7 +15,7 @@ from game import controls, seasons, settings
 from game.constants import GAME_MODES, MONSTER_TIME, REVIVE_SECONDS
 from game.entities import PLAYER_COLOR_NAMES, PLAYER_GLYPHS
 from game.menu import DIM, GREEN, TEXT, WHITE, Form, Row
-from game.version import AUTHOR, RELEASE_DATE, VERSION
+from game.version import AUTHOR, STARTED, VERSION
 from server import ServerRunner
 
 FONTS = {
@@ -83,7 +83,7 @@ def parse_setup(values: dict) -> tuple[int, int | None, float, str]:
 
 
 def title_footer() -> str:
-    return f"Version {VERSION}   {RELEASE_DATE}   Made by {AUTHOR}"
+    return f"Version {VERSION}   {STARTED}   Made by {AUTHOR}"
 
 
 def port_error(port: int) -> str:

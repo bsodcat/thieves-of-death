@@ -3,6 +3,6 @@
 See "Versions" in the README for when to raise each number. Players on different
 versions can only play together if PROTOCOL_VERSION in constants.py matches.
 """
-VERSION = "2.10.0"
-RELEASE_DATE = "November 2, 2026"
+VERSION = "2.10.1"
+STARTED = "October 30, 2026"  # the day the project began; it stays put across releases
 AUTHOR = "bsodcat"

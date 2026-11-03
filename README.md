@@ -37,7 +37,7 @@ that one file. The main menu has:
 Use the arrow keys and Enter, or the mouse. Your choices are saved in
 `%APPDATA%\Togetherogue\settings.json`. In the game, press `Q` twice to leave.
 
-The version and release date are at the bottom of the title screen, and come from
+The version and the date the project began are at the bottom of the title screen, and come from
 `game/version.py`. A server refuses players whose copy doesn't match it, and tells them why.
 
 ### Building the exe
