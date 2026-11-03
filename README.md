@@ -168,9 +168,9 @@ ends if the necromancer dies.
 
 ## Score and tally
 
-Gold scores and moves divide it. Your score is 10 points for each piece of gold you're carrying,
-plus 10000 if the party wins, divided by a share of your moves: score = points x 500 / (moves + 500).
-So 500 moves halves it, and 1500 leaves a quarter. It's shown in the sidebar as you play. Moves
+Your score is the gold you're carrying times your kills, times 100, divided by your moves:
+score = gold x kills x 100 / moves. A win doubles it. So gold and kills raise it, every move lowers
+it, and with no kills or no gold it's 0. It's shown in the sidebar as you play. Moves
 counts every action, including attacks and using items. The score uses
 the gold you carry when you fall, so gold you drop no longer counts, and in Classic the gold that
 scatters from you still does.
@@ -178,8 +178,8 @@ scatters from you still does.
 Press `t` for your tally: score, kills by monster, and the hardest enemy you've fought, ranked by
 health times damage per turn. Any monster that's hit or been hit by you counts, even if nobody won.
 The same numbers appear when you fall, and when the whole party falls everyone sees a ranked
-scoreboard. Scores aren't kept between runs. Change the numbers with `SCORE_STEPS`,
-`SCORE_PER_GOLD` and `WIN_POINTS` in `game/constants.py`.
+scoreboard. Scores aren't kept between runs. Change the 100 with `SCORE_SCALE` in
+`game/constants.py`.
 
 ## Action log
 
@@ -255,13 +255,14 @@ it. The game keeps running behind it.
 | --- | --- |
 | `help`, `list` | List the commands, or the item and monster names |
 | `info` | Seed, floor, locked rooms and where cloaks are waiting |
-| `give <item> [count]` | Put an item in your pack, such as `give wand` or `give tele 3` |
+| `give <item> [count]` | Put an item in your pack, such as `give wand` or `give tele 3`. `give gold 500` adds gold |
 | `gold <amount>` | Add gold, which raises your score |
 | `heal` | Fill your health and stamina |
 | `god` | Take no damage, until you turn it off |
 | `collision [on\|off]` | With it off, walk through walls, enemies, allies, water, pits, lava and locked doors |
 | `floor <number> [player]` | Move yourself, or another player, to any floor, such as `floor 51` for lava |
 | `goto <floor>` | The same as `floor`, for yourself only |
+| `summon [player]` | Bring another player to stand beside you, wherever they are. With no name, it brings everyone |
 | `spawn <monster> [count]` | Add monsters beside you. `spawn cult` adds a whole cult |
 | `killall` | Kill every monster on this floor |
 | `reveal` | Toggle: every floor is mapped as you reach it, and all monsters and items are marked, including any that appear later |
@@ -296,7 +297,16 @@ are in `game/constants.py`.
 From floor 51 down, most floors have pools of lava. Nothing can walk through it without a potion of
 lava walking or levitation, and walking into it is refused, but a pit gives no warning: you come
 down as close as possible to where you fell, and that can be lava. It costs 25 health on top of the
-fall and can kill you. If you live, you end up on the nearest ground.
+fall and can kill you. If you live, you end up on the nearest ground. Lava always stays 2 tiles
+clear of deep water, so it never touches water of any kind.
+
+Some walls are cracked, with a hidden room behind them. A cracked wall is the same `#` as the rest,
+a shade off in color. A floor with no locked door and no cult altar has a 33% chance of one. A bomb
+set off beside it breaks it open, and inside is a fairy: walk into it to free it, and every living
+player's maximum health rises by a fifth, healed at once.
+
+Now and then a room closed off by doors, with a torch and nothing else in it, holds a barrel of
+food (`Θ`). Walk into it and "Food is good!": you heal 2 health a second for 8 seconds.
 
 ## Monsters
 
@@ -310,10 +320,18 @@ fall and can kill you. If you live, you end up on the nearest ground.
   doors stop it. It thins from the edges inward and is gone
   in 12 seconds. Gas does 2 damage a second, and the mushroom can do it again after 20 seconds. Kill
   it from a distance, or go around.
+- **Kobolds** (`k`, green): floors 1 to 7. One that's alone, with no other monster within 4 tiles,
+  runs from you. Below half health it has a 5% chance each turn of throwing a rock instead, and one
+  next to a rat has a 3% chance each turn of killing it.
+- **Kobold leaders** (`K`, blue): floors 5 to 25, no more than 2 on a floor, each with 2 or 3
+  kobolds. Slow and tough, it keeps a tile between you and it and reaches across with its spear.
+- **Kobold scouts** (`k`, red): floors 10 to 15, up to 3 on a floor. They keep 4 to 8 tiles away and
+  throw a fireball every 5 seconds, for 4 to 8 damage. A ward stops it.
 - **Ogres** (`O`): from floor 7 to floor 65, and most common on floors 45 to 55.
 - **Skeleton archers** (`s`): floors 70 to 90. They move slowly, and try to stay 6 to 11 tiles from you, backing away if
   you close in and following if you run, and shoot every 2.5 seconds for 3 to 7 damage.
-- **Skeleton warriors** (`S`): the main enemy from floor 80 down through the tower to floor 98.
+- **Skeleton warriors** (`S`): the main enemy from floor 80 down through the tower to floor 98. Before
+  that, a war band of 3 to 5 stands on every third floor from 50 to 68, never more than 9 on a floor.
 - **Slimes** (`b`): 4 or 5 on every floor from 25 to 85. They're slow and only hit for 1 or 2, but their
   touch poisons you for 1 damage a second for 6 seconds, with no healing meanwhile, and halves your
   speed for 3 seconds, and so
@@ -321,12 +339,21 @@ fall and can kill you. If you live, you end up on the nearest ground.
 - **Ghosts** (`G`): only appear after you've used an altar. See Altars.
 - **Zombies** (`z`): slow, and only raised by the necromancer.
 
+A monster on fire and below half health runs from you. Where a monster dies it leaves a mark on
+the floor: blood for most, green goo for slimes, bones for skeletons, rot for zombies and spores
+for mushrooms. Ghosts leave nothing.
+
+Walk into the **fisherman** (`F`), who waits on one floor from 2 to 6, often by the water. He tells
+you which floor a locked room's key lies on, a different room each time, or gives you a tip if
+there are no locked rooms this run.
+
 ## Ponds of healing
 
 About 1 floor in 8 has a small bright teal pond. Step in to heal fully and be warded for 3 minutes:
 a blue glow surrounds you, and magic aimed at you goes straight back at whoever cast it. The pond is then spent.
 Magic armor has the same ward for as long as you wear it, with a smaller, slower glow. So far the dragon's fire is the only magic
-aimed at players.
+aimed at players, along with the cultist mage's lightning and the kobold scouts' fireballs. A ward
+stops those two outright.
 
 A monster about to hit you in melee warns you first: it blinks, faster and faster as the blow gets
 close. When a player strikes a monster, a red glow flares around it and fades. Most monsters give you about half a second, and slow hitters like ogres nearly a
@@ -345,6 +372,7 @@ a weapon and it asks whether you'd like to enhance your weapon. Say yes and that
 good, in one random way: more damage, better aim, faster attacks, less noise, or a spell that burns,
 sometimes freezes, or heals you as you hit. Each altar works once, then goes cold. The improvement
 stays with the weapon, whoever carries it, until the run ends, and a weapon can take several.
+Every enhancement also raises the weapon's damage by 15%, on top of whatever else it does.
 
 Any enhanced weapon also does 1.5 times the damage to the undead: zombies, skeletons, the skeletal
 dragon, ghosts and the necromancer. But altars have a price. Once you're 2 floors from one you've
@@ -356,8 +384,17 @@ that goes through walls, and it always knows where you are. You get one ghost fo
 From floor 10 down, a floor has a 20% chance of a group of 6 to 12 cultists, one of them their
 leader (`C`). When one notices you they all do. Kill the leader and it drops a wand of fire, which
 anyone can pick up with `g`. Use it like any pack item: it burns the nearest monster in sight within
-10 tiles for 8 to 14 damage and sets it alight for 3 of its turns. The wand breaks after 10 uses,
+10 tiles for 8 to 14 damage and sets it alight for 3 of its turns. The ground around it burns for 2
+to 3.5 seconds, and fire spreads through grass until it has all burned away to ash. Anything that
+stands in fire catches it, and players in it take 2 damage a second. The wand breaks after 10 uses,
 and if there's nothing to aim at, a use isn't spent.
+
+Every cult has a **cultist mage** (`M`) a floor above or below it. Every 10 seconds it rises into
+the air for 6 seconds, glowing violet, and drifts over to hang near you, usually above you. While
+it floats, melee can't reach it: use a bow, a boomerang, a wand or a staff. Every 3 seconds it casts
+lightning at you from up to 8 tiles, for 6 to 12 damage, which a pond's ward or magic armor stops.
+It drops a staff of lightning, which never runs out. It isn't a melee weapon, so no altar can
+enhance it.
 
 ## Locked rooms
 
@@ -370,8 +407,13 @@ Inside are two pieces of gear from deeper down, a potion and a big pile of gold.
 
 Every 5th floor has a 60% chance of a merchant (`$`), and you'll hear them when you arrive. Walk
 into them to see their stock, and press a number to buy. They sell 3 to 5 weapons and armor suited
-to the floor, and there's one of each, shared by the whole party. Walking away closes the shop.
+to the floor, and there's one of each, shared by the whole party. Every merchant also has bombs,
+which never sell out. Walking away closes the shop.
 Spending gold lowers your score, since it counts what you're carrying. You can't walk through a merchant.
+
+Press Tab at a shop to sell instead. It lists your pack with what the merchant will pay, which is
+half an item's price, and a number sells it: one potion or bomb at a time, or a whole quiver of
+arrows. What you sell is gone for good. Keys and the Amulet aren't for sale.
 
 The potion of levitation is rare on the floor, and 30% of merchants have one for 600 gold. For 9
 seconds you float: ground monsters can't reach you and moving doesn't use up your stealth, though
@@ -426,10 +468,19 @@ doesn't pause while the pack is open; the panel opens on the far side of the map
 | Scale armor | `[` | +35 armor | 25 |
 | Plate armor | `[` | +60 armor, moves take 25% longer | 40 |
 | Magic armor | `[` | +40 armor, and wards you against magic while worn. Floors 60 to 70 only | 10 |
+| Chain mail | `[` | +25 armor | 20 |
+| Mithril shirt | `[` | +40 armor, and almost silent. Floors 36 to 80 | 5 |
+| Dragon scale armor | `[` | +75 armor. Floors 72 to 98 | 25 |
+| Flame blade | `)` | 7-11 damage, and sets what it hits alight. Floors 20 to 60 | 15 |
+| Frost brand | `)` | 8-12 damage, and sometimes freezes what it hits. Floors 30 to 75 | 15 |
+| War axe | `)` | 14-20 damage. Floors 30 to 75 | 25 |
+| Greatsword | `)` | 20-28 damage, attacks take half as long again. Floors 55 to 98 | 30 |
+| Bomb | `δ` | Set it down and it goes off 2 seconds later, for 15 to 25 damage to everyone in the 3x3 around it, you included. Breaks cracked walls and sets grass alight. Merchants sell them | |
+| Staff of lightning | `/` | Lightning at the nearest monster in sight within 9 tiles, for 6 to 12 damage. Never runs out. Dropped by the cultist mage | |
 | Cloak | `¶` | Monsters notice you from half as far. Worn alongside weapon and armor | -45 |
 | Bow | `}` | Fires an arrow at a monster up to 12 tiles away, for 4 to 8 damage | |
 | Arrows | `\|` | Found in piles of 20 to 30, and picked up by walking over them | |
-| Boomerang | `}` | Thrown spinning at a monster up to 9 tiles away, for 3 to 6 damage. It comes back, so it's never used up | |
+| Boomerang | `}` | Thrown spinning at a monster up to 9 tiles away, for 3 to 6 damage. You see it fly back, and it can't be thrown again until it's in your hand, a second at least | |
 | Wand of frost | `/` | Freezes the nearest monster in sight for 30 seconds, without waking it. Rare. Breaks after 10 uses | |
 | Wand of fire | `/` | Burns the nearest monster in sight within 10 tiles. Breaks after 10 uses | |
 | Gold | `*` | Goes to your purse, not a pack slot | |

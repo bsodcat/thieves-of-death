@@ -5,7 +5,7 @@ Client -> server
     {"t": "act", "a": "move", "dx": 1, "dy": 0}                  one step
     {"t": "act", "a": "hold", "dx": 1, "dy": 0, "press": true}   keep walking until told otherwise;
                                                                  dx = dy = 0 stops, press buffers a step
-    {"t": "act", "a": "use" | "drop", "slot": 0}
+    {"t": "act", "a": "use" | "drop" | "sell", "slot": 0}       sell: to the merchant beside you
     {"t": "act", "a": "descend" | "ascend" | "pickup" | "dropgold"}
     {"t": "act", "a": "buy", "id": 2}                            an item in the shop
     {"t": "chat", "text": "hi"}
@@ -14,10 +14,14 @@ Client -> server
 Server -> client
     {"t": "welcome", "id": 3, "name": "Alice", "version": 12}
     {"t": "level", "depth": 1, "run": 1, "w": 79, "h": 29, "tiles": <base64 uint8>,
-     "lights": [<base64 uint8>, ...]}   one brightness map per torch
+     "lights": [<base64 uint8>, ...],   one brightness map per torch
+     "stains": [[x, y, "blood"], ...]}  what monsters have left where they died
+    {"t": "stains", "depth": 1, "cells": [[x, y, "goo"], ...]}   new ones since
     {"t": "state", ...}      see World.state_for
     {"t": "fx", "kind": "fire", "cells": [[x, y], ...]}   a wand's bolt, "blink" for a teleport,
-                             or "hit" where a player has just struck a monster
+                             "hit" where a player has just struck a monster, "blast" for a bomb,
+                             "lightning", "rock", or "boomerang" for one thrown out to its target
+    {"t": "tip", "who": "The fisherman"}   someone gives this player a tip, in their own keys
     {"t": "console", "text": "...", "c": [r, g, b]}       a line for the test console
     {"t": "prompt", "text": "...", "x": 1, "y": 2}   a yes or no question about an altar
     {"t": "tiles", "depth": 1, "cells": [[x, y, tile], ...]}   tiles that changed

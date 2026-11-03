@@ -213,7 +213,8 @@ class SpinTests(unittest.TestCase):
         cells, thrown = v.throws[0]
         with mock.patch("game.render.time.monotonic", return_value=thrown + seconds):
             frame = v.draw()
-        found = [(x, y, chr(frame["ch"][21 + x, 3 + y])) for x, y in cells if chr(frame["ch"][21 + x, 3 + y]) in SPIN]
+        found = [(x, y, chr(frame["ch"][21 + x, 3 + y])) for x, y in dict.fromkeys(map(tuple, cells))
+                 if chr(frame["ch"][21 + x, 3 + y]) in SPIN]
         return found
 
     def test_it_makes_no_flash(self):
@@ -221,12 +222,15 @@ class SpinTests(unittest.TestCase):
         self.assertEqual(v.bolts, [])
         self.assertEqual(len(v.throws), 1)
 
-    def test_it_leaves_the_player_and_reaches_the_monster(self):
+    def test_it_leaves_the_player_reaches_the_monster_and_comes_back(self):
         v, m = self.thrown()
         cells = v.throws[0][0]
+        middle = len(cells) // 2
         self.assertEqual(self.at(v, 0)[0][:2], tuple(cells[0]))
-        self.assertEqual(tuple(cells[-1]), (m.x, m.y))
-        self.assertEqual(self.at(v, (len(cells) - 0.5) * SPIN_TILE_SECONDS)[0][:2], tuple(cells[-1]))
+        self.assertEqual(tuple(cells[middle]), (m.x, m.y))
+        self.assertEqual(self.at(v, (middle + 0.5) * SPIN_TILE_SECONDS)[0][:2], (m.x, m.y))
+        self.assertEqual(tuple(cells[-1]), tuple(cells[0]))  # back beside the thrower
+        self.assertEqual(self.at(v, (len(cells) - 0.5) * SPIN_TILE_SECONDS)[0][:2], tuple(cells[0]))
 
     def test_only_one_tile_shows_at_a_time(self):
         v, m = self.thrown()

@@ -27,8 +27,8 @@ import numpy as np
 from .constants import (ATRIUM_FLOOR, LAKE_CHANCE, LAST_FLOOR, LAVA_CHANCE, LAVA_FIRST, LAVA_POOLS, MAP_H, MAP_W, PIT_CHANCE,
                         PLANT_CHANCE, PLANT_PATCHES, POND_CHANCE, TOWER_FIRST, PIT_COUNT, RIVER_CHANCE, TORCH_COUNT, TORCH_RADIUS,
                         TORCH_SPACING)
-from .tiles import (DEEP, DOOR, FLOOR, FOLIAGE, GRASS, LAVA, PIT, POND, SHALLOW, STAIRS_DOWN, STAIRS_UP, TORCH,
-                    TOWER_WALL, WALL)
+from .tiles import (CRACKED, DEEP, DOOR, FLOOR, FOLIAGE, GRASS, LAVA, PIT, POND, SHALLOW, STAIRS_DOWN, STAIRS_UP,
+                    TORCH, TOWER_WALL, WALL)
 
 DIRS4 = ((0, -1), (1, 0), (0, 1), (-1, 0))
 Point = tuple[int, int]
@@ -46,6 +46,8 @@ class GeneratedLevel:
     torches: tuple = ()               # (torch, the floor cell in front of it)
     lair: Point | None = None         # the last floor has no way down, and this instead
     side_rooms: tuple = ()            # and these: each one a list of its floor tiles
+    hidden: np.ndarray | None = None  # the floor of a room behind a cracked wall, if there is one
+    crack: Point | None = None        # that wall
 
 
 # --------------------------------------------------------------- helpers
@@ -444,7 +446,9 @@ def _add_terrain(rng: random.Random, fl: np.ndarray, doors: set, keep: np.ndarra
         pits = _pits(rng) & fl & ~keep & ~deep
     lava = np.zeros_like(fl)
     if depth >= LAVA_FIRST and rng.random() < LAVA_CHANCE:
-        lava = _lava(rng) & fl & ~keep & ~deep & ~pits
+        # Kept two tiles clear of deep water, so the shallows around it never touch lava either.
+        wet = _dilate(_dilate(deep)[1:-1, 1:-1])[1:-1, 1:-1]
+        lava = _lava(rng) & fl & ~keep & ~wet & ~pits
     for x, y in doors:
         pits[x, y] = lava[x, y] = False
     doors -= {p for p in doors if deep[p]}
@@ -492,7 +496,8 @@ def _add_pond(rng: random.Random, tiles: np.ndarray, keep: np.ndarray) -> None:
         return
     pond = np.zeros((MAP_W, MAP_H), bool)
     _stamp(rng, pond, _room_circle(rng) if rng.random() < 0.5 else np.ones((3, 2), bool))
-    tiles[pond & (tiles == FLOOR) & ~keep] = POND
+    hot = _dilate(tiles == LAVA)[1:-1, 1:-1]  # no water right beside lava
+    tiles[pond & (tiles == FLOOR) & ~keep & ~hot] = POND
 
 
 # ------------------------------------------------------------------ torches
@@ -633,7 +638,8 @@ def _atrium(rng: random.Random) -> GeneratedLevel | None:
 
 # ------------------------------------------------------------------ main
 
-def _try_generate(rng: random.Random, depth: int, lock_tile: int | None = None) -> GeneratedLevel | None:
+def _try_generate(rng: random.Random, depth: int, lock_tile: int | None = None,
+                  hidden_room: bool = False) -> GeneratedLevel | None:
     w, h = MAP_W, MAP_H
     fl = np.zeros((w, h), bool)
     doors: set[Point] = set()
@@ -667,9 +673,18 @@ def _try_generate(rng: random.Random, depth: int, lock_tile: int | None = None) 
         if found is None:
             return None
         vault, lock = found
+    hidden, crack = None, None
+    if hidden_room:  # built just like a locked room, but its way in is a wall to blow open
+        found = _add_vault(rng, fl)
+        if found is not None:
+            hidden, crack = found
+    shut = np.zeros((w, h), bool)  # the rooms that start closed off
+    for room in (vault, hidden):
+        if room is not None:
+            shut |= room
 
-    taken = doors | ({lock} if lock else set())
-    sites = [s for s in _stair_sites(fl, taken) if vault is None or not vault[s[1]]]
+    taken = doors | {p for p in (lock, crack) if p}
+    sites = [s for s in _stair_sites(fl, taken) if not shut[s[1]]]
     if len(sites) < 2:
         return None
     up, up_front = rng.choice(sites)
@@ -683,14 +698,17 @@ def _try_generate(rng: random.Random, depth: int, lock_tile: int | None = None) 
     keep = np.zeros((w, h), bool)
     for x, y in (up, up_front, down, down_front):
         keep[max(0, x - 1):x + 2, max(0, y - 1):y + 2] = True
-    if vault is not None:
-        keep |= _dilate(vault | _cell(lock))[1:-1, 1:-1]
-    sealed = fl.copy()  # the level without the locked room, which gets no water or pits
-    if vault is not None:
-        sealed[vault], sealed[lock] = False, False
+    for room, way in ((vault, lock), (hidden, crack)):
+        if room is not None:
+            keep |= _dilate(room | _cell(way))[1:-1, 1:-1]
+    sealed = fl.copy()  # the level without its closed rooms, which get no water or pits
+    for room, way in ((vault, lock), (hidden, crack)):
+        if room is not None:
+            sealed[room], sealed[way] = False, False
     goals = [down_front]
-    if lock:
-        goals += [(lock[0] + dx, lock[1] + dy) for dx, dy in DIRS4 if sealed[lock[0] + dx, lock[1] + dy]]
+    for way in (lock, crack):
+        if way:
+            goals += [(way[0] + dx, way[1] + dy) for dx, dy in DIRS4 if sealed[way[0] + dx, way[1] + dy]]
     terrain = _add_terrain(rng, sealed, doors, keep, up_front, tuple(goals), depth)
     if terrain is None:
         return None
@@ -708,17 +726,21 @@ def _try_generate(rng: random.Random, depth: int, lock_tile: int | None = None) 
     tiles[down] = STAIRS_DOWN
     if lock:
         tiles[lock] = lock_tile
-    torches = _add_torches(rng, tiles, vault, (up, down))
+    if crack:
+        tiles[crack] = CRACKED
+    torches = _add_torches(rng, tiles, shut if shut.any() else None, (up, down))
     for torch, front in torches:
         tiles[torch] = TORCH
         keep[front] = True
     _add_plants(rng, tiles, keep)
     _add_pond(rng, tiles, keep)
-    return GeneratedLevel(tiles, up, up_front, down, down_front, vault, lock, tuple(torches))
+    return GeneratedLevel(tiles, up, up_front, down, down_front, vault, lock, tuple(torches),
+                          hidden=hidden, crack=crack)
 
 
-def generate(seed: int, depth: int, lock_tile: int | None = None) -> GeneratedLevel:
-    """Same seed and depth always give the same level. `lock_tile` adds a locked room."""
+def generate(seed: int, depth: int, lock_tile: int | None = None, hidden_room: bool = False) -> GeneratedLevel:
+    """Same seed and depth always give the same level. `lock_tile` adds a locked room, and
+    `hidden_room` one behind a cracked wall, if it fits."""
     rng = random.Random(f"{seed}:{depth}")
     for _ in range(50):
         if depth == ATRIUM_FLOOR:
@@ -728,7 +750,7 @@ def generate(seed: int, depth: int, lock_tile: int | None = None) -> GeneratedLe
         elif depth >= TOWER_FIRST:
             level = _tower(rng)
         else:
-            level = _try_generate(rng, depth, lock_tile)
+            level = _try_generate(rng, depth, lock_tile, hidden_room)
         if level is not None:
             return level
     raise RuntimeError("level generation failed")

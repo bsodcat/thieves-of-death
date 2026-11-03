@@ -95,14 +95,15 @@ class SpawnTests(unittest.TestCase):
                 self.assertFalse(lvl.is_door[m.x, m.y])
                 self.assertNotIn(m, lvl.monsters)
 
-    def test_stock_is_equipment_plus_sometimes_levitation(self):
+    def test_stock_is_equipment_and_bombs_plus_sometimes_levitation(self):
         for m in self.merchants(seeds=60):
             kinds = [i.kind for i in m.stock.values()]
             gear = [k for k in kinds if ITEMS[k]["category"] in ("weapon", "armor")]
             self.assertTrue(MERCHANT_STOCK[0] <= len(gear) <= MERCHANT_STOCK[1], kinds)
             self.assertEqual(len(gear), len(set(gear)))
             self.assertLessEqual(len(kinds), 10)
-            self.assertLessEqual(set(kinds) - set(gear), {"levitation"})
+            self.assertIn("bomb", kinds)
+            self.assertLessEqual(set(kinds) - set(gear), {"levitation", "bomb"})
 
     def test_levitation_is_an_occasional_stock_item(self):
         ms = self.merchants()
@@ -262,7 +263,7 @@ class ShopTests(unittest.TestCase):
 
     def test_buying_lowers_score(self):
         w, lvl, m, step, (a,) = with_merchant()
-        a.gold = 130
+        a.gold, a.kills = 130, 1
         before = w.score_of(a)
         self.buy(w, a, 1)
         self.assertLess(w.score_of(a), before)
@@ -306,7 +307,7 @@ class ShopViewTests(unittest.TestCase):
     def test_panel_lists_stock_and_prices(self):
         w, lvl, m, a, v = self.opened()
         text = screen(v)
-        for part in ("Merchant: 1-0 buy, Esc closes", "dagger", "sword", "potion of levitation", "40", "120", "600",
+        for part in ("Merchant: 1-0 buy, Tab to sell, Esc closes", "dagger", "sword", "potion of levitation", "40", "120", "600",
                      "float for 9s", "130 gold", "Spending lowers your score"):
             self.assertIn(part, text)
 

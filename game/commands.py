@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from .constants import LAST_FLOOR, STAMINA_MAX, STEALTH_MAX
 from .entities import MONSTERS, make_monster
-from .items import ITEMS, make_amulet, make_cloak, make_item, make_key, make_wand
+from .items import ITEMS, make_amulet, make_cloak, make_item, make_key, make_staff, make_wand
 from .seasons import dress_item, dress_monster
 from .tiles import LOCK_COLORS
 
@@ -48,7 +48,7 @@ def pick(name: str, choices, what: str) -> str:
 
 
 def item_names() -> list[str]:
-    return [*ITEMS, "cloak", "wand", "amulet", *(f"{color}_key" for color in LOCK_COLORS)]
+    return [*ITEMS, "cloak", "wand", "staff", "amulet", "gold", *(f"{color}_key" for color in LOCK_COLORS)]
 
 
 def make(kind: str, depth: int):
@@ -56,6 +56,8 @@ def make(kind: str, depth: int):
         return make_cloak()
     if kind == "wand":
         return make_wand()
+    if kind == "staff":
+        return make_staff()
     if kind == "amulet":
         return make_amulet()
     if kind.endswith("_key"):
@@ -82,6 +84,8 @@ def give(w, p, args) -> str:
     if not args:
         raise Refused("give <item> [count]")
     kind = pick(args[0], item_names(), "item")
+    if kind == "gold":  # a count of gold is an amount, not a number of items
+        return gold(w, p, args[1:] or ["100"])
     count = number(args[1], 1, 99) if len(args) > 1 else 1
     for _ in range(count):
         item = dress_item(make(kind, p.depth), w.season)
@@ -143,6 +147,25 @@ def floor(w, p, args) -> str:
     if target is not p:
         w.tell(target, f"{p.name} moved you to floor {depth}.", GOOD)
     return f"{target.name} is on floor {depth}."
+
+
+def summon(w, p, args) -> str:
+    """Brings another player, or everyone else, to stand beside you."""
+    alive(p)
+    others = {q.name.lower(): q for q in w.players.values() if q is not p}
+    if not others:
+        raise Refused("There's nobody else here.")
+    targets = [others[pick(" ".join(args), others, "player")]] if args else list(others.values())
+    moved = []
+    for q in targets:
+        if not q.alive:
+            continue
+        w.bring(q, p)
+        w.tell(q, f"{p.name} brought you to them.", GOOD)
+        moved.append(q.name)
+    if not moved:
+        raise Refused("Only living players can be brought over.")
+    return f"Brought {', '.join(moved)} to you."
 
 
 def spawn(w, p, args) -> str:
@@ -212,13 +235,14 @@ COMMANDS = {
     "help": (show_help, "help [command]", "List the commands, or explain one"),
     "list": (list_names, "list", "List item and monster names"),
     "info": (info, "info", "Seed, floor, locked rooms and cloaks"),
-    "give": (give, "give <item> [count]", "Put an item in your pack"),
+    "give": (give, "give <item> [count]", "Put an item, or gold, in your pack"),
     "gold": (gold, "gold <amount>", "Add gold"),
     "heal": (heal, "heal", "Fill your health and stamina"),
     "god": (god, "god", "Take no damage, on or off"),
     "collision": (collision, "collision [on|off]", "Walk through walls, enemies and hazards"),
     "goto": (goto, "goto <floor>", "Go to any floor"),
     "floor": (floor, "floor <number> [player]", "Move you, or another player, to a floor"),
+    "summon": (summon, "summon [player]", "Bring a player, or everyone, to you"),
     "spawn": (spawn, "spawn <monster> [count]", "Add monsters; spawn cult adds a cult"),
     "killall": (killall, "killall", "Kill every monster on this floor"),
     "reveal": (reveal, "reveal", "Map floors, mark monsters and items"),

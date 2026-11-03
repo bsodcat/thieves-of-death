@@ -77,7 +77,6 @@ POTION_ROOM = 8
 # Whoever carries it up the stairs on floor 1 wins the run for the whole party.
 LAST_FLOOR = 99
 VICTORY_SECONDS = 12.0     # how long the win stays on screen before a new dungeon
-WIN_POINTS = 10000         # added to everyone's score before it's divided by their moves
 
 # The necromancer. Awake and in sight of a player, it raises zombies every SUMMON_SECONDS.
 # Anyone who leaves its floor while it's awake is chased: wherever they are above it, more
@@ -214,10 +213,80 @@ REVIVE_SECONDS = 3.0
 REVIVE_HEALTH = 0.5        # share of full health a revived player comes back with
 BONES_GLYPH = "%"
 
-# Score = (gold carried * SCORE_PER_GOLD + WIN_POINTS if the party won) * SCORE_STEPS / (moves + SCORE_STEPS).
-# So every move lowers it, and it's halved after SCORE_STEPS moves.
-SCORE_PER_GOLD = 10
-SCORE_STEPS = 500
+# Score = gold carried * kills * SCORE_SCALE / moves, doubled if the party won.
+# So gold and kills raise it, and every move lowers it.
+SCORE_SCALE = 100
+
+# Boomerangs fly out and come back at this many seconds a tile, and can't be thrown again until they're back.
+BOOMERANG_TILE_SECONDS = 0.06
+BOOMERANG_WAIT = 1.0       # the least time before it can be thrown again, however close the target
+
+# Selling to a merchant gets you this share of an item's price. What you sell is gone for good.
+SELL_SHARE = 0.5
+
+# The fisherman waits on one floor in this range, by water if there is any. He knows where keys are.
+FISHER_FLOORS = (2, 6)
+
+# Food barrels stand in quiet rooms: a door, a torch and nothing else. Walking into one gives you
+# FOOD_HEAL health a second for FOOD_SECONDS.
+FOOD_SECONDS = 8.0
+FOOD_HEAL = 2
+FOOD_ROOM_MOST = 80       # tiles; bigger than this isn't a room
+
+# Fire from a wand of fire burns the ground around its target for FIRE_SECONDS, and grass until it's
+# all burned away. Anything standing in it catches fire, and players in it take FIRE_DAMAGE a second.
+FIRE_SECONDS = (2.0, 3.5)
+GRASS_FIRE_SECONDS = (1.5, 3.0)
+FIRE_SPREAD_SECONDS = 0.3  # how often fire jumps to the grass next to it
+FIRE_SPREAD_CHANCE = 0.55
+FIRE_DAMAGE = 2
+FLEE_HEALTH = 0.5          # monsters on fire run below this share of their health
+
+# Bombs. Merchants sell them, and they turn up now and then. One goes off BOMB_SECONDS after it's
+# lit, hurting everything within BOMB_RADIUS and breaking cracked walls.
+BOMB_SECONDS = 2.0
+BOMB_RADIUS = 1
+BOMB_DAMAGE = (15, 25)
+
+# Hidden rooms lie behind a cracked wall on HIDDEN_ROOM_CHANCE of the floors with no locked door
+# and no cult altar. A fairy in one raises everyone's health by FAIRY_BOOST of its maximum.
+HIDDEN_ROOM_CHANCE = 0.33
+FAIRY_BOOST = 0.2
+
+# Every time an altar improves a weapon, its damage also goes up by this share.
+ENHANCE_BOOST = 0.15
+
+# Skeleton warriors gather in a group on every SKELETON_EVERY floors in this range, never more than
+# SKELETON_MOST on one floor.
+SKELETON_FLOORS = (50, 70)
+SKELETON_EVERY = 3
+SKELETON_GROUP = (3, 5)
+SKELETON_MOST = 9
+
+# The cultist mage lives a floor from a cult's altar. It floats for MAGE_FLOAT seconds of every
+# MAGE_CYCLE, out of reach of melee, and casts lightning every MAGE_BOLT seconds.
+MAGE_FLOAT = 6.0
+MAGE_CYCLE = 10.0
+MAGE_BOLT = 3.0
+MAGE_RANGE = 8
+LIGHTNING_DAMAGE = (6, 12)
+STAFF_RANGE = 9
+
+# Kobolds. A kobold next to a rat may turn on it. Leaders keep a tile away and reach in with a
+# spear, on floors KOBOLD_LEADER_FLOORS. Scouts throw fire every SCOUT_RELOAD seconds.
+KOBOLD_RAT_CHANCE = 0.03
+KOBOLD_ALONE = 4           # with no other monster this close, a kobold runs
+KOBOLD_ROCK_CHANCE = 0.05  # each turn below half health, for a thrown rock
+KOBOLD_ROCK_RANGE = 6
+ROCK_DAMAGE = (1, 3)
+KOBOLD_LEADER_FLOORS = (5, 25)
+KOBOLD_LEADER_CHANCE = 0.35  # of one leader on a floor; it has this chance again of a second
+KOBOLD_SCOUT_FLOORS = (10, 15)
+KOBOLD_SCOUT_CHANCE = 0.6
+KOBOLD_SCOUT_MOST = 3
+SCOUT_RELOAD = 5.0
+SCOUT_RANGE = (4, 8)
+FIREBALL_DAMAGE = (4, 8)
 
 # Combat and monsters.
 DEEPEST_TABLE = 26         # the monster and item lists end here; deeper floors reuse this one
@@ -226,5 +295,5 @@ DEFENSE_FACTOR = 0.987     # hit% = accuracy * DEFENSE_FACTOR ** defense
 NOTICE_RANGE_SLEEPING = 7
 NOTICE_RANGE_AWAKE = 14
 
-PROTOCOL_VERSION = 20
+PROTOCOL_VERSION = 21
 DEFAULT_PORT = 5555

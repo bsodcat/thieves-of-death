@@ -1,14 +1,16 @@
 """Items: potions, weapons, armor, cloaks, keys, wands, the Amulet and gold, and the catalogue they're made from."""
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
-from .constants import ENHANCE_ACCURACY, ENHANCE_DAMAGE, ENHANCE_NOISE, TICKS_PER_TURN, WAND_CHARGES
+from .constants import (BOMB_SECONDS, ENHANCE_ACCURACY, ENHANCE_BOOST, ENHANCE_DAMAGE, ENHANCE_NOISE, SELL_SHARE,
+                        TICKS_PER_TURN, WAND_CHARGES)
 from .tiles import LOCK_COLORS
 
 GLYPHS = {"potion": "!", "weapon": ")", "armor": "[", "gold": "*", "key": "\u2640", "cloak": "¶", "wand": "/", "amulet": "§", "ranged": "}",
-          "ammo": "|"}
-AUTO_PICKUP = ("potion", "gold", "key", "ammo")   # collected by walking over them; the rest wait for a key press
+          "ammo": "|", "bomb": "δ", "food": "Θ"}
+AUTO_PICKUP = ("potion", "gold", "key", "ammo", "bomb")   # collected by walking over them; the rest wait for a key press
 
 
 @dataclass(eq=False)
@@ -40,6 +42,9 @@ class Item:
     fires: str = ""             # what it uses up, if anything
     magic: tuple = ()           # an enhanced weapon's spells: fire, frost, drain
     enhanced: int = 0           # how many times an altar has improved it
+    unlimited: bool = False     # a wand that never runs out
+    lightning: bool = False     # a wand that casts lightning
+    back_at: int = 0            # tick a thrown boomerang is back in hand
 
     @property
     def glyph(self) -> str:
@@ -47,7 +52,17 @@ class Item:
 
     @property
     def stacks(self) -> bool:
-        return self.category in ("potion", "ammo")
+        return self.category in ("potion", "ammo", "bomb")
+
+    @property
+    def sellable(self) -> bool:
+        return self.price > 0 and self.category not in ("key", "amulet", "gold", "food")
+
+    @property
+    def sell_price(self) -> int:
+        """What a merchant pays for one of these, or for a whole quiver of arrows."""
+        each = max(1, int(self.price * SELL_SHARE))
+        return each * self.count if self.category == "ammo" else each
 
     @property
     def label(self) -> str:
@@ -70,6 +85,10 @@ class Item:
             return f"dmg {self.damage[0]}-{self.damage[1]}, range {self.reach}{ammo}"
         if self.category == "ammo":
             return "for a bow"
+        if self.category == "bomb":
+            return f"blows up {BOMB_SECONDS:.0f}s after use"
+        if self.category == "food":
+            return "walk into it to eat"
         if self.category == "cloak":
             return f"detection -{self.hush:.0%}, noise {self.noise}"
         if self.heal:
@@ -84,6 +103,8 @@ class Item:
             return f"walk on water for {self.waterwalk:.0f}s"
         if self.lavawalk:
             return f"walk on lava for {self.lavawalk:.0f}s"
+        if self.category == "wand" and self.unlimited:
+            return "lightning, unlimited, no altar takes it"
         if self.category == "wand":
             effect = f"freeze {self.freeze:.0f}s" if self.freeze else "fire"
             return f"{effect}, {self.charges} use{'' if self.charges == 1 else 's'} left"
@@ -96,25 +117,26 @@ class Item:
 
 # Stats are this project's own; tweak freely. depths = (first, last) depth it appears on.
 ITEMS = {
-    "healing": dict(name="potion of healing", category="potion", color=(255, 110, 130), heal=20,
+    "healing": dict(name="potion of healing", category="potion", color=(255, 110, 130), heal=20, price=30,
                     depths=(1, 26), weight=10),
     "greater_healing": dict(name="potion of greater healing", category="potion", color=(255, 60, 90), heal=40,
-                            depths=(3, 26), weight=4),
-    "haste": dict(name="potion of haste", category="potion", color=(120, 220, 255), haste=10.0,
+                            price=70, depths=(3, 26), weight=4),
+    "haste": dict(name="potion of haste", category="potion", color=(120, 220, 255), haste=10.0, price=60,
                   depths=(2, 26), weight=4),
     "levitation": dict(name="potion of levitation", category="potion", color=(190, 170, 255), levitate=9.0, price=600,
                        depths=(3, 26), weight=1),
     "teleportation": dict(name="potion of teleportation", category="potion", color=(230, 120, 255), teleport=True,
-                          depths=(1, 26), weight=3),
+                          price=60, depths=(1, 26), weight=3),
     "waterwalking": dict(name="potion of water walking", category="potion", color=(90, 170, 255), waterwalk=60.0,
-                         depths=(18, 42), weight=3),
+                         price=90, depths=(18, 42), weight=3),
     "lavawalking": dict(name="potion of lava walking", category="potion", color=(255, 130, 40), lavawalk=60.0,
-                        depths=(18, 42), weight=3),
+                        price=90, depths=(18, 42), weight=3),
     "bow": dict(name="bow", category="ranged", color=(180, 135, 80), damage=(4, 8), reach=12, fires="arrow",
-                depths=(1, 26), weight=3),
-    "arrows": dict(name="arrow", category="ammo", color=(205, 195, 170), depths=(1, 26), weight=4),
+                price=100, depths=(1, 26), weight=3),
+    "arrows": dict(name="arrow", category="ammo", color=(205, 195, 170), price=2, depths=(1, 26), weight=4),
     "boomerang": dict(name="boomerang", category="ranged", color=(225, 175, 90), damage=(3, 6), reach=9,
-                      depths=(2, 26), weight=2),
+                      price=90, depths=(2, 26), weight=2),
+    "bomb": dict(name="bomb", category="bomb", color=(200, 200, 200), price=50, depths=(3, 26), weight=1),
     "dagger": dict(name="dagger", category="weapon", color=(200, 200, 210), damage=(3, 5), noise=5, price=40,
                    depths=(1, 6), weight=6),
     "sword": dict(name="sword", category="weapon", color=(220, 220, 240), damage=(5, 9), noise=15, price=120,
@@ -126,14 +148,28 @@ ITEMS = {
     "scale": dict(name="scale armor", category="armor", color=(150, 170, 150), armor=35, noise=25, price=220,
                   depths=(3, 26), weight=3),
     "frost_wand": dict(name="wand of frost", category="wand", color=(140, 210, 255), freeze=30.0, charges=WAND_CHARGES,
-                       depths=(6, 86), weight=1),
+                       price=250, depths=(6, 86), weight=1),
     "plate": dict(name="plate armor", category="armor", color=(190, 200, 215), armor=60, noise=40, price=450,
                   move_cost=TICKS_PER_TURN * 5 // 4, depths=(32, 62), weight=1),
     "magic": dict(name="magic armor", category="armor", color=(51, 51, 215), armor=40, noise=10, reflect=True,
                   price=590, depths=(60, 70), weight=3),
+    "chain": dict(name="chain mail", category="armor", color=(170, 175, 185), armor=25, noise=20, price=160,
+                  depths=(2, 26), weight=3),
+    "mithril": dict(name="mithril shirt", category="armor", color=(200, 230, 255), armor=40, noise=5, price=520,
+                    depths=(36, 80), weight=1),
+    "dragonscale": dict(name="dragon scale armor", category="armor", color=(120, 200, 140), armor=75, noise=25,
+                        price=580, depths=(72, 98), weight=2),
+    "flame_blade": dict(name="flame blade", category="weapon", color=(255, 140, 50), damage=(7, 11), noise=15,
+                        magic=("fire",), price=380, depths=(20, 60), weight=1),
+    "frost_brand": dict(name="frost brand", category="weapon", color=(150, 215, 255), damage=(8, 12), noise=15,
+                        magic=("frost",), price=420, depths=(30, 75), weight=1),
+    "war_axe": dict(name="war axe", category="weapon", color=(205, 185, 165), damage=(14, 20), noise=25, price=400,
+                    depths=(30, 75), weight=2),
+    "greatsword": dict(name="greatsword", category="weapon", color=(235, 235, 250), damage=(20, 28), noise=30,
+                       price=560, attack_cost=TICKS_PER_TURN * 3 // 2, depths=(55, 98), weight=2),
 }
 GOLD_COLOR = (255, 215, 90)
-CLOAK = dict(name="cloak", category="cloak", color=(120, 130, 185), noise=-45, hush=0.5)  # not found by chance
+CLOAK = dict(name="cloak", category="cloak", color=(120, 130, 185), noise=-45, hush=0.5, price=100)  # not found by chance
 
 
 def enhance_weapon(w: Item, rng) -> str:
@@ -147,6 +183,7 @@ def enhance_weapon(w: Item, rng) -> str:
     choice = rng.choice(options)
     w.enhanced += 1
     w.name = f"{w.name.rsplit(' +', 1)[0]} +{w.enhanced}"
+    w.damage = tuple(math.ceil(d * (1 + ENHANCE_BOOST)) for d in w.damage)  # every blessing adds a share
     if choice == "damage":
         extra = rng.randint(*ENHANCE_DAMAGE)
         w.damage = (w.damage[0] + extra, w.damage[1] + extra)
@@ -175,7 +212,18 @@ def make_cloak() -> Item:
 
 
 def make_wand() -> Item:
-    return Item(kind="fire_wand", name="wand of fire", category="wand", color=(255, 120, 40), charges=WAND_CHARGES)
+    return Item(kind="fire_wand", name="wand of fire", category="wand", color=(255, 120, 40), charges=WAND_CHARGES,
+                price=200)
+
+
+def make_staff() -> Item:
+    """The cultist mage's. It's never used up, and it isn't a melee weapon, so no altar takes it."""
+    return Item(kind="lightning_staff", name="staff of lightning", category="wand", color=(190, 140, 255),
+                unlimited=True, lightning=True, price=700)
+
+
+def make_barrel() -> Item:
+    return Item(kind="food", name="barrel of food", category="food", color=(170, 120, 70))
 
 
 def make_amulet() -> Item:

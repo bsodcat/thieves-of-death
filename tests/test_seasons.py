@@ -6,7 +6,7 @@ from datetime import date
 from unittest import mock
 
 from game import protocol, seasons
-from game.constants import LOOK_Y, SCREEN_H, SIDEBAR_W, TICKS_PER_TURN
+from game.constants import LOOK_Y, SCORE_SCALE, SCREEN_H, SIDEBAR_W, TICKS_PER_TURN
 from game.entities import MONSTERS, make_monster
 from game.items import ITEMS, make_gold, make_item
 from game.render import ClientView
@@ -109,8 +109,8 @@ class CosmeticOnlyTests(unittest.TestCase):
             w = World(1, season_fn=in_season(season))
             w.level(1).items.clear()
             a = w.join("A")
-            a.gold = 10
-            self.assertEqual(w.score_of(a), 100)
+            a.gold, a.kills, a.turns = 10, 2, 4
+            self.assertEqual(w.score_of(a), 10 * 2 * SCORE_SCALE // 4)
 
 
 class CoverageTests(unittest.TestCase):

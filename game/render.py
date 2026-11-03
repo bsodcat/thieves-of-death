@@ -17,8 +17,8 @@ from collections import deque
 import numpy as np
 
 from . import controls, pathing, protocol, seasons
-from .constants import (ATTACK_STAMINA, BONES_GLYPH, LOOK_Y, MAP_H, MAP_W, MAP_X, MAP_Y, MSG_LINES, PACK_SIZE,
-                        REVIVE_SECONDS, SCREEN_H, SCREEN_W, SCORE_PER_GOLD, SIDEBAR_W, STAMINA_MAX, STEALTH_MAX,
+from .constants import (ATTACK_STAMINA, BONES_GLYPH, BOOMERANG_TILE_SECONDS, LOOK_Y, MAP_H, MAP_W, MAP_X, MAP_Y,
+                        MSG_LINES, PACK_SIZE, REVIVE_SECONDS, SCREEN_H, SCREEN_W, SIDEBAR_W, STAMINA_MAX, STEALTH_MAX,
                         TICKS_PER_TURN, VICTORY_SECONDS)
 from .entities import MONSTERS
 from .tiles import (ALTAR, BG, DEEP, DESCRIPTIONS, FG, GLYPH, LAVA, NAMES, POND, SHALLOW, STAIRS_DOWN, STAIRS_UP,
@@ -75,7 +75,15 @@ HELP_TIPS = (
     "Slime trails poison you and slow you down. Step around them.",
     "The necromancer's side rooms hide a hoard and a potion store.",
     "Past floor 50, a pit might drop you straight into lava.",
-    "Every move lowers your score. Gold raises it.",
+    "Score is gold times kills, divided by your moves.",
+    "Merchants buy gear for half price. Tab switches to selling.",
+    "A bomb breaks a cracked wall. Look for a wall a shade off.",
+    "A fisherman on an early floor knows where keys lie.",
+    "A barrel of food heals you quickly for a few seconds.",
+    "Fire spreads through grass. Burning monsters run when hurt.",
+    "A floating cultist mage can only be hit from range.",
+    "A boomerang has to come back before you can throw it again.",
+    "A lone kobold runs. A kobold leader's spear reaches 2 tiles.",
     "Mushrooms never move, but don't get close without a plan.",
     "The goal: the Amulet on floor 99, out through floor 1.",
     "Wake the necromancer and flee, and the dead follow you up.",
@@ -100,10 +108,19 @@ DEATH_BG = (40, 10, 10)
 BOLT_SECONDS = 0.35
 FLAME = (255, 120, 20)
 BOLT_COLORS = {"fire": FLAME, "blink": (230, 120, 255), "frost": (150, 215, 255), "sparkle": (150, 255, 240),
-               "bow": (225, 215, 180)}
+               "bow": (225, 215, 180), "lightning": (200, 160, 255), "blast": (255, 150, 40), "rock": (150, 140, 128)}
 SPIN = "/-\\|"               # a thrown boomerang turns through these
 SPIN_COLOR = (235, 190, 100)
-SPIN_TILE_SECONDS = 0.04   # how long it takes to cross a tile
+SPIN_TILE_SECONDS = BOOMERANG_TILE_SECONDS   # how long it takes to cross a tile, out and back
+# What monsters leave where they die: (background, glyph or None, glyph color).
+STAIN_LOOKS = {"blood": ((80, 8, 10), None, None), "goo": ((30, 90, 22), None, None),
+               "rot": ((52, 58, 24), None, None), "spores": ((70, 54, 34), None, None),
+               "bones": ((40, 38, 32), ord(","), (205, 200, 175))}
+FIRE_FG, FIRE_BG = ((255, 210, 70), (255, 120, 30)), (120, 34, 6)
+BOMB_COLORS = ((255, 80, 60), (255, 230, 200))
+MAGE_GLOW = np.array((120, 40, 200), np.float32)
+NPC_LABELS = {"sleeping": "asleep", "merchant": "shop", "fisherman": "talk", "fairy": "fairy"}
+SCROLL_PAUSE, SCROLL_SPEED = 1.2, 5.0   # a name too long to fit waits, then scrolls this many letters a second
 SPIN_TURN_SECONDS = 0.05   # how long each glyph shows
 SPARKLE = (90, 240, 220)
 # Each animated tile cycles through glyphs that look alike: (tile, glyphs, steps a second).
@@ -114,6 +131,7 @@ AURA = np.array((165, 60, 250), np.float32)      # added to the background right
 AURA_RADIUS = 5.0
 ULTRABRIGHT = 1.5
 PACK_WIDTH = 62
+SHOP_WIDTH = 70           # room for the longest item info and a price beside it
 PACK_HOVER = (45, 45, 70)
 LOG_KEPT = 2000           # lines of the action log kept for reading in the game
 LOG_ROWS, LOG_ROWS_DEAD, LOG_SCROLL = 12, 26, 6  # it's only tall once there's nobody to keep in view
@@ -196,6 +214,11 @@ class ClientView:
         self.shop: list | None = None             # the merchant's stock while you're at the shop
         self.shop_name = ""
         self.shop_pos = (0, 0)
+        self.shop_selling = False                 # the shop shows your pack, to sell from
+        self.stains: dict[int, dict] = {}         # depth -> {(x, y): what a monster left there}
+        self.fire: list = []                      # burning tiles in sight
+        self.bombs: list = []                     # lit bombs in sight
+        self.fed = False                          # a meal is healing you
         self.levitate = False
         self.waterwalk = self.lavawalk = False
         self.bolts: list[tuple] = []              # (tiles, when, color) of magic still on screen
@@ -246,15 +269,24 @@ class ClientView:
                 self.seen.clear()
                 self.item_memory.clear()
                 self.lights.clear()
+                self.stains.clear()
             shape = (msg["w"], msg["h"])
             self.levels[msg["depth"]] = protocol.unpack_u8(msg["tiles"], shape)
             self.lights[msg["depth"]] = [protocol.unpack_u8(m, shape) / 255 for m in msg.get("lights", ())]
             self.seen.setdefault(msg["depth"], np.zeros(shape, dtype=bool))
+            self.stains[msg["depth"]] = {(x, y): kind for x, y, kind in msg.get("stains", ())}
         elif t == "tiles":
             tiles = self.levels.get(msg["depth"])
             if tiles is not None:
                 for x, y, tile in msg["cells"]:
                     tiles[x, y] = tile
+        elif t == "stains":
+            here = self.stains.setdefault(msg["depth"], {})
+            for x, y, kind in msg["cells"]:
+                here[(x, y)] = kind
+        elif t == "tip":
+            self.messages.append((f'{msg.get("who", "Someone")} says: "{self._key_text(self._next_tip())}"',
+                                  (150, 255, 240)))
         elif t == "state":
             self.depth = msg["depth"]
             self.visible = protocol.unpack_bool(msg["visible"], (MAP_W, MAP_H))
@@ -290,12 +322,16 @@ class ClientView:
             self.waterwalk, self.lavawalk = msg.get("waterwalk", False), msg.get("lavawalk", False)
             self.stamina, self.lit = msg.get("stamina", STAMINA_MAX), msg.get("lit", False)
             self.detect = msg.get("detect", 0)
+            self.fire, self.bombs, self.fed = msg.get("fire", ()), msg.get("bombs", ()), msg.get("fed", False)
             self.clock_base, self.clock_at = msg.get("time", 0.0), time.monotonic()
         elif t == "shop":
+            if self.shop is None:
+                self.shop_selling = False
             self.shop, self.shop_name, self.shop_pos = msg["stock"], msg["name"], (msg["x"], msg["y"])
             self.show_pack = self.drop_mode = self.show_help = self.show_tally = self.show_log = False
         elif t == "fx" and msg.get("kind") == "boomerang":
-            self.throws.append((msg["cells"], time.monotonic()))
+            out = [tuple(c) for c in msg["cells"]]
+            self.throws.append((out + out[-2::-1], time.monotonic()))  # out to the target, and back
         elif t == "fx" and msg.get("kind") == "hit":
             self.hits += [(x, y, time.monotonic()) for x, y in msg["cells"]]
         elif t == "fx":
@@ -372,9 +408,30 @@ class ClientView:
         self.show_help = not self.show_help
         self.show_pack = self.drop_mode = self.show_tally = self.show_log = False
         if self.show_help:
-            if not self.tips:
-                self.tips = random.sample([t for t in HELP_TIPS if t != self.tip], len(HELP_TIPS) - 1)
-            self.tip = self.tips.pop()
+            self._next_tip()
+
+    def _next_tip(self) -> str:
+        if not self.tips:
+            self.tips = random.sample([t for t in HELP_TIPS if t != self.tip], len(HELP_TIPS) - 1)
+        self.tip = self.tips.pop()
+        return self.tip
+
+    def toggle_selling(self) -> None:
+        """Tab, at a shop: between what the merchant sells and what you could sell them."""
+        if self.shop is not None:
+            self.shop_selling = not self.shop_selling
+
+    @staticmethod
+    def fit(s: str, width: int) -> str:
+        """A name that fits, or one that's too long, scrolled along so all of it gets seen.
+        It waits at the start, scrolls to the end, waits there, and starts over."""
+        if len(s) <= width or width <= 0:
+            return s
+        extra = len(s) - width
+        run = extra / SCROLL_SPEED
+        t = time.monotonic() % (SCROLL_PAUSE * 2 + run)
+        start = min(extra, max(0, int((t - SCROLL_PAUSE) * SCROLL_SPEED)))
+        return s[start:start + width]
 
     def me(self) -> dict | None:
         return next((e for e in self.ents if e["id"] == self.my_id), None)
@@ -489,6 +546,16 @@ class ClientView:
         f["fg"][area] = np.clip(out_fg, 0, 255).astype(np.uint8)
         f["bg"][area] = np.clip(out_bg, 0, 255).astype(np.uint8)
 
+        for (x, y), kind in self.stains.get(self.depth, {}).items():
+            if not (vis[x, y] or seen[x, y]):
+                continue
+            bg_color, glyph, glyph_color = STAIN_LOOKS.get(kind, STAIN_LOOKS["blood"])
+            dim = 1.0 if vis[x, y] else 0.35  # remembered, like the rest of the map
+            f["bg"][MAP_X + x, MAP_Y + y] = scale(bg_color, dim)
+            if glyph is not None:
+                f["ch"][MAP_X + x, MAP_Y + y] = glyph
+                f["fg"][MAP_X + x, MAP_Y + y] = scale(glyph_color, dim)
+
         for x, y in self.slime:
             f["bg"][MAP_X + x, MAP_Y + y] = SLIME_BG
 
@@ -499,6 +566,13 @@ class ClientView:
             if thickness > 1:
                 f["ch"][at] = 0x2592 if thickness > 5 else 0x2591
                 f["fg"][at] = np.clip(GAS * (0.6 + share), 0, 255).astype(np.uint8)
+
+        now = time.monotonic()
+        for x, y in self.fire:  # flames that flicker, each tile on its own
+            flick = math.sin(now * 13 + x * 1.7 + y * 2.3)
+            f["ch"][MAP_X + x, MAP_Y + y] = ord("^") if flick > -0.3 else 0x2591
+            f["fg"][MAP_X + x, MAP_Y + y] = FIRE_FG[flick > 0.4]
+            f["bg"][MAP_X + x, MAP_Y + y] = scale(FIRE_BG, 0.8 + 0.3 * flick)
 
         for (x, y), item in self.item_memory.get(self.depth, {}).items():
             f["ch"][MAP_X + x, MAP_Y + y] = ord(item["g"])
@@ -526,6 +600,9 @@ class ClientView:
                 f["bg"][MAP_X + e["x"], MAP_Y + e["y"]] = scale(FLAME, 0.7 + 0.3 * math.sin(time.monotonic() * 11))
             if e.get("frozen"):
                 f["bg"][MAP_X + e["x"], MAP_Y + e["y"]] = ICE
+        for x, y in self.bombs:  # its fuse blinks faster than anything else on the map
+            f["ch"][MAP_X + x, MAP_Y + y] = 0x3B4
+            f["fg"][MAP_X + x, MAP_Y + y] = BOMB_COLORS[int(now * 8) % 2]
         self._draw_bolts(f)
         self._draw_throws(f)
 
@@ -592,6 +669,9 @@ class ClientView:
             if e.get("ward"):
                 reach = np.clip(1 - np.hypot(XS - e["x"], YS - e["y"]) / WARD_GLOW_RADIUS, 0, 1) ** 1.5
                 bg = bg + (reach * (0.8 + 0.2 * math.sin(now * 1.5)))[..., None] * WARD_GLOW
+            if e.get("float") and e.get("seen"):  # a cultist mage, glowing violet up in the air
+                reach = np.clip(1 - np.hypot(XS - e["x"], YS - e["y"]) / 2.5, 0, 1)
+                bg = bg + (reach * (0.75 + 0.25 * math.sin(now * 4)))[..., None] * MAGE_GLOW
             if e.get("aura"):
                 near = np.maximum(abs(XS - e["x"]), abs(YS - e["y"])) <= 1
                 reach = near * (1 - np.hypot(XS - e["x"], YS - e["y"]) / 2)
@@ -632,7 +712,12 @@ class ClientView:
     def _describe_actor(self, e: dict) -> list:
         color = tuple(e["c"])
         if e["st"] == "merchant":
-            return [(f"{e['g']} {e['name'].capitalize()}", color), ("Walk into them to see what's for sale.", TEXT)]
+            return [(f"{e['g']} {e['name'].capitalize()}", color),
+                    ("Walk into them to see what's for sale, or to sell.", TEXT)]
+        if e["st"] == "fisherman":
+            return [(f"{e['g']} Fisherman", color), ("Walk into him to talk. He knows where keys lie.", TEXT)]
+        if e["st"] == "fairy":
+            return [(f"{e['g']} Fairy", color), ("Trapped down here. Walk into it to free it.", TEXT)]
         if e["st"] == "down":
             if e["id"] == self.my_id:
                 return [(f"{e['g']} Your bones", color), ("A teammate can stand here to revive you.", TEXT)]
@@ -657,6 +742,8 @@ class ClientView:
             desc = seasons.monster_description(kind, self.season, t["desc"])
             hits = f" Hits for {t['damage'][0]}-{t['damage'][1]}." if t["damage"][1] else ""
             lines.append((f"{desc}{hits}{speed}", TEXT))
+        if e.get("float"):
+            lines.append(("Floating: out of melee reach", (190, 140, 255)))
         if e.get("burn"):
             lines.append(("On fire", FLAME))
         if e.get("frozen"):
@@ -713,7 +800,7 @@ class ClientView:
         y = 0
         me = next((p for p in self.party if p["id"] == self.my_id), None)
         if me:
-            self.text(f, 1, y, me["name"], tuple(me["c"]), width=w - 1)
+            self.text(f, 1, y, self.fit(me["name"], w - 1), tuple(me["c"]))
             y += 1
             health = (70, 130, 40) if self.toxin else (160, 30, 30)  # green while poisoned
             self.bar(f, 0, y, w, me["hp"] / me["mhp"], f"Health {me['hp']}/{me['mhp']}", health)
@@ -732,6 +819,8 @@ class ClientView:
                 self.text(f, len(clock) + 2, y, "Haste", (120, 220, 255))
             elif self.slowed:
                 self.text(f, len(clock) + 2, y, "Slowed", SLOWED_TEXT)
+            elif self.fed:
+                self.text(f, len(clock) + 2, y, "Fed", (255, 215, 90))
             y += 1
             self.text(f, 1, y, f"Depth {self.depth}  Gold {self.gold}", TEXT, width=w - 1)
             y += 1
@@ -761,7 +850,7 @@ class ClientView:
                 if y >= LOOK_Y - 2:
                     break
                 self.text(f, 1, y, q.get("g", "@"), tuple(q["c"]))
-                self.text(f, 3, y, q["name"], TEXT, width=w - 4)
+                self.text(f, 3, y, self.fit(q["name"], w - 4), TEXT)
                 y += 1
                 ping = "--" if q.get("ping") is None else f"{q['ping']}ms"
                 fallen = "  down" if q.get("down") else "  dead"
@@ -781,10 +870,13 @@ class ClientView:
             if y >= LOOK_Y - 2:
                 break
             self.text(f, 1, y, e["g"], tuple(e["c"]))
-            self.text(f, 3, y, e["name"], TEXT, width=w - 3)
+            self.text(f, 3, y, self.fit(e["name"], w - 3), TEXT)
             y += 1
-            label = {"sleeping": "asleep", "merchant": "shop"}.get(e["st"], "")
-            self.bar(f, 0, y, w, e["hp"] / e["mhp"], label, (130, 100, 30) if e["st"] == "merchant" else (130, 40, 40))
+            label = NPC_LABELS.get(e["st"], "")
+            if e.get("float"):
+                label = "floating"
+            friendly = e["st"] in ("merchant", "fisherman", "fairy")
+            self.bar(f, 0, y, w, e["hp"] / e["mhp"], label, (130, 100, 30) if friendly else (130, 40, 40))
             y += 1
 
     def _draw_messages(self, f) -> None:
@@ -833,7 +925,10 @@ class ClientView:
             self.text(f, x0 + 2, y, str((i + 1) % 10), DIM)
             self.text(f, x0 + 4, y, item["g"], tuple(item["c"]))
             note = item["info"] + (" (on)" if item["eq"] else "")
-            self.text(f, x0 + 6, y, item["name"], (255, 255, 255) if item["eq"] else TEXT, width=bw - 9 - len(note))
+            room = bw - 9 - len(note)
+            if room < 12:  # a long note gives way to the name, and is cut short
+                note, room = note[:bw - 9 - 12 - 1] + "~" if len(note) > bw - 9 - 12 else note, 12
+            self.text(f, x0 + 6, y, self.fit(item["name"], room), (255, 255, 255) if item["eq"] else TEXT)
             self.text(f, x0 + bw - 2 - len(note), y, note, DIM)
         self.text(f, x0 + 2, y0 + rows - 1, f"{self.gold} {seasons.gold_name(self.season)}", (255, 215, 90))
         note = f"Equipped gear limits stealth to {self.stealth_cap}%"
@@ -864,7 +959,7 @@ class ClientView:
         return x, y
 
     def score_line(self) -> str:
-        return f"Score {self.score}  ({self.score_gold} gold x {SCORE_PER_GOLD}, cut by {self.turns} moves)"
+        return f"Score {self.score}  ({self.score_gold} gold x {self.kills} kills / {self.turns} moves)"
 
     def tally_lines(self) -> list[str]:
         hardest = self.hardest or "none yet"
@@ -872,7 +967,7 @@ class ClientView:
 
     def _draw_tally(self, f) -> None:
         kills = sorted(self.tally.items(), key=lambda kv: (-kv[1], kv[0]))
-        bw, rows = 50, min(14, 6 + (len(kills) + 1) // 2)
+        bw, rows = 66, min(14, 6 + (len(kills) + 2) // 3)
         x0, y0 = self._panel_pos(bw, rows)
         for j in range(rows):
             self.text(f, x0, y0 + j, " " * bw, TEXT, PANEL_BG)
@@ -881,8 +976,8 @@ class ClientView:
         self.text(f, x0 + 2, y0 + 2, f"Hardest enemy fought: {self.hardest or 'none yet'}", TEXT, width=bw - 4)
         self.text(f, x0 + 2, y0 + 3, f"Kills: {self.kills}", TEXT)
         per_column = rows - 5
-        for j, (name, count) in enumerate(kills[:per_column * 2]):
-            x, y = x0 + 2 + 23 * (j // per_column), y0 + 4 + j % per_column
+        for j, (name, count) in enumerate(kills[:per_column * 3]):  # three columns hold every monster there is
+            x, y = x0 + 2 + 21 * (j // per_column), y0 + 4 + j % per_column
             self.text(f, x, y, name, TEXT, width=16)
             self.text(f, x + 17, y, f"{count}", (255, 255, 255))
 
@@ -915,11 +1010,15 @@ class ClientView:
         return path if len(path) <= width else "..." + path[3 - width:]
 
     def _draw_shop(self, f) -> None:
-        bw, rows = 66, len(self.shop) + 4 if self.shop else 5
+        if self.shop_selling:
+            self._draw_selling(f)
+            return
+        bw, rows = SHOP_WIDTH, len(self.shop) + 4 if self.shop else 5
         x0, y0 = self._panel_pos(bw, rows)
         for j in range(rows):
             self.text(f, x0, y0 + j, " " * bw, TEXT, PANEL_BG)
-        self.text(f, x0 + 2, y0, f"{self.shop_name.capitalize()}: 1-0 buy, Esc closes", HEADING, width=bw - 4)
+        self.text(f, x0 + 2, y0, f"{self.shop_name.capitalize()}: 1-0 buy, Tab to sell, Esc closes", HEADING,
+                  width=bw - 4)
         if not self.shop:
             self.text(f, x0 + 2, y0 + 2, "Sold out.", DIM)
         for i, item in enumerate(self.shop[:10]):
@@ -927,12 +1026,35 @@ class ClientView:
             affordable = self.gold >= item["price"]
             self.text(f, x0 + 2, y, str((i + 1) % 10), DIM)
             self.text(f, x0 + 4, y, item["g"], tuple(item["c"]))
-            self.text(f, x0 + 6, y, item["name"], TEXT if affordable else DIM, width=25)
+            self.text(f, x0 + 6, y, self.fit(item["name"], 25), TEXT if affordable else DIM)
             self.text(f, x0 + 32, y, item["info"], DIM)
             price = str(item["price"])
             self.text(f, x0 + bw - 2 - len(price), y, price, (255, 215, 90) if affordable else (200, 80, 80))
         self.text(f, x0 + 2, y0 + rows - 1, f"{self.gold} {seasons.gold_name(self.season)}", (255, 215, 90))
         note = "Spending lowers your score"
+        self.text(f, x0 + bw - 2 - len(note), y0 + rows - 1, note, DIM)
+
+    def _draw_selling(self, f) -> None:
+        """Your pack, with what the merchant would pay for each thing in it."""
+        bw, rows = SHOP_WIDTH, max(len(self.pack), 1) + 4
+        x0, y0 = self._panel_pos(bw, rows)
+        for j in range(rows):
+            self.text(f, x0, y0 + j, " " * bw, TEXT, PANEL_BG)
+        self.text(f, x0 + 2, y0, f"{self.shop_name.capitalize()}: 1-0 sell for half, Tab to buy, Esc closes",
+                  HEADING, width=bw - 4)
+        if not self.pack:
+            self.text(f, x0 + 2, y0 + 2, "Your pack is empty.", DIM)
+        for i, item in enumerate(self.pack[:PACK_SIZE]):
+            y = y0 + 1 + i
+            price = item.get("sell", 0)
+            self.text(f, x0 + 2, y, str((i + 1) % 10), DIM)
+            self.text(f, x0 + 4, y, item["g"], tuple(item["c"]))
+            name = item["name"] + (" (on)" if item["eq"] else "")
+            self.text(f, x0 + 6, y, self.fit(name, 40), TEXT if price else DIM)
+            offer = str(price) if price else "won't buy"
+            self.text(f, x0 + bw - 2 - len(offer), y, offer, (255, 215, 90) if price else DIM)
+        self.text(f, x0 + 2, y0 + rows - 1, f"{self.gold} {seasons.gold_name(self.season)}", (255, 215, 90))
+        note = "What you sell is gone for good"
         self.text(f, x0 + bw - 2 - len(note), y0 + rows - 1, note, DIM)
 
     def _draw_help(self, f) -> None:

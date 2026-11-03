@@ -280,14 +280,15 @@ class CultTests(unittest.TestCase):
     def test_not_before_their_first_floor(self):
         for seed in range(25):
             w = World(seed)
-            for depth in range(1, CULT_FIRST):
+            for depth in range(1, CULT_FIRST - 1):  # a cult's mage can wait the floor before its first
                 self.assertFalse(any(m.kind.startswith("cult") for m in w.level(depth).monsters))
+            self.assertFalse(any(m.kind in ("cultist", "cult_leader") for m in w.level(CULT_FIRST - 1).monsters))
 
     def test_they_never_turn_up_alone(self):
         for seed in range(10):
             w = World(seed)
             lvl = w.level(CULT_FIRST)
-            cult = [m for m in lvl.monsters if m.kind.startswith("cult")]
+            cult = [m for m in lvl.monsters if m.kind in ("cultist", "cult_leader")]  # a mage lives apart
             self.assertIn(len(cult), (0, *range(CULT_SIZE[0], CULT_SIZE[1] + 1)))
 
     def test_they_start_close_together(self):

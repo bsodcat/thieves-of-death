@@ -98,7 +98,8 @@ class CommandTests(unittest.TestCase):
         for name in commands.item_names():
             self.p.pack.clear()
             run(self.w, self.p, f"give {name}")
-            self.assertEqual(len(self.p.pack), 1, name)
+            self.assertEqual(len(self.p.pack), 0 if name == "gold" else 1, name)  # gold isn't a pack item
+        self.assertGreater(self.p.gold, 0)
 
     def test_names_can_be_cut_short(self):
         run(self.w, self.p, "give tele 3")

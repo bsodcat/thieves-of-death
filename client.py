@@ -205,6 +205,7 @@ def play(context, console, net: Net, leave_note: str = "", intro: tuple = (), co
     slot_keys = build_slot_keys()
     enter_keys = key_set("RETURN", "KP_ENTER", "RETURN2")
     escape_keys = key_set("ESCAPE")
+    tab_keys = key_set("TAB")
     backspace_keys = key_set("BACKSPACE")
     help_keys = key_set("F1")
     sprint_keys = key_set(bindings["sprint"], "RSHIFT")
@@ -330,6 +331,8 @@ def play(context, console, net: Net, leave_note: str = "", intro: tuple = (), co
                     view.show_pack = view.drop_mode = view.show_help = view.show_tally = view.show_log = False
                     view.shop = None
                     view.leave_prompt = ""
+                elif event.sym in tab_keys and view.shop is not None:
+                    view.toggle_selling()
                 elif view.show_log and event.sym in log_up_keys | log_down_keys:
                     view.scroll_log(1 if event.sym in log_up_keys else -1)
                 elif event.sym in help_keys and not event.repeat:
@@ -343,7 +346,10 @@ def play(context, console, net: Net, leave_note: str = "", intro: tuple = (), co
                 elif event.sym in slot_keys and not event.repeat \
                         and not event.mod & tcod.event.Modifier.SHIFT:  # shift+4 is $
                     slot = slot_keys[event.sym]
-                    if view.shop is not None:
+                    if view.shop is not None and view.shop_selling:
+                        if slot < len(view.pack):
+                            net.send({"t": "act", "a": "sell", "slot": slot})
+                    elif view.shop is not None:
                         if slot < len(view.shop):
                             net.send({"t": "act", "a": "buy", "id": view.shop[slot]["id"]})
                     else:

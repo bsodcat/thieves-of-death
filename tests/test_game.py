@@ -129,6 +129,10 @@ class RealTimeTests(unittest.TestCase):
     def test_monsters_run_slower_than_players(self):
         rat = add_monster(self.w, self.lvl, "rat", self.a, "hunting")
         rat.target_id = self.a.id
+        beside = next((self.a.x + dx, self.a.y + dy) for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))
+                      if self.lvl.walkable[self.a.x + dx, self.a.y + dy]
+                      and self.lvl.occupant.get((self.a.x + dx, self.a.y + dy)) in (None, rat))
+        self.lvl.move(rat, *beside)  # straight beside her, so nothing stops it biting
         self.w.advance(rat.next_time)
         self.assertEqual(rat.next_time, self.w.clock + int(TICKS_PER_TURN * MONSTER_SWING * MONSTER_TIME))
 

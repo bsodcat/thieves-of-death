@@ -62,6 +62,9 @@ class Player(Actor):
     gas_ticks: int = 0           # time in toxic gas, toward the next point of damage
     toxin_until: int = 0         # tick when a slime's poison wears off
     toxin_ticks: int = 0         # time poisoned, toward the next point of damage
+    food_until: int = 0          # tick when a meal stops healing them
+    food_ticks: int = 0          # time fed, toward the next health it gives
+    fire_ticks: int = 0          # time standing in fire, toward the next point of damage
     slow_until: int = 0          # tick when they can move normally again
     noclip: bool = False         # console: walks through everything
     bright: bool = False         # console: every floor is drawn fully lit
@@ -96,6 +99,8 @@ class Monster(Actor):
     frozen_until: int = 0        # tick when it can act again
     ready_at: int = 0            # tick when it can next use its special ability
     post: tuple | None = None    # a place it guards
+    float_until: int = 0         # a cultist mage: tick it comes back down, out of reach of melee till then
+    float_next: int = 0          # and the tick it next rises
 
 
 # What players can choose on the character screen. Shapes that look like a monster,
@@ -118,6 +123,22 @@ class Merchant(Actor):
 def make_merchant(mid: int, name: str) -> Merchant:
     return Merchant(id=mid, name=name, glyph="$", color=(255, 215, 90), hp=1, max_hp=1, accuracy=0,
                     defense=0, damage=(0, 0))
+
+
+@dataclass(eq=False)
+class Npc(Actor):
+    """Someone who isn't a monster and isn't for sale: the fisherman, or a fairy."""
+    role: str = ""               # fisherman / fairy
+    talks: int = 0               # how many times someone has walked into them
+
+
+NPC_LOOKS = {"fisherman": ("fisherman", "F", (110, 180, 230)), "fairy": ("fairy", "°", (255, 170, 240))}
+
+
+def make_npc(nid: int, role: str) -> Npc:
+    name, glyph, color = NPC_LOOKS[role]
+    return Npc(id=nid, name=name, glyph=glyph, color=color, hp=1, max_hp=1, accuracy=0, defense=0, damage=(0, 0),
+               role=role)
 
 
 PLAYER_STATS = dict(hp=40, accuracy=100, defense=30, damage=(2, 4))
@@ -154,6 +175,7 @@ def reset_player(p: Player) -> None:
     p.waterwalk_until = p.lavawalk_until = p.gas_ticks = 0
     p.chased, p.reflect_until, p.haunts = False, 0, []
     p.toxin_until = p.toxin_ticks = p.slow_until = 0
+    p.food_until = p.food_ticks = p.fire_ticks = 0
     p.fov_key, p.fov = None, None
     p.pack, p.gold, p.weapon, p.armor, p.cloak, p.pack_dirty = [], 0, None, None, None, True
     apply_gear(p)
@@ -166,7 +188,7 @@ MONSTERS = {
                 desc="A mangy rat."),
     "kobold": dict(name="kobold", glyph="k", color=(150, 190, 120), hp=7, accuracy=70, defense=0,
                    damage=(1, 4), move=100, attack=100, depths=(1, 7), weight=10, verbs=("hits", "hit"),
-                   desc="Small, mean and armed."),
+                   desc="Small and mean, but runs when it's alone."),
     "jackal": dict(name="jackal", glyph="j", color=(200, 160, 90), hp=8, accuracy=70, defense=3,
                    damage=(2, 4), move=50, attack=100, depths=(1, 8), weight=8, verbs=("bites", "bite"),
                    desc="Runs you down."),
@@ -213,10 +235,20 @@ MONSTERS = {
     "cult_leader": dict(name="cult leader", glyph="C", color=(235, 80, 60), hp=50, accuracy=110, defense=20,
                         damage=(3, 7), move=100, attack=100, depths=(0, 0), weight=0, verbs=("strikes", "strike"),
                         desc="Carries a wand of fire."),
+    "cult_mage": dict(name="cultist mage", glyph="M", color=(180, 100, 255), hp=45, accuracy=100, defense=20,
+                      damage=(3, 6), move=100, attack=100, depths=(0, 0), weight=0, verbs=("strikes", "strike"),
+                      desc="Casts lightning, and floats out of melee reach."),
+    "kobold_leader": dict(name="kobold leader", glyph="K", color=(90, 130, 255), hp=45, accuracy=90, defense=15,
+                          damage=(4, 8), move=200, attack=100, depths=(0, 0), weight=0, verbs=("spears", "spear"),
+                          desc="Slow, tough, and its spear reaches you from a tile away."),
+    "kobold_scout": dict(name="kobold scout", glyph="k", color=(235, 75, 55), hp=10, accuracy=80, defense=5,
+                         damage=(1, 4), move=100, attack=100, depths=(0, 0), weight=0, verbs=("hits", "hit"),
+                         desc="Keeps its distance and throws fire."),
 }
 
 
 UNDEAD = ("zombie", "skeleton_archer", "skeleton_warrior", "dragon", "ghost", "necromancer")
+KOBOLDS = ("kobold", "kobold_leader", "kobold_scout")
 
 
 def danger(kind: str) -> float:

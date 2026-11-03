@@ -4,8 +4,8 @@ import unittest
 import numpy as np
 
 from game import commands, mapgen
-from game.constants import (GAS_DAMAGE, GAS_SECONDS, GAS_TRIGGER, LAST_FLOOR, SCORE_PER_GOLD, SCORE_STEPS,
-                            SCREEN_H, SUMMON_SIZE, TICKS_PER_SECOND, TICKS_PER_TURN, TIDE_MAX, TIDE_SECONDS, WIN_POINTS,
+from game.constants import (GAS_DAMAGE, GAS_SECONDS, GAS_TRIGGER, LAST_FLOOR, SCORE_SCALE,
+                            SCREEN_H, SUMMON_SIZE, TICKS_PER_SECOND, TICKS_PER_TURN, TIDE_MAX, TIDE_SECONDS,
                             WOLF_FIRST, WOLF_SIZE)
 from game.entities import make_monster
 from game.items import ITEMS, make_amulet, make_item
@@ -54,17 +54,17 @@ def amulet_spot(lvl):
     return next(c for c, i in lvl.items.items() if i.category == "amulet")
 
 
-def score(gold, moves):
-    return gold * SCORE_PER_GOLD * SCORE_STEPS // (moves + SCORE_STEPS)
+def score(gold, moves, kills):
+    return gold * kills * SCORE_SCALE // max(1, moves)
 
 
 class ScoreTests(unittest.TestCase):
     def test_every_move_lowers_it(self):
         w = World(1)
         p = w.join("A")
-        p.gold = 500
+        p.gold, p.kills = 500, 4
         scores = []
-        for moves in (0, 10, 100, 1000, 10000):
+        for moves in (1, 10, 100, 1000, 10000):
             p.turns = moves
             scores.append(w.score_of(p))
         self.assertEqual(scores, sorted(scores, reverse=True))
@@ -73,25 +73,36 @@ class ScoreTests(unittest.TestCase):
     def test_it_really_divides(self):
         w = World(1)
         p = w.join("A")
-        p.gold = 100
-        self.assertEqual(w.score_of(p), 1000)
-        p.turns = SCORE_STEPS
-        self.assertEqual(w.score_of(p), 500)
-        p.turns = SCORE_STEPS * 3
-        self.assertEqual(w.score_of(p), 250)
+        p.gold, p.kills, p.turns = 100, 2, 1
+        self.assertEqual(w.score_of(p), 20000)
+        p.turns = 2
+        self.assertEqual(w.score_of(p), 10000)
+        p.turns = 8
+        self.assertEqual(w.score_of(p), 2500)
 
-    def test_no_gold_scores_nothing(self):
+    def test_kills_multiply_it(self):
         w = World(1)
         p = w.join("A")
-        p.turns = 400
+        p.gold, p.turns = 100, 10
+        p.kills = 1
+        one = w.score_of(p)
+        p.kills = 3
+        self.assertEqual(w.score_of(p), 3 * one)
+
+    def test_no_gold_or_no_kills_scores_nothing(self):
+        w = World(1)
+        p = w.join("A")
+        p.turns, p.kills = 400, 5
+        self.assertEqual(w.score_of(p), 0)
+        p.gold, p.kills = 100, 0
         self.assertEqual(w.score_of(p), 0)
 
-    def test_winning_is_worth_a_lot_but_moves_still_count(self):
+    def test_winning_doubles_it(self):
         w = World(1)
         p = w.join("A")
-        p.gold, p.turns = 100, SCORE_STEPS
+        p.gold, p.kills, p.turns = 100, 2, 10
         w._win(p)
-        self.assertEqual(w.score_of(p), (1000 + WIN_POINTS) // 2)
+        self.assertEqual(w.score_of(p), 2 * score(100, 10, 2))
 
 
 class WolfTests(unittest.TestCase):
@@ -515,14 +526,15 @@ class WinningTests(unittest.TestCase):
     def test_the_whole_party_wins_and_sees_it(self):
         b = self.w.join("B")
         self.p.pack.append(make_amulet())
-        b.gold = 100
+        b.gold, b.kills, b.turns = 100, 5, 50
+        before = self.w.score_of(b)
         self.climb()
         v = view_of(self.w, b)
         self.assertEqual(v.victory, "A")
         text = rows_of(v.draw())
         self.assertIn("A escaped with the Amulet!", text)
         self.assertIn("The party wins.", text)
-        self.assertGreater(self.w.score_of(b), 10000)
+        self.assertEqual(self.w.score_of(b), 2 * before)  # a win doubles everyone's
 
     def test_a_new_dungeon_follows(self):
         self.p.pack.append(make_amulet())

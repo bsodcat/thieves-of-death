@@ -8,7 +8,7 @@ from game.constants import LOOK_Y, MAP_H, MAP_W, MAP_X, MAP_Y, SCREEN_H, SCREEN_
 from game.entities import MONSTERS, make_monster
 from game.items import ITEMS, make_gold, make_item
 from game.render import HOVER_BG, ClientView
-from game.tiles import DESCRIPTIONS, DOOR, NAMES, WALL
+from game.tiles import DESCRIPTIONS, DOOR, FLOOR, NAMES, WALL
 from game.world import World
 
 
@@ -40,7 +40,8 @@ def look_area(v):
 
 
 def nearby_floor(lvl, w, p):
-    return next(c for c in lvl.floor_cells if w.fov(p)[c] and c != (p.x, p.y) and c not in lvl.occupant)
+    return next(c for c in lvl.floor_cells if w.fov(p)[c] and c != (p.x, p.y) and c not in lvl.occupant
+                and lvl.tiles[c] == FLOOR)
 
 
 def point(v, x, y):

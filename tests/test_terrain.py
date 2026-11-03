@@ -309,7 +309,8 @@ class IslandTests(unittest.TestCase):
             w = World(seed)
             lvl = w.level(3)
             walk = lvl.walkable | (lvl.tiles == DEEP)
-            for x, y in map(tuple, np.argwhere(lvl.walkable & ~lvl.mainland)):
+            hidden = lvl.hidden if lvl.hidden is not None else np.zeros_like(walk)  # bombed open, not swum to
+            for x, y in map(tuple, np.argwhere(lvl.walkable & ~lvl.mainland & ~hidden)):
                 self.assertIn(lvl.up_front, reachable(walk, (int(x), int(y))))
 
     def test_a_potion_gets_you_there_and_running_out_doesnt_strand_you(self):

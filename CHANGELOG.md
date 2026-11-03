@@ -2,6 +2,50 @@
 
 Versions are MAJOR.MINOR.PATCH. See "Versions" in the README for what each number means.
 
+## 2.10.0 - November 2, 2026
+
+Players need this version to play together: 2.9 and 2.10 can't join each other's games.
+
+### Added
+
+- Merchants buy what you carry for half its price. Press Tab at a shop to switch to selling. What
+  you sell is gone for good.
+- Bombs. Merchants always have them, and now and then one lies on the floor. One goes off 2 seconds
+  after you set it down, hurting everyone beside it and setting grass alight.
+- Hidden rooms behind cracked walls, which look like the walls around them, a shade off in color.
+  A floor with no locked room and no cult altar has a 33% chance of one. Bomb the wall open to
+  find a fairy, which raises every living player's maximum health by a fifth.
+- A fisherman on one floor from 2 to 6, often by the water. He tells you which floor a key lies on,
+  or gives you a tip.
+- Barrels of food, in rooms with a door and nothing but a torch. Walk into one: "Food is good!", and
+  you heal quickly for 8 seconds.
+- The cultist mage, a floor above or below each cult. It floats out of reach of melee, glowing
+  violet, and casts lightning, which a ward stops. It drops a staff of lightning that never runs
+  out and can't be enhanced.
+- Kobold leaders (blue `K`) with spears on floors 5 to 25, and kobold scouts (red `k`) throwing
+  fireballs on floors 10 to 15.
+- War bands of skeleton warriors on every third floor from 50 to 68, never more than 9 on a floor.
+- New armor: chain mail, the mithril shirt and dragon scale armor. New weapons: the flame blade and
+  frost brand, which carry magic of their own, and the war axe and greatsword.
+- Monsters leave a mark where they die: blood, slime goo, bones, rot or spores.
+- The wand of fire sets the ground alight around its target, and fire spreads through grass until
+  it's all burned to ash. Monsters on fire and below half health run.
+- The console's `give gold <amount>`, and `summon [player]`, which brings a player, or everyone,
+  to stand beside you.
+- Names too long for the sidebar, the pack or the shop scroll along so you can read all of them.
+
+### Changed
+
+- Score is now gold carried times kills, times 100, divided by moves. A win doubles it.
+- Each time an altar enhances a weapon, its damage also goes up by 15%.
+- A boomerang flies back to you, and can't be thrown again until it's back in your hand, which
+  takes at least a second.
+- A kobold on its own runs, sometimes throws a rock when it's hurt, and sometimes kills a rat.
+
+### Fixed
+
+- Lava no longer forms in or beside water.
+
 ## 2.9.1 - November 1, 2026
 
 ### Fixed
