@@ -1,4 +1,4 @@
-"""Kobolds and their leaders and scouts, the cultist mage, and the skeleton war bands."""
+"""Kobolds and their leaders and scouts, the cult leader and mage, and the skeleton war bands."""
 import unittest
 from unittest import mock
 
@@ -192,6 +192,55 @@ class MageTests(unittest.TestCase):
         self.w.submit(self.p, {"a": "use", "slot": 0})  # nothing to aim at; it isn't wielded either
         self.assertIsNone(self.p.weapon)
         self.assertIn("no altar", staff.info)
+
+
+class CultLeaderTests(unittest.TestCase):
+    def setUp(self):
+        self.w, self.lvl, self.p = empty_world()
+        self.x, self.y = open_spot(self.lvl)
+        put(self.lvl, self.p, self.x, self.y)
+        self.p.hp = self.p.max_hp = 1000
+        self.c = add(self.w, self.lvl, "cult_leader", self.x + 3, self.y, target=self.p)
+
+    def turn(self):
+        self.w.drain_outbox()
+        cost = self.w._monster_turn(self.c, self.lvl)
+        bolts = [m for _, m in self.w.drain_outbox() if m.get("t") == "fx" and m.get("kind") == "fire"]
+        return cost, bolts
+
+    def test_three_bolts_then_a_rest(self):
+        from game.constants import LEADER_REST, LEADER_VOLLEY
+        shots = 0
+        for _ in range(LEADER_VOLLEY):
+            _, bolts = self.turn()
+            shots += len(bolts)
+        self.assertEqual(shots, LEADER_VOLLEY)
+        self.assertTrue(self.lvl.fire)  # the last one set the ground alight around you
+        self.assertIn((self.p.x, self.p.y), self.lvl.fire)
+        self.assertLess(self.p.hp, self.p.max_hp)
+        self.assertEqual(self.c.ready_at, self.w.clock + int(LEADER_REST * TICKS_PER_SECOND))
+        _, bolts = self.turn()
+        self.assertEqual(bolts, [])  # resting
+        self.w.clock = self.c.ready_at
+        _, bolts = self.turn()
+        self.assertEqual(len(bolts), 1)  # and the next volley begins
+
+    def test_it_backs_off_when_you_close_in(self):
+        self.lvl.move(self.c, self.x + 1, self.y)
+        _, bolts = self.turn()
+        self.assertEqual(bolts, [])
+        self.assertGreater(cheb(self.c, self.p), 1)
+
+    def test_a_ward_stops_the_bolts_and_the_fire(self):
+        self.p.reflect_until = 10 ** 9
+        for _ in range(3):
+            self.turn()
+        self.assertEqual(self.p.hp, self.p.max_hp)
+        self.assertNotIn((self.p.x, self.p.y), self.lvl.fire)
+
+    def test_tougher_than_before(self):
+        self.assertGreaterEqual(MONSTERS["cult_leader"]["hp"], 75)
+        self.assertGreaterEqual(MONSTERS["cult_mage"]["hp"], 65)
 
 
 if __name__ == "__main__":

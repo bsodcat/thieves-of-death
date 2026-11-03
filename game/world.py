@@ -48,7 +48,10 @@ from .constants import (OGRE_LATE_SHARE, MUSHROOM_MOST, MUSHROOM_SHARE, GHOST_DI
                         MAGE_CYCLE, MAGE_BOLT, MAGE_RANGE, LIGHTNING_DAMAGE, STAFF_RANGE, KOBOLD_RAT_CHANCE,
                         KOBOLD_ALONE, KOBOLD_ROCK_CHANCE, KOBOLD_ROCK_RANGE, ROCK_DAMAGE, KOBOLD_LEADER_FLOORS,
                         KOBOLD_LEADER_CHANCE, KOBOLD_SCOUT_FLOORS, KOBOLD_SCOUT_CHANCE, KOBOLD_SCOUT_MOST,
-                        SCOUT_RELOAD, SCOUT_RANGE, FIREBALL_DAMAGE,
+                        SCOUT_RELOAD, SCOUT_RANGE, FIREBALL_DAMAGE, LEADER_RANGE, LEADER_VOLLEY, LEADER_REST,
+                        LEADER_FIRE_DAMAGE, SPIDER_FLOORS, SPIDER_CHANCE, SPIDER_BROOD, WEB_SHARE, WEB_SPIT_RANGE,
+                        WEB_SPIT_REACH, WEB_SPIT_SECONDS, WEB_FACTOR, WEB_SECONDS, LEAP_RANGE, LEAP_SECONDS,
+                        LEAP_RETREAT, VENOM_PER_BITE, VENOM_MOST, VENOM_DAMAGE, VENOM_EVERY,
                         SUMMON_SECONDS, SUMMON_SIZE, TIDE_MAX, TIDE_SECONDS, TIDE_SIZE, VICTORY_SECONDS,
                         MONSTER_SWING, WEAPON_DRAIN, WEAPON_FREEZE_CHANCE, WEAPON_FREEZE_SECONDS, WOLF_CHANCE, WOLF_FIRST, WOLF_SIZE,
                         CULT_SIZE, DEEPEST_TABLE, DEFENSE_FACTOR, FALL_DAMAGE, GOLD_DROP, LAVA_DAMAGE, SNEAK_DAMAGE,
@@ -56,9 +59,9 @@ from .constants import (OGRE_LATE_SHARE, MUSHROOM_MOST, MUSHROOM_SHARE, GHOST_DI
                         KEY_DISTANCE, SPRINT_MOVE_COST, SPRINT_STAMINA, STAMINA_FILL_SECONDS, STAMINA_MAX,
                         STAMINA_REST_SECONDS, TELEPORT_STEPS, TIRED_ATTACK, TORCH_NOTICE, TORCH_RADIUS,
                         LEVITATION_STOCK_CHANCE, LOCKED_ROOM_CHANCE, LOCKED_ROOM_FLOORS, MAP_H, MAP_W,
-                        MERCHANT_CHANCE, MERCHANT_EVERY, MERCHANT_STOCK, MONSTER_TIME, NOTICE_RANGE_AWAKE,
+                        MERCHANT_CHANCE, MERCHANT_EVERY, MERCHANT_STOCK, NOTICE_RANGE_AWAKE,
                         NOTICE_RANGE_SLEEPING, PACK_SIZE, REGEN_TURNS, RESET_DELAY, REVIVE_HEALTH,
-                        REVIVE_SECONDS, STEALTH_FILL_SECONDS,
+                        DEFAULT_DIFFICULTY, DIFFICULTIES, STEALTH_FILL_SECONDS,
                         STEALTH_MAX, STEALTH_MOVE_DRAIN, STEALTH_RANGE_MIN, TICKS_PER_SECOND,
                         TICKS_PER_TURN)
 from .entities import (UNDEAD, MONSTERS, PLAYER_COLOR_NAMES, PLAYER_COLORS, PLAYER_GLYPHS, Merchant, Monster, Npc, Player,
@@ -67,10 +70,20 @@ from .items import (AUTO_PICKUP, ITEMS, Item, enhance_weapon, make_amulet, make_
                     make_key, make_staff, make_wand)
 from .tiles import (ALTAR, ALTAR_SPENT, ASH, CRACKED, DEEP, DOOR, FLOOR, FOLIAGE, GRASS, HOVER, LAVA, LOCK_COLORS, LOCKED,
                     PIT, POND, SHALLOW, STAIRS_DOWN, STAIRS_UP, TORCH, TRAMPLED, TRANSPARENT,
-                    WALKABLE)
+                    WALKABLE, WALL)
 from .version import VERSION
 
 DIRS8 = [(dx, dy) for dx in (-1, 0, 1) for dy in (-1, 0, 1) if dx or dy]
+
+
+def beside(mask: np.ndarray) -> np.ndarray:
+    """Every tile touching one in `mask`, diagonals included."""
+    w, h = mask.shape
+    near = np.zeros_like(mask)
+    for dx, dy in DIRS8:
+        near[max(dx, 0):w + min(dx, 0), max(dy, 0):h + min(dy, 0)] |= \
+            mask[max(-dx, 0):w + min(-dx, 0), max(-dy, 0):h + min(-dy, 0)]
+    return near
 
 WHITE = (230, 230, 230)
 BONE = (225, 220, 195)
@@ -83,7 +96,7 @@ TEAL = (150, 255, 240)
 
 VIOLET = (190, 140, 255)
 
-PACK_KINDS = ("cultist", "cult_leader", "wolf", "kobold", "kobold_leader", "skeleton_warrior")
+PACK_KINDS = ("cultist", "cult_leader", "wolf", "kobold", "kobold_leader", "skeleton_warrior", "spider_queen", "spider")
 AMULET_FROM_DOORS, AMULET_FROM_STAIRS = 15, 20  # steps' walk
 PATH_MAPS = 256  # distance maps a level keeps before starting over
 PACK_ORDER = ("potion", "wand", "ranged", "ammo", "bomb", "weapon", "armor", "cloak", "key", "amulet", "gold", "food")
@@ -91,7 +104,9 @@ FLAMMABLE = (GRASS, FOLIAGE, TRAMPLED)
 BURNABLE = (FLOOR, GRASS, FOLIAGE, TRAMPLED, ASH)   # ground a wand's fire can catch on
 # What a monster leaves on the floor where it dies. Anything not listed bleeds.
 STAINS = {"slime": "goo", "skeleton_archer": "bones", "skeleton_warrior": "bones", "dragon": "bones",
-          "necromancer": "bones", "zombie": "rot", "mushroom": "spores", "ghost": None}
+          "necromancer": "bones", "zombie": "rot", "mushroom": "spores", "ghost": None,
+          "spider_queen": "goo", "spider": "goo"}
+SPIDERS = ("spider_queen", "spider")
 STAY_PUT = ("mushroom", "necromancer", "dragon", "ghost")   # never run, even on fire
 WEAR_OFF = (("levitate_until", "You drift back down to the ground."),
             ("waterwalk_until", "Your feet stop feeling so light."),
@@ -161,7 +176,10 @@ class Level:
         self.lair, self.side_rooms = gen.lair, gen.side_rooms
         self._base_transparent = TRANSPARENT[self.tiles]
         self.vault, self.lock = gen.vault, gen.lock
-        self.hidden, self.crack = gen.hidden, gen.crack
+        self.hidden, self.cracks = gen.hidden, set(gen.cracks)
+        self.cave = gen.cave                                 # the big cave the level grew from, if any
+        self.webs: set[tuple[int, int]] = set()              # spider webs, which slow whoever walks in
+        self.webs_changed = False                            # since the players were last told
         self.torches = gen.torches
         open_floor = self.walkable.copy()
         for room in (gen.vault, gen.hidden):
@@ -351,12 +369,13 @@ class Level:
         self._set_tile(x, y, ASH)
 
     def open_crack(self) -> None:
-        """A bomb has broken the cracked wall: the room behind it joins the floor."""
-        self._set_tile(*self.crack, FLOOR)
-        self.mainland[self.crack] = True
+        """A bomb has broken the cracked wall, all of it: the room behind it joins the floor."""
+        for c in self.cracks:
+            self._set_tile(*c, FLOOR)
+            self.mainland[c] = True
         self.mainland[self.hidden] = True
         self.land_cells = [(int(x), int(y)) for x, y in np.argwhere(self.mainland)]
-        self.crack = None
+        self.cracks = set()
         self._paths.clear()
 
     def unlock(self) -> None:
@@ -370,11 +389,14 @@ class Level:
 
 
 class World:
-    def __init__(self, seed: int | None = None, monster_time: float = MONSTER_TIME, mode: str = "Classic",
-                 season_fn=lambda: None):
+    def __init__(self, seed: int | None = None, difficulty: str = DEFAULT_DIFFICULTY, season_fn=lambda: None):
         self.seed = seed if seed is not None else random.randrange(1, 2 ** 31)
-        self.monster_time = monster_time
-        self.mode = mode
+        self.difficulty = difficulty if difficulty in DIFFICULTIES else DEFAULT_DIFFICULTY
+        rules = DIFFICULTIES[self.difficulty]
+        self.monster_time = rules["monster_time"]       # how slow monsters are next to players
+        self.toughness = rules["toughness"]             # monsters' health multiplier and extra defense
+        self.regen = rules["regen"]                     # players heal over time on their own
+        self.revive_seconds: float | None = rules["revive"]  # None: the fallen stay down
         self.season_fn = season_fn             # checked once a run, so looks never change mid-dungeon
         self.season = season_fn()
         self.rng = random.Random(self.seed * 7919 + 1)
@@ -386,6 +408,8 @@ class World:
         self.cloaks = 0                        # handed out so far this run
         self.cloak_floors: list[int] = []      # floors not built yet that have one waiting
         self.levels: dict[int, Level] = {}
+        self.maps: dict[tuple[int, int], mapgen.GeneratedLevel] = {}  # (seed, depth): looked at, not built yet
+        self.fishers: dict[int, int | None] = {}  # seed: the fisherman's floor
         self.players: dict[int, Player] = {}   # connected players
         self.offline: dict[str, Player] = {}   # disconnected, keyed by name, restored on rejoin
         self.clock = 0
@@ -402,13 +426,17 @@ class World:
     def level(self, depth: int) -> Level:
         lvl = self.levels.get(depth)
         if lvl is None:
-            room = self.locked_rooms.get(depth)
-            hidden = (room is None and not self._cult_planned(depth)
-                      and random.Random(f"{self.seed}:{depth}:hidden").random() < HIDDEN_ROOM_CHANCE)
-            lvl = Level(depth, mapgen.generate(self.seed, depth, LOCKED[room.color] if room else None, hidden))
+            lvl = Level(depth, self.maps.pop((self.seed, depth), None) or self._map(depth))
             self.levels[depth] = lvl
             self._populate(lvl)
         return lvl
+
+    def _map(self, depth: int) -> mapgen.GeneratedLevel:
+        """A floor's layout, before anything lives on it."""
+        room = self.locked_rooms.get(depth)
+        hidden = (room is None and not self._cult_planned(depth)
+                  and random.Random(f"{self.seed}:{depth}:hidden").random() < HIDDEN_ROOM_CHANCE)
+        return mapgen.generate(self.seed, depth, LOCKED[room.color] if room else None, hidden)
 
     def _cult_planned(self, depth: int) -> bool:
         """Whether this floor's cult gathers around an altar. It's settled by the seed, the same
@@ -425,8 +453,28 @@ class World:
                 return depth
         return cult_depth
 
-    def fisher_floor(self) -> int:
-        return random.Random(f"{self.seed}:fisher").randint(*FISHER_FLOORS)
+    def fisher_floor(self) -> int | None:
+        """A floor from FISHER_FLOORS with water to fish in, picked by the seed. None in the rare
+        run with no water on any of them."""
+        if self.seed not in self.fishers:
+            floors = list(range(FISHER_FLOORS[0], FISHER_FLOORS[1] + 1))
+            random.Random(f"{self.seed}:fisher").shuffle(floors)
+            self.fishers[self.seed] = next((d for d in floors if self._shore(self._layout(d))), None)
+        return self.fishers[self.seed]
+
+    def _layout(self, depth: int) -> np.ndarray:
+        """A floor's tiles, built or not. A floor looked at early keeps its map for when it's built."""
+        if depth in self.levels:
+            return self.levels[depth].tiles
+        if (self.seed, depth) not in self.maps:
+            self.maps[(self.seed, depth)] = self._map(depth)
+        return self.maps[(self.seed, depth)].tiles
+
+    @staticmethod
+    def _shore(tiles: np.ndarray, cells=None) -> list[tuple[int, int]]:
+        """Floor tiles beside water, of `cells` if given."""
+        near = beside(np.isin(tiles, (SHALLOW, DEEP, POND))) & np.isin(tiles, (FLOOR, GRASS, TRAMPLED))
+        return [c for c in cells if near[c]] if cells is not None else [tuple(map(int, c)) for c in np.argwhere(near)]
 
     def _populate(self, lvl: Level) -> None:
         rng = random.Random(f"{self.seed}:{lvl.depth}:monsters")
@@ -450,7 +498,7 @@ class World:
                 if mushrooms >= MUSHROOM_MOST or rng.random() >= MUSHROOM_SHARE:
                     continue
                 mushrooms += 1
-            m = seasons.dress_monster(make_monster(kind, next(self._ids)), self.season)
+            m = self._new_monster(kind)
             m.state = "sleeping" if rng.random() < 0.6 else "wandering"
             m.lag = m.next_time = rng.randrange(TICKS_PER_TURN)
             lvl.place(m, x, y)
@@ -462,6 +510,7 @@ class World:
             self._add_skeletons(lvl)
             self._add_kobolds(lvl)
             self._add_mage(lvl)
+            self._add_spiders(lvl)
         if lvl.depth == DRAGON_FLOOR:
             self._add_dragon(lvl)
         self._add_items(lvl)
@@ -474,11 +523,19 @@ class World:
             lvl.items[self._empty_floor(lvl, rng)] = self._cloak()
         if lvl.depth % MERCHANT_EVERY == 0:
             self._add_merchant(lvl)
-        if lvl.depth == self.fisher_floor():
+        if FISHER_FLOORS[0] <= lvl.depth <= FISHER_FLOORS[1] and lvl.depth == self.fisher_floor():
             self._add_fisherman(lvl)
         if lvl.hidden is not None:
             self._add_fairy(lvl)
         self._add_barrel(lvl)
+
+    def _new_monster(self, kind: str) -> Monster:
+        """A monster dressed for the season, as tough as the difficulty makes it."""
+        m = seasons.dress_monster(make_monster(kind, next(self._ids)), self.season)
+        health, defense = self.toughness
+        m.hp = m.max_hp = max(1, round(m.max_hp * health))
+        m.defense = max(0, m.defense + defense)
+        return m
 
     def _add_npc(self, lvl: Level, role: str, spot: tuple[int, int]) -> Npc:
         npc = make_npc(next(self._ids), role)
@@ -487,15 +544,14 @@ class World:
         return npc
 
     def _add_fisherman(self, lvl: Level) -> None:
-        """By the water if the floor has any, and never right by the stairs."""
+        """On the shore, away from the stairs if he can be. His floor was picked for its water."""
         rng = random.Random(f"{self.seed}:{lvl.depth}:fisher")
         from_stairs = lvl.distances_to(*lvl.up_front)
-        spots = [c for c in lvl.floor_cells if c not in lvl.occupant and c not in lvl.items and lvl.mainland[c]
-                 and 8 * algo.CARDINAL_COST <= from_stairs[c] < algo.INF]
-        shore = [c for c in spots if any(lvl.in_bounds(c[0] + dx, c[1] + dy)
-                                         and lvl.tiles[c[0] + dx, c[1] + dy] in (SHALLOW, DEEP) for dx, dy in DIRS8)]
-        if spots:
-            self._add_npc(lvl, "fisherman", rng.choice(shore or spots))
+        shore = self._shore(lvl.tiles, [c for c in lvl.floor_cells if c not in lvl.occupant and c not in lvl.items
+                                        and lvl.mainland[c] and from_stairs[c] < algo.INF])
+        away = [c for c in shore if from_stairs[c] >= 8 * algo.CARDINAL_COST]
+        if shore:
+            self._add_npc(lvl, "fisherman", rng.choice(away or shore))
 
     def _add_fairy(self, lvl: Level) -> None:
         cells = sorted((int(x), int(y)) for x, y in np.argwhere(lvl.hidden))
@@ -568,12 +624,40 @@ class World:
                     self._spawn(lvl, "cult_mage", rng.choice(spots), rng, "wandering")
 
     def _spawn(self, lvl: Level, kind: str, spot: tuple[int, int], rng: random.Random, state: str) -> Monster:
-        m = seasons.dress_monster(make_monster(kind, next(self._ids)), self.season)
+        m = self._new_monster(kind)
         m.state = state
         m.lag = m.next_time = rng.randrange(TICKS_PER_TURN)
         lvl.place(m, *spot)
         lvl.monsters.append(m)
         return m
+
+    def _add_spiders(self, lvl: Level, force: bool = False) -> bool:
+        """A spider queen nests in the level's big cave, if it has one, with her brood around her
+        and webs spun across it, well away from the stairs. Forced, she nests anywhere."""
+        rng = random.Random(f"{self.seed}:{lvl.depth}:spiders")
+        if not force and not (SPIDER_FLOORS[0] <= lvl.depth <= SPIDER_FLOORS[1] and rng.random() < SPIDER_CHANCE):
+            return False
+        if lvl.cave is None and not force:
+            return False
+        from_stairs = lvl.distances_to(*lvl.up_front)
+        nest = [c for c in lvl.floor_cells if c not in lvl.occupant and lvl.mainland[c] and lvl.tiles[c] == FLOOR
+                and 12 * algo.CARDINAL_COST < from_stairs[c] < algo.INF and (lvl.cave is None or lvl.cave[c])]
+        if len(nest) < 20:
+            return False
+        queen_at = rng.choice(nest)
+        queen = self._spawn(lvl, "spider_queen", queen_at, rng, "wandering")
+        queen.post = queen_at
+        middle = lvl.distances_to(*queen_at)
+        near = sorted((c for c in nest if c != queen_at), key=lambda c: (middle[c], c))
+        for spot in near[:rng.randint(*SPIDER_BROOD)]:
+            m = self._spawn(lvl, "spider", spot, rng, "wandering")
+            m.leader = queen
+        if force:  # webs around her, wherever she is
+            nest = [c for c in near if middle[c] <= 8 * algo.CARDINAL_COST]
+        for c in rng.sample(nest, max(1, int(len(nest) * WEB_SHARE))):
+            lvl.webs.add(c)
+        lvl.webs_changed = True
+        return True
 
     def _add_cult(self, lvl: Level, force: bool = False) -> bool:
         rng = random.Random(f"{self.seed}:{lvl.depth}:cult")
@@ -595,7 +679,7 @@ class World:
         from_stairs = lvl.distances_to(*lvl.up_front)
         spots = [c for c in lvl.land_cells if c not in lvl.occupant and 24 < from_stairs[c] < algo.INF]
         for spot in rng.sample(spots, min(len(spots), rng.randint(*SLIME_COUNT))):
-            m = seasons.dress_monster(make_monster("slime", next(self._ids)), self.season)
+            m = self._new_monster("slime")
             m.state = "wandering"
             m.lag = m.next_time = rng.randrange(TICKS_PER_TURN)
             lvl.place(m, *spot)
@@ -620,7 +704,7 @@ class World:
         state = "sleeping" if rng.random() < 0.5 else "wandering"
         leader = None
         for spot in spots[:rng.randint(*size)]:
-            m = seasons.dress_monster(make_monster(kind if leader else lead, next(self._ids)), self.season)
+            m = self._new_monster(kind if leader else lead)
             m.state, m.leader, m.post = state, leader, center if altar else None
             m.lag = m.next_time = rng.randrange(TICKS_PER_TURN)
             lvl.place(m, *spot)
@@ -632,7 +716,7 @@ class World:
         """Asleep as far as it can get from the stairs."""
         from_stairs = lvl.distances_to(*lvl.up_front)
         spot = max((c for c in lvl.land_cells if c not in lvl.occupant), key=lambda c: (from_stairs[c], c))
-        m = seasons.dress_monster(make_monster("dragon", next(self._ids)), self.season)
+        m = self._new_monster("dragon")
         m.state, m.next_time = "sleeping", 0
         lvl.place(m, *spot)
         lvl.monsters.append(m)
@@ -641,7 +725,7 @@ class World:
         """The necromancer, asleep, and the Amulet across the room from it: close enough to
         be in its sight, but with the stealth to do it, far enough to creep to and back."""
         rng = random.Random(f"{self.seed}:lair")
-        m = seasons.dress_monster(make_monster("necromancer", next(self._ids)), self.season)
+        m = self._new_monster("necromancer")
         m.state, m.next_time = "sleeping", rng.randrange(TICKS_PER_TURN)
         m.lag = m.next_time
         x, y = lvl.free_near(*lvl.lair)
@@ -901,7 +985,7 @@ class World:
     def ledger_head(self) -> dict:
         """Starts a run's action log. Someone joining later is sent this too."""
         return {"t": "log", "run": self.run, "seed": self.seed,
-                "head": f"Togetherogue {VERSION} | run {self.run} | seed {self.seed} | {self.mode}"}
+                "head": f"Togetherogue {VERSION} | run {self.run} | seed {self.seed} | {self.difficulty}"}
 
     def note(self, who, text: str, depth: int | None = None) -> None:
         """A line in the action log. `who` is a player, a monster or just a name."""
@@ -934,6 +1018,10 @@ class World:
             if lvl.new_stains:
                 msg = {"t": "stains", "depth": lvl.depth, "cells": lvl.new_stains}
                 lvl.new_stains = []
+                self.outbox += [(p.id, msg) for p in self.players.values() if p.depth == lvl.depth]
+            if lvl.webs_changed:
+                lvl.webs_changed = False
+                msg = {"t": "webs", "depth": lvl.depth, "cells": sorted(lvl.webs)}
                 self.outbox += [(p.id, msg) for p in self.players.values() if p.depth == lvl.depth]
         out, self.outbox = self.outbox, []
         return out
@@ -1007,7 +1095,8 @@ class World:
         if ticks:
             for p in self.players.values():
                 if p.alive:
-                    self._regen(p, ticks)
+                    if self.regen:
+                        self._regen(p, ticks)
                     self._fill_stealth(p, ticks)
                     self._fill_stamina(p, ticks)
                     for effect, text in WEAR_OFF:
@@ -1051,6 +1140,9 @@ class World:
             if not lvl.fire:
                 continue
             self.dirty = True
+            if lvl.webs & lvl.fire.keys():  # fire burns webs away
+                lvl.webs -= lvl.fire.keys()
+                lvl.webs_changed = True
             for c, end in list(lvl.fire.items()):
                 if end <= self.clock:
                     del lvl.fire[c]
@@ -1119,7 +1211,7 @@ class World:
             if lvl.tiles[c] in FLAMMABLE:
                 lvl.fire[c] = self.clock + self._seconds(GRASS_FIRE_SECONDS)
                 lvl.fire_by = by
-            if c == lvl.crack:
+            if c in lvl.cracks:
                 lvl.open_crack()
                 self._narrate(lvl, [c], set(), lambda v: ("The cracked wall crumbles. There's a room behind it!", GOLD))
                 self.note(by or "bomb", "blew open a hidden room", lvl.depth)
@@ -1157,6 +1249,30 @@ class World:
                         self._breathe_gas(p, ticks)
         for p in [p for p in self.players.values() if p.alive and p.toxin_until > self.clock]:
             self._suffer_toxin(p, ticks)
+        for p in [p for p in self.players.values() if p.alive and p.venom_until > self.clock - ticks]:
+            self._suffer_venom(p, ticks)  # including venom that ran out partway through these ticks
+
+    def _envenom(self, p: Player) -> None:
+        """A spider's bite: more venom, up to VENOM_MOST seconds of it."""
+        if p.god:
+            return
+        if p.venom_until <= self.clock:
+            self.tell(p, "Venom burns in your veins. It won't kill you, but it will leave you weak.", ORANGE)
+        p.venom_until = min(max(p.venom_until, self.clock) + self._seconds(VENOM_PER_BITE),
+                            self.clock + self._seconds(VENOM_MOST))
+        self.note(p, f"envenomed: {(p.venom_until - self.clock) / TICKS_PER_SECOND:.0f}s")
+        self.dirty = True
+
+    def _suffer_venom(self, p: Player, ticks: int) -> None:
+        """Venom wears you down, but never past your last point of health."""
+        p.venom_ticks += min(ticks, max(0, p.venom_until - (self.clock - ticks)))  # only while it lasted
+        every = self._seconds(VENOM_EVERY)
+        while p.venom_ticks >= every and not p.god:
+            p.venom_ticks -= every
+            if p.hp > 1:
+                p.hp = max(1, p.hp - VENOM_DAMAGE)
+                self.note(p, f"venom -{VENOM_DAMAGE} hp {self._hp(p)}")
+                self.dirty = True
 
     def _breathe_gas(self, p: Player, ticks: int) -> None:
         p.gas_ticks += ticks
@@ -1208,7 +1324,7 @@ class World:
                  and lvl.tiles[x, y] not in (STAIRS_DOWN, STAIRS_UP)]
         if not spots:
             spots = [c for c in lvl.land_cells if c not in lvl.occupant]
-        g = seasons.dress_monster(make_monster("ghost", next(self._ids)), self.season)
+        g = self._new_monster("ghost")
         g.state, g.next_time = "hunting", self.clock + TICKS_PER_TURN
         lvl.place(g, *self.rng.choice(spots))
         lvl.monsters.append(g)
@@ -1230,7 +1346,7 @@ class World:
                 self._raise_zombie(lvl, spot, p)
 
     def _raise_zombie(self, lvl: Level, spot: tuple[int, int], target: Player) -> None:
-        z = seasons.dress_monster(make_monster("zombie", next(self._ids)), self.season)
+        z = self._new_monster("zombie")
         z.next_time = self.clock + TICKS_PER_TURN
         lvl.place(z, *spot)
         lvl.monsters.append(z)
@@ -1270,7 +1386,7 @@ class World:
                 if progress != p.revive_ticks:
                     self.dirty = True
                 p.revive_ticks = progress
-                if rescuer and progress >= REVIVE_SECONDS * TICKS_PER_SECOND:
+                if rescuer and progress >= self.revive_seconds * TICKS_PER_SECOND:
                     self._revive(p, rescuer, lvl)
 
     def _revive(self, p: Player, rescuer: Player, lvl: Level) -> None:
@@ -1283,7 +1399,7 @@ class World:
         self.note(p, f"revived by {rescuer.name} hp {self._hp(p)}")
 
     def _revive_percent(self, p: Player) -> int:
-        return int(100 * p.revive_ticks / (REVIVE_SECONDS * TICKS_PER_SECOND))
+        return int(100 * p.revive_ticks / (self.revive_seconds * TICKS_PER_SECOND))
 
     def _fill_stealth(self, p: Player, ticks: int) -> None:
         before = int(p.stealth)
@@ -1306,7 +1422,8 @@ class World:
 
     def _stride(self, p: Player) -> int:
         """What a step costs: less while sprinting, which also uses up stealth twice as fast."""
-        cost = p.move_cost * (SLOW_FACTOR if p.slow_until > self.clock else 1)
+        slow = WEB_FACTOR if p.webbed_until > self.clock else SLOW_FACTOR if p.slow_until > self.clock else 1
+        cost = p.move_cost * slow
         if not p.sprinting or p.stamina < SPRINT_STAMINA:
             return cost
         self._spend_stamina(p, SPRINT_STAMINA)
@@ -1333,8 +1450,9 @@ class World:
         lvl = self.levels[p.depth]
         a = act["a"]
         cost = 0
+        met, p.met = p.met, None  # walking into a merchant or fisherman again right away steps past them
         if a == "move":
-            cost = self._player_move(p, lvl, act["dx"], act["dy"])
+            cost = self._player_move(p, lvl, act["dx"], act["dy"], met)
         elif a == "descend":
             if (p.x, p.y) == lvl.down_front:
                 cost = self._take_stairs(p, +1)
@@ -1374,7 +1492,7 @@ class World:
             if a in ("move", "descend", "ascend") and not self._levitating(p):
                 p.stealth = max(0.0, p.stealth - STEALTH_MOVE_DRAIN)
 
-    def _player_move(self, p: Player, lvl: Level, dx: int, dy: int) -> int:
+    def _player_move(self, p: Player, lvl: Level, dx: int, dy: int, met: int | None = None) -> int:
         nx, ny = p.x + dx, p.y + dy
         if not lvl.in_bounds(nx, ny):
             return 0
@@ -1389,9 +1507,13 @@ class World:
             return self._take_stairs(p, -1)
         other = lvl.actor_at(nx, ny)
         if other is not None:
+            if isinstance(other, Merchant) or (isinstance(other, Npc) and other.role == "fisherman"):
+                if met == other.id:  # they never stand in your way, even in a doorway
+                    return self._pass_ally(p, other, lvl, dx, dy)
+                p.met = other.id
             if isinstance(other, Merchant):
                 self.outbox.append((p.id, self._shop_msg(other)))
-                self.tell(p, f"The {other.name} shows you what's for sale. Tab switches to selling.", GOLD)
+                self.tell(p, f"The {other.name}'s wares. Tab to sell. Walk into them again to pass.", GOLD)
                 return 0
             if isinstance(other, Npc):
                 return self._meet(p, other, lvl)
@@ -1421,10 +1543,11 @@ class World:
         self._step_onto(p, lvl)
         return self._stride(p)
 
-    def _pass_ally(self, p: Player, other: Player, lvl: Level, dx: int, dy: int) -> int:
-        """Allies never block each other. You walk straight past them, which leaves them where
-        they are, or trade places if there's nowhere to land. You must be able to stand where
-        they're standing, or someone floating over a lake would be a bridge across it."""
+    def _pass_ally(self, p: Player, other, lvl: Level, dx: int, dy: int) -> int:
+        """Allies never block each other, nor do merchants or the fisherman. You walk straight
+        past them, which leaves them where they are, or trade places if there's nowhere to land.
+        You must be able to stand where they're standing, or someone floating over a lake would
+        be a bridge across it."""
         x, y = other.x, other.y
         while self._can_be_at(p, lvl, x, y) and lvl.in_bounds(x + dx, y + dy) \
                 and not lvl.diagonal_blocked(x, y, x + dx, y + dy):
@@ -1439,14 +1562,16 @@ class World:
             if not ahead.is_player:
                 break
         ox, oy, nx, ny = p.x, p.y, other.x, other.y
-        if not (self._can_be_at(p, lvl, nx, ny) and self._can_be_at(other, lvl, ox, oy)):
-            self.tell(p, f"There's no way past {other.name} here.", GRAY)
+        they_fit = self._can_be_at(other, lvl, ox, oy) if other.is_player else bool(lvl.walkable[ox, oy])
+        if not (self._can_be_at(p, lvl, nx, ny) and they_fit):
+            self.tell(p, f"There's no way past {other.name if other.is_player else 'the ' + other.name} here.", GRAY)
             return 0
         lvl.remove(p)
         lvl.remove(other)
         lvl.place(p, nx, ny)
         lvl.place(other, ox, oy)
-        self.tell(other, f"{p.name} swaps places with you.", GRAY)
+        if other.is_player:
+            self.tell(other, f"{p.name} swaps places with you.", GRAY)
         self._step_onto(p, lvl)
         return self._stride(p)
 
@@ -1456,6 +1581,8 @@ class World:
     def _meet(self, p: Player, npc: Npc, lvl: Level) -> int:
         if npc.role == "fisherman":
             self._fisherman_talks(p, npc)
+            if npc.talks == 1:
+                self.tell(p, "Walk into him again to step past.", GRAY)
             return 0
         # A fairy: freed, it blesses the whole party, then it's gone.
         lvl.remove(npc)
@@ -1597,6 +1724,10 @@ class World:
             self._bathe(p, lvl)
         if (p.x, p.y) in lvl.slime:
             self._slimed(p)
+        if (p.x, p.y) in lvl.webs and not self._levitating(p) and not p.god:
+            if p.slow_until <= self.clock:
+                self.tell(p, "You blunder into a web. It clings to you.", GRAY)
+            p.slow_until = max(p.slow_until, self.clock + self._seconds(SLOW_SECONDS))
         item = lvl.items.get((p.x, p.y))
         if item is None:
             return
@@ -1886,9 +2017,7 @@ class World:
         cells = line_between((p.x, p.y), (m.x, m.y))
         if not weapon.fires:  # out and back again, and it can't be thrown until it's back
             weapon.back_at = self.clock + self._seconds(max(BOOMERANG_WAIT, 2 * len(cells) * BOOMERANG_TILE_SECONDS))
-        shot = {"t": "fx", "kind": weapon.kind, "cells": cells}
-        for v in self._living_on(p.depth):
-            self.outbox.append((v.id, shot))
+        shot = {"t": "fx", "kind": weapon.kind, "cells": cells, "from": [p.x, p.y]}
         p.stealth = 0.0
         self._note_fight(p, m)
         sneak = m.state != "hunting"
@@ -1903,6 +2032,10 @@ class World:
             self.note(p, f"shot {self._tag(m)} with {weapon.name}: missed")
             self._narrate(lvl, where, {p}, lambda v: (
                 f"{self._n(p, v, True)} {self._verb(p, v, ('misses', 'miss'))} {self._n(m, v)}.", GRAY))
+        if m.hp <= 0:  # so it can still be seen until the arrow or boomerang gets there
+            shot["fell"] = {"g": m.glyph, "c": list(m.color)}
+        for v in self._living_on(p.depth):
+            self.outbox.append((v.id, shot))
         if m.hp <= 0:
             self._kill(m, p)
         else:
@@ -2047,7 +2180,7 @@ class World:
         if p.hp >= p.max_hp:
             p.regen_acc = 0
             return
-        if p.toxin_until > self.clock:  # poison stops you healing
+        if p.toxin_until > self.clock or p.venom_until > self.clock:  # poison stops you healing
             return
         p.regen_acc += cost * p.max_hp
         need = REGEN_TURNS * TICKS_PER_TURN
@@ -2094,6 +2227,8 @@ class World:
                 self._weapon_magic(att, dfn, dmg)
             if isinstance(att, Monster) and att.kind == "slime" and dfn.hp > 0:
                 self._slimed(dfn)
+            if isinstance(att, Monster) and att.kind in SPIDERS and dfn.hp > 0:
+                self._envenom(dfn)
         else:
             self.note(att, f"missed {self._tag(dfn)} ({prob:.0f}% to hit)")
             self._narrate(lvl, where, {att, dfn}, lambda v: (
@@ -2149,13 +2284,13 @@ class World:
                 killer.kills += 1
                 killer.kill_tally[victim.name] = killer.kill_tally.get(victim.name, 0) + 1
             return
-        revivable = self.mode == "Revive"
+        revivable = self.revive_seconds is not None
         self._narrate(lvl, where, {victim}, lambda v: (
             ("You are down..." if revivable else "You die...") if v is victim
             else f"{victim.name} {'is down' if revivable else 'dies'}!", RED))
         victim.alive, victim.hp, victim.pending, victim.hold = False, 0, None, None
         victim.levitate_until = victim.waterwalk_until = victim.lavawalk_until = victim.reflect_until = 0
-        victim.toxin_until = victim.slow_until = 0
+        victim.toxin_until = victim.slow_until = victim.webbed_until = victim.venom_until = 0
         if not lvl.mainland[victim.x, victim.y]:  # over water or on an island: land where the party can reach
             lvl.move(victim, *lvl.free_near(victim.x, victim.y))
         victim.final_gold = victim.gold
@@ -2171,7 +2306,7 @@ class World:
                 for p in self.players.values():
                     if p is not victim:
                         self.tell(p, f"{victim.name} is down on floor {victim.depth}! Stand by the {BONES_GLYPH} "
-                                     f"for {REVIVE_SECONDS:.0f} seconds to revive.", ORANGE)
+                                     f"for {self.revive_seconds:.0f} seconds to revive.", ORANGE)
         else:
             self._scatter_belongings(victim, lvl)
         self._check_all_dead()
@@ -2210,7 +2345,7 @@ class World:
         self.seed = random.randrange(1, 2 ** 31)
         self.rng = random.Random(self.seed * 7919 + 1)
         self.locked_rooms = plan_locked_rooms(self.seed)
-        self.levels, self.offline = {}, {}
+        self.levels, self.offline, self.maps = {}, {}, {}
         self.necromancer, self.necro_awake, self.tide_at, self.victory = None, False, 0, ""
         self.cloaks, self.cloak_floors = 0, []
         for _ in self.players:
@@ -2326,7 +2461,7 @@ class World:
         if self.clock < m.ready_at:
             return TICKS_PER_TURN
         m.ready_at = self.clock + int(ARCHER_RELOAD * TICKS_PER_SECOND)
-        arrow = {"t": "fx", "kind": "bow", "cells": line_between((m.x, m.y), (target.x, target.y))}
+        arrow = {"t": "fx", "kind": "bow", "cells": line_between((m.x, m.y), (target.x, target.y)), "from": [m.x, m.y]}
         for v in self._living_on(m.depth):
             self.outbox.append((v.id, arrow))
         self._note_fight(target, m)
@@ -2376,11 +2511,11 @@ class World:
         self._narrate(lvl, [(m.x, m.y)], set(), lambda v: (f"The {m.name} raises the dead!", RED))
         self.note(m, "raised the dead")
 
-    def _bolt_at(self, m: Monster, lvl: Level, target: Player, kind: str, damage: tuple, what: str) -> None:
-        """Magic thrown at a player: lightning or fire. A ward stops it dead."""
+    def _bolt_at(self, m: Monster, lvl: Level, target: Player, kind: str, damage: tuple, what: str) -> bool:
+        """Magic thrown at a player: lightning or fire. A ward stops it dead. Whether it got through."""
         cells = line_between((m.x, m.y), (target.x, target.y))
         for v in self._living_on(m.depth):
-            self.outbox.append((v.id, {"t": "fx", "kind": kind, "cells": cells}))
+            self.outbox.append((v.id, {"t": "fx", "kind": kind, "cells": cells, "from": [m.x, m.y]}))
         self._note_fight(target, m)
         where = [(m.x, m.y), (target.x, target.y)]
         if self._reflecting(target):
@@ -2388,7 +2523,7 @@ class World:
             self._narrate(lvl, where, {target}, lambda v: (
                 f"The {m.name}'s {what} breaks against {self._n(target, v)}'s ward." if v is not target
                 else f"The {m.name}'s {what} breaks harmlessly against your ward.", TEAL))
-            return
+            return False
         self._narrate(lvl, where, {target}, lambda v: (f"The {m.name}'s {what} hits {self._n(target, v)}!", RED))
         if not target.god:
             dmg = self.rng.randint(*damage)
@@ -2396,6 +2531,7 @@ class World:
             self.note(m, f"{what} hit {self._tag(target)} -{dmg} hp {self._hp(target)}")
             if target.hp <= 0:
                 self._kill(target, m)
+        return True
 
     def _clear_shot(self, lvl: Level, a, b) -> bool:
         """Nothing solid between two places, so a bolt or a spear gets through."""
@@ -2431,6 +2567,85 @@ class World:
             return m.attack_cost * MONSTER_SWING
         return self._step_toward(m, lvl, t.x, t.y) or TICKS_PER_TURN
 
+    def _cult_leader(self, m: Monster, lvl: Level, t: Player) -> int:
+        """Backs off out of reach, throws three bolts from its wand of fire one after another, the
+        last setting the ground around you alight, then rests a while. Cornered, it fights."""
+        away = cheb(m, t)
+        if away < LEADER_RANGE[0]:
+            cost = self._step_away(m, lvl, t)
+            if cost:
+                return cost
+            if away == 1 and not lvl.diagonal_blocked(m.x, m.y, t.x, t.y):
+                self._attack(m, t)
+                return m.attack_cost * MONSTER_SWING
+        if self.clock < m.ready_at:
+            return TICKS_PER_TURN  # resting between volleys
+        if away > LEADER_RANGE[1] or not self._clear_shot(lvl, m, t):
+            return self._step_toward(m, lvl, t.x, t.y) or TICKS_PER_TURN
+        m.volley += 1
+        hit = self._bolt_at(m, lvl, t, "fire", LEADER_FIRE_DAMAGE, "fire bolt")
+        if m.volley >= LEADER_VOLLEY:
+            m.volley, m.ready_at = 0, self.clock + self._seconds(LEADER_REST)
+            if hit and t.alive:
+                self._start_fire(lvl, t.x, t.y, None)
+        return m.attack_cost
+
+    def _spider_queen(self, m: Monster, lvl: Level, t: Player) -> int:
+        """Bites anyone close. Anyone who runs more than WEB_SPIT_RANGE tiles off, she spits web
+        at, which slows them even more than her webs do, and leaves a web where they stand."""
+        away = cheb(m, t)
+        if WEB_SPIT_RANGE < away <= WEB_SPIT_REACH and self.clock >= m.ready_at and self._clear_shot(lvl, m, t):
+            m.ready_at = self.clock + self._seconds(WEB_SPIT_SECONDS)
+            cells = line_between((m.x, m.y), (t.x, t.y))
+            for v in self._living_on(m.depth):
+                self.outbox.append((v.id, {"t": "fx", "kind": "web", "cells": cells, "from": [m.x, m.y]}))
+            self._note_fight(t, m)
+            where = [(m.x, m.y), (t.x, t.y)]
+            if self._levitating(t) or self.rng.random() * 100 >= m.accuracy * DEFENSE_FACTOR ** t.defense:
+                self._narrate(lvl, where, {t}, lambda v: (f"The {m.name}'s web misses {self._n(t, v)}.", GRAY))
+                return m.attack_cost
+            self._narrate(lvl, where, {t}, lambda v: (
+                f"The {m.name} spits web over {self._n(t, v)}!", ORANGE))
+            self.note(m, f"webbed {self._tag(t)}")
+            if not t.god:
+                t.webbed_until = self.clock + self._seconds(WEB_SECONDS)
+            if lvl.tiles[t.x, t.y] in BURNABLE and (t.x, t.y) not in lvl.webs:
+                lvl.webs.add((t.x, t.y))
+                lvl.webs_changed = True
+            return m.attack_cost
+        if away == 1 and not lvl.diagonal_blocked(m.x, m.y, t.x, t.y):
+            self._attack(m, t)
+            return m.attack_cost * MONSTER_SWING
+        return self._step_toward(m, lvl, t.x, t.y) or TICKS_PER_TURN
+
+    def _spider(self, m: Monster, lvl: Level, t: Player) -> int:
+        """Leaps in from a few tiles off and bites as it lands, then backs off to do it again."""
+        if m.volley:  # backing off after a bite
+            m.volley -= 1
+            cost = self._step_away(m, lvl, t)
+            if cost:
+                return cost
+            m.volley = 0
+        away = cheb(m, t)
+        if away == 1 and not lvl.diagonal_blocked(m.x, m.y, t.x, t.y):
+            self._attack(m, t)
+            m.volley = LEAP_RETREAT
+            return m.attack_cost * MONSTER_SWING
+        if 2 <= away <= LEAP_RANGE and self.clock >= m.ready_at and self._clear_shot(lvl, m, t):
+            path = line_between((m.x, m.y), (t.x, t.y))[:-1]
+            spot = path[-1] if path else None
+            if (spot is not None and lvl.walkable[spot] and spot not in lvl.occupant
+                    and not lvl.diagonal_blocked(*spot, t.x, t.y)):
+                m.ready_at = self.clock + self._seconds(LEAP_SECONDS)
+                for v in self._living_on(m.depth):
+                    self.outbox.append((v.id, {"t": "fx", "kind": "leap", "cells": [(m.x, m.y), *path]}))
+                lvl.move(m, *spot)
+                self._narrate(lvl, [spot], {t}, lambda v: (f"The {m.name} leaps at {self._n(t, v)}!", ORANGE))
+                self._attack(m, t)
+                m.volley = LEAP_RETREAT
+                return m.attack_cost * MONSTER_SWING
+        return self._step_toward(m, lvl, t.x, t.y) or TICKS_PER_TURN
+
     def _scout(self, m: Monster, lvl: Level, t: Player) -> int:
         """A kobold scout keeps its distance and throws fire when it's ready."""
         away = cheb(m, t)
@@ -2446,7 +2661,7 @@ class World:
                 return m.attack_cost * MONSTER_SWING
             return TICKS_PER_TURN
         m.ready_at = self.clock + self._seconds(SCOUT_RELOAD)
-        self._bolt_at(m, lvl, t, "fire", FIREBALL_DAMAGE, "fireball")
+        self._bolt_at(m, lvl, t, "fireball", FIREBALL_DAMAGE, "fireball")  # thrown, so it flies across
         return m.attack_cost
 
     def _spearman(self, m: Monster, lvl: Level, t: Player) -> int:
@@ -2467,7 +2682,7 @@ class World:
     def _rock(self, m: Monster, lvl: Level, t: Player) -> int:
         cells = line_between((m.x, m.y), (t.x, t.y))
         for v in self._living_on(m.depth):
-            self.outbox.append((v.id, {"t": "fx", "kind": "rock", "cells": cells}))
+            self.outbox.append((v.id, {"t": "fx", "kind": "rock", "cells": cells, "from": [m.x, m.y]}))
         self._note_fight(t, m)
         where = [(m.x, m.y), (t.x, t.y)]
         if self.rng.random() * 100 >= m.accuracy * DEFENSE_FACTOR ** t.defense or self._levitating(t):
@@ -2533,6 +2748,12 @@ class World:
                     return cost
             if m.kind == "cult_mage":
                 return self._mage(m, lvl, t)
+            if m.kind == "cult_leader":
+                return self._cult_leader(m, lvl, t)
+            if m.kind == "spider_queen":
+                return self._spider_queen(m, lvl, t)
+            if m.kind == "spider":
+                return self._spider(m, lvl, t)
             if m.kind == "kobold_scout":
                 return self._scout(m, lvl, t)
             if m.kind == "kobold_leader":
@@ -2600,7 +2821,16 @@ class World:
         return {"t": "level", "depth": depth, "run": self.run, "w": MAP_W, "h": MAP_H,
                 "tiles": protocol.pack_u8(lvl.tiles),
                 "lights": [protocol.pack_u8(m * 255) for m in lvl.torch_light],
-                "stains": [[x, y, kind] for (x, y), kind in lvl.stains.items()]}
+                "stains": [[x, y, kind] for (x, y), kind in lvl.stains.items()],
+                "webs": sorted(lvl.webs), **self._vault_walls(lvl)}
+
+    def _vault_walls(self, lvl: Level) -> dict:
+        """The walls around a locked room, to be drawn in its key's color."""
+        room = self.locked_rooms.get(lvl.depth)
+        if lvl.vault is None or room is None:
+            return {}
+        walls = beside(lvl.vault) & (lvl.tiles == WALL)
+        return {"vault": {"c": list(LOCK_COLORS[room.color]), "cells": [[int(x), int(y)] for x, y in np.argwhere(walls)]}}
 
     def _status(self, p: Player) -> list[str]:
         if p.downed:
@@ -2677,8 +2907,10 @@ class World:
                 "visible": protocol.pack_bool(vis), "ents": ents, "items": items, "party": party,
                 "time": (self.clock - self.run_start) / TICKS_PER_SECOND,
                 "haste": p.haste_until > self.clock, "stealth": int(p.stealth), "downed": p.downed,
-                "levitate": self._levitating(p), "victory": self.victory, "slowed": p.slow_until > self.clock,
-                "toxin": p.toxin_until > self.clock, "slime": [c for c in lvl.slime if vis[c]], "bright": p.bright, "reveal": p.reveal,
+                "levitate": self._levitating(p), "victory": self.victory,
+                "slowed": p.slow_until > self.clock or p.webbed_until > self.clock, "webbed": p.webbed_until > self.clock,
+                "toxin": p.toxin_until > self.clock or p.venom_until > self.clock,
+                "venom": max(0, p.venom_until - self.clock) / TICKS_PER_SECOND, "slime": [c for c in lvl.slime if vis[c]], "bright": p.bright, "reveal": p.reveal,
                 "gas": [[*c, max(1, 9 * (end - self.clock) // gas_span)] for c, end in lvl.gas.items() if vis[c]],
                 "fire": [list(c) for c in lvl.fire if vis[c]],
                 "bombs": [[b["x"], b["y"]] for b in lvl.bombs if vis[b["x"], b["y"]]],

@@ -16,7 +16,7 @@ import traceback
 from collections import deque
 
 from game import algo, commands, protocol, seasons
-from game.constants import (DEFAULT_PORT, GAME_MODES, MONSTER_TIME, PING_SECONDS, PING_TIMEOUT, PROTOCOL_VERSION,
+from game.constants import (DEFAULT_DIFFICULTY, DEFAULT_PORT, DIFFICULTIES, PING_SECONDS, PING_TIMEOUT, PROTOCOL_VERSION,
                             TICK_RATE, TICKS_PER_SECOND)
 from game.ledger import Ledger
 from game.version import VERSION
@@ -41,7 +41,7 @@ class GameServer:
         self.writers: dict[int, asyncio.StreamWriter] = {}
         self.pings: dict[int, tuple[int, float]] = {}   # player -> (ping number, when sent)
         self.ping_count = 0
-        self.status: dict = {"seed": world.seed, "run": world.run, "mode": world.mode, "players": []}
+        self.status: dict = {"seed": world.seed, "run": world.run, "difficulty": world.difficulty, "players": []}
 
     async def start(self, host: str, port: int) -> asyncio.base_events.Server:
         server = await asyncio.start_server(self.handle, host, port, limit=1 << 20)
@@ -102,7 +102,7 @@ class GameServer:
         players = [{"name": p.name, "depth": p.depth, "hp": p.hp, "mhp": p.max_hp, "alive": p.alive,
                     "down": p.downed, "ping": None if p.ping is None else round(p.ping)}
                    for p in self.world.players.values()]
-        self.status = {"seed": self.world.seed, "run": self.world.run, "mode": self.world.mode, "players": players}
+        self.status = {"seed": self.world.seed, "run": self.world.run, "difficulty": self.world.difficulty, "players": players}
 
     def on_pong(self, p, msg: dict) -> None:
         sent = self.pings.get(p.id)
@@ -140,7 +140,8 @@ class GameServer:
         p.pickup_key = self.world.clean_key(hello.get("pickup"))
         self.writers[p.id] = writer
         log.info("%s joined from %s", p.name, peer[0] if peer else "unknown")
-        self.send(p.id, {"t": "welcome", "id": p.id, "name": p.name, "version": PROTOCOL_VERSION})
+        self.send(p.id, {"t": "welcome", "id": p.id, "name": p.name, "version": PROTOCOL_VERSION,
+                         "difficulty": self.world.difficulty, "revive": self.world.revive_seconds})
         self.send(p.id, self.world.ledger_head())
         self.flush()
         try:
@@ -211,10 +212,10 @@ class _RunnerLog(logging.Handler):
 class ServerRunner:
     """Runs a server on a background thread, for the app's Host Game and Server Tool."""
 
-    def __init__(self, port: int, seed: int | None = None, monster_time: float = MONSTER_TIME,
-                 host: str = "0.0.0.0", mode: str = "Classic", season_fn=seasons.current):
+    def __init__(self, port: int, seed: int | None = None, host: str = "0.0.0.0",
+                 difficulty: str = DEFAULT_DIFFICULTY, season_fn=seasons.current):
         self.host, self.port = host, port
-        self.world = World(seed, monster_time, mode, season_fn)
+        self.world = World(seed, difficulty, season_fn)
         self.game = GameServer(self.world)
         self.log: deque = deque(maxlen=200)
         self.loop = asyncio.new_event_loop()
@@ -270,14 +271,14 @@ async def main() -> None:
     ap.add_argument("--host", default="0.0.0.0")
     ap.add_argument("--port", type=int, default=DEFAULT_PORT)
     ap.add_argument("--seed", type=int, default=None)
-    ap.add_argument("--mode", choices=GAME_MODES, default="Classic")
+    ap.add_argument("--difficulty", choices=tuple(DIFFICULTIES), default=DEFAULT_DIFFICULTY)
     ap.add_argument("--season", choices=("auto", "none", *seasons.SEASONS), default="auto",
                     help="auto follows the date; the others are for previewing a season")
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 
     fixed = None if args.season == "none" else args.season
-    world = World(args.seed, mode=args.mode, season_fn=seasons.current if args.season == "auto" else lambda: fixed)
+    world = World(args.seed, args.difficulty, season_fn=seasons.current if args.season == "auto" else lambda: fixed)
     game = GameServer(world, Ledger())
     server = await game.start(args.host, args.port)
     log.info("listening on %s:%d (seed %d, %s FOV/pathing)", args.host, args.port, world.seed, algo.BACKEND)

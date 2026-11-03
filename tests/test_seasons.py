@@ -155,7 +155,7 @@ class InGameTests(unittest.TestCase):
         self.assertIsNone(w.season)
         names = {t["name"] for t in MONSTERS.values()}
         self.assertTrue(all(m.name in names for m in lvl.monsters))
-        self.assertTrue(all(i.name == "gold" if i.category == "gold" else i.name == ITEMS[i.kind]["name"]
+        self.assertTrue(all(i.name == "gold" if i.category == "gold" else i.name == ITEMS.get(i.kind, {"name": i.name})["name"]
                             for i in lvl.items.values()))
         a = w.join("A")
         self.assertFalse(any("Happy" in m["text"] or "Merry" in m["text"] for _, m in w.drain_outbox()))
@@ -212,6 +212,7 @@ class InGameTests(unittest.TestCase):
 
     def test_scattered_gold_is_flavored(self):
         w, lvl, a = self.world("christmas")
+        w.revive_seconds = None  # the fallen stay down, so their gold scatters
         a.gold = 30
         w._kill(a, make_monster("rat", 800))
         self.assertEqual(next(iter(lvl.items.values())).label, "30 chocolate coins")

@@ -47,7 +47,8 @@ class GeneratedLevel:
     lair: Point | None = None         # the last floor has no way down, and this instead
     side_rooms: tuple = ()            # and these: each one a list of its floor tiles
     hidden: np.ndarray | None = None  # the floor of a room behind a cracked wall, if there is one
-    crack: Point | None = None        # that wall
+    cracks: tuple = ()                # the cracked stretch of its wall, 1 to 3 tiles
+    cave: np.ndarray | None = None    # the big cave the level grew from, if it did: where spiders nest
 
 
 # --------------------------------------------------------------- helpers
@@ -337,6 +338,31 @@ def _add_vault(rng: random.Random, fl: np.ndarray) -> tuple[np.ndarray, Point] |
                 fl[door] = True
                 return vault, door
     return None
+
+
+def _widen_crack(rng: random.Random, fl: np.ndarray, room: np.ndarray, crack: Point) -> tuple:
+    """A stretch of 1 to 3 tiles of the hidden room's wall, along it and taking in `crack`,
+    each with the room right behind it. Marks them all in `fl`, as `_add_vault` marked `crack`."""
+    w, h = fl.shape
+    into = next((dx, dy) for dx, dy in DIRS4 if room[crack[0] + dx, crack[1] + dy])
+    along = (into[1], into[0])
+
+    def fits(k: int) -> bool:
+        x, y = crack[0] + along[0] * k, crack[1] + along[1] * k
+        return (1 <= x < w - 1 and 1 <= y < h - 1 and not fl[x, y]
+                and room[x + into[0], y + into[1]] and not room[x - into[0], y - into[1]])
+
+    low = high = 0
+    while low > -2 and fits(low - 1):
+        low -= 1
+    while high < 2 and fits(high + 1):
+        high += 1
+    width = min(rng.randint(1, 3), high - low + 1)
+    start = rng.randint(max(low, 1 - width), min(0, high - width + 1))
+    cracks = tuple((crack[0] + along[0] * k, crack[1] + along[1] * k) for k in range(start, start + width))
+    for c in cracks:
+        fl[c] = True
+    return cracks
 
 
 # ---------------------------------------------------------- water and pits
@@ -644,11 +670,16 @@ def _try_generate(rng: random.Random, depth: int, lock_tile: int | None = None,
     fl = np.zeros((w, h), bool)
     doors: set[Point] = set()
 
-    first = _room_cave(rng, rng.randint(24, 34), rng.randint(12, 18)) if rng.random() < 0.5 else _room_cross(rng)
+    is_cave = rng.random() < 0.5
+    first = _room_cave(rng, rng.randint(24, 34), rng.randint(12, 18)) if is_cave else _room_cross(rng)
     pw, ph = first.shape
     ox = min(max(1, (w - pw) // 2 + rng.randint(-12, 12)), w - pw - 1)
     oy = min(max(1, (h - ph) // 2 + rng.randint(-3, 3)), h - ph - 1)
     fl[ox:ox + pw, oy:oy + ph] = first
+    cave = None
+    if is_cave:
+        cave = np.zeros((w, h), bool)
+        cave[ox:ox + pw, oy:oy + ph] = first
 
     designs = [d for d, _ in ROOM_DESIGNS]
     weights = [wt for _, wt in ROOM_DESIGNS]
@@ -673,17 +704,18 @@ def _try_generate(rng: random.Random, depth: int, lock_tile: int | None = None,
         if found is None:
             return None
         vault, lock = found
-    hidden, crack = None, None
+    hidden, crack, cracks = None, None, ()
     if hidden_room:  # built just like a locked room, but its way in is a wall to blow open
         found = _add_vault(rng, fl)
         if found is not None:
             hidden, crack = found
+            cracks = _widen_crack(rng, fl, hidden, crack)
     shut = np.zeros((w, h), bool)  # the rooms that start closed off
     for room in (vault, hidden):
         if room is not None:
             shut |= room
 
-    taken = doors | {p for p in (lock, crack) if p}
+    taken = doors | {p for p in (lock, *cracks) if p}
     sites = [s for s in _stair_sites(fl, taken) if not shut[s[1]]]
     if len(sites) < 2:
         return None
@@ -698,13 +730,16 @@ def _try_generate(rng: random.Random, depth: int, lock_tile: int | None = None,
     keep = np.zeros((w, h), bool)
     for x, y in (up, up_front, down, down_front):
         keep[max(0, x - 1):x + 2, max(0, y - 1):y + 2] = True
-    for room, way in ((vault, lock), (hidden, crack)):
+    for room, ways in ((vault, (lock,)), (hidden, cracks)):
         if room is not None:
-            keep |= _dilate(room | _cell(way))[1:-1, 1:-1]
+            for way in ways:
+                keep |= _dilate(room | _cell(way))[1:-1, 1:-1]
     sealed = fl.copy()  # the level without its closed rooms, which get no water or pits
-    for room, way in ((vault, lock), (hidden, crack)):
+    for room, ways in ((vault, (lock,)), (hidden, cracks)):
         if room is not None:
-            sealed[room], sealed[way] = False, False
+            sealed[room] = False
+            for way in ways:
+                sealed[way] = False
     goals = [down_front]
     for way in (lock, crack):
         if way:
@@ -726,8 +761,8 @@ def _try_generate(rng: random.Random, depth: int, lock_tile: int | None = None,
     tiles[down] = STAIRS_DOWN
     if lock:
         tiles[lock] = lock_tile
-    if crack:
-        tiles[crack] = CRACKED
+    for c in cracks:
+        tiles[c] = CRACKED
     torches = _add_torches(rng, tiles, shut if shut.any() else None, (up, down))
     for torch, front in torches:
         tiles[torch] = TORCH
@@ -735,7 +770,7 @@ def _try_generate(rng: random.Random, depth: int, lock_tile: int | None = None,
     _add_plants(rng, tiles, keep)
     _add_pond(rng, tiles, keep)
     return GeneratedLevel(tiles, up, up_front, down, down_front, vault, lock, tuple(torches),
-                          hidden=hidden, crack=crack)
+                          hidden=hidden, cracks=cracks, cave=cave)
 
 
 def generate(seed: int, depth: int, lock_tile: int | None = None, hidden_room: bool = False) -> GeneratedLevel:

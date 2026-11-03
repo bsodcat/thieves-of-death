@@ -15,12 +15,18 @@ Server -> client
     {"t": "welcome", "id": 3, "name": "Alice", "version": 12}
     {"t": "level", "depth": 1, "run": 1, "w": 79, "h": 29, "tiles": <base64 uint8>,
      "lights": [<base64 uint8>, ...],   one brightness map per torch
-     "stains": [[x, y, "blood"], ...]}  what monsters have left where they died
+     "stains": [[x, y, "blood"], ...],  what monsters have left where they died
+     "vault": {"c": [r, g, b], "cells": [[x, y], ...]},  a locked room's walls and key color, if any
+     "webs": [[x, y], ...]}            spider webs
     {"t": "stains", "depth": 1, "cells": [[x, y, "goo"], ...]}   new ones since
+    {"t": "webs", "depth": 1, "cells": [[x, y], ...]}   all the webs, when any are spun or burned
     {"t": "state", ...}      see World.state_for
     {"t": "fx", "kind": "fire", "cells": [[x, y], ...]}   a wand's bolt, "blink" for a teleport,
                              "hit" where a player has just struck a monster, "blast" for a bomb,
-                             "lightning", "rock", or "boomerang" for one thrown out to its target
+                             "lightning", "rock", "fireball", "web" (spat), "leap" (a spider's),
+                             "bow", or "boomerang" for one thrown out to its target. "from": [x, y]
+                             is where it came from; a player's shot that killed adds
+                             "fell": {"g": "r", "c": [r, g, b]}. bow, rock, fireball and web fly.
     {"t": "tip", "who": "The fisherman"}   someone gives this player a tip, in their own keys
     {"t": "console", "text": "...", "c": [r, g, b]}       a line for the test console
     {"t": "prompt", "text": "...", "x": 1, "y": 2}   a yes or no question about an altar

@@ -7,9 +7,9 @@ Add a command by writing a function and listing it in COMMANDS.
 from __future__ import annotations
 
 from .constants import LAST_FLOOR, STAMINA_MAX, STEALTH_MAX
-from .entities import MONSTERS, make_monster
+from .entities import MONSTERS
 from .items import ITEMS, make_amulet, make_cloak, make_item, make_key, make_staff, make_wand
-from .seasons import dress_item, dress_monster
+from .seasons import dress_item
 from .tiles import LOCK_COLORS
 
 MAX_DEPTH = LAST_FLOOR
@@ -171,14 +171,17 @@ def summon(w, p, args) -> str:
 def spawn(w, p, args) -> str:
     alive(p)
     if not args:
-        raise Refused("spawn <monster or cult> [count]")
+        raise Refused("spawn <monster, cult or nest> [count]")
     lvl = w.levels[p.depth]
     if args[0].lower() == "cult":
         return "A cult has gathered on this floor." if w._add_cult(lvl, force=True) else "There's no room for a cult here."
+    if args[0].lower() == "nest":
+        return ("A spider queen has nested on this floor." if w._add_spiders(lvl, force=True)
+                else "There's no room for a nest here.")
     kind = pick(args[0], MONSTERS, "monster")
     count = number(args[1], 1, MAX_SPAWN) if len(args) > 1 else 1
     for _ in range(count):
-        m = dress_monster(make_monster(kind, next(w._ids)), w.season)
+        m = w._new_monster(kind)
         m.state, m.next_time = "wandering", w.clock
         lvl.place(m, *lvl.free_near(p.x, p.y))
         lvl.monsters.append(m)
@@ -220,20 +223,55 @@ def info(w, p, args) -> list[str]:
     lvl = w.levels[p.depth]
     rooms = ", ".join(f"{r.color} on {r.depth}, key on {r.key_depth}" for r in w.locked_rooms.values())
     cloaks = ", ".join(map(str, sorted(w.cloak_floors)))
-    return [f"Seed {w.seed}, run {w.run}, mode {w.mode}, season {w.season or 'none'}",
+    return [f"Seed {w.seed}, run {w.run}, {w.difficulty}, season {w.season or 'none'}",
             f"Floor {p.depth} at {p.x}, {p.y}: {len(lvl.monsters)} monsters, {len(lvl.items)} items",
             f"Locked rooms: {rooms or 'none'}",
             f"Cloaks on floors not built yet: {cloaks or 'none'}"]
 
 
-def list_names(w, p, args) -> list[str]:
-    return ["Items: " + " ".join(item_names()), "Monsters: cult " + " ".join(MONSTERS)]
+# How `list` sorts items: a heading and the item categories under it. Anything else goes under Other.
+ITEM_GROUPS = (("Weapons", ("weapon",)), ("Ranged", ("ranged", "ammo", "bomb")), ("Armor", ("armor",)),
+               ("Potions", ("potion",)), ("Magic", ("wand",)))
+EXTRA_GROUPS = {"cloak": "Armor", "wand": "Magic", "staff": "Magic"}  # made by hand, not from ITEMS
+LIST_LABEL, LIST_COLUMN, LIST_COLUMNS = 10, 19, 3
+HEADING = (235, 215, 130)
+
+
+def table(label: str, names: list[str]) -> list[str]:
+    """Names in even columns, with the label at the start of the first row."""
+    rows = [names[i:i + LIST_COLUMNS] for i in range(0, len(names), LIST_COLUMNS)]
+    return [(label if i == 0 else "").ljust(LIST_LABEL) + "".join(n.ljust(LIST_COLUMN) for n in row).rstrip()
+            for i, row in enumerate(rows)]
+
+
+def item_groups() -> dict[str, list[str]]:
+    groups = {label: [] for label, _ in ITEM_GROUPS} | {"Other": []}
+    category = {cat: label for label, cats in ITEM_GROUPS for cat in cats}
+    for kind in item_names():
+        entry = ITEMS.get(kind)
+        label = category.get(entry.get("category"), "Other") if entry else EXTRA_GROUPS.get(kind, "Other")
+        groups[label].append(kind)
+    return {label: names for label, names in groups.items() if names}
+
+
+def list_names(w, p, args) -> list:
+    """Items by kind and monsters, in columns. `list items` or `list monsters` shows one."""
+    which = pick(args[0], ("items", "monsters"), "list") if args else None
+    lines = []
+    if which in (None, "items"):
+        lines.append(("Items - give <item> [count]", HEADING))
+        for label, names in item_groups().items():
+            lines += table(label, names)
+    if which in (None, "monsters"):
+        lines.append(("Monsters - spawn <monster> [count], spawn cult or spawn nest", HEADING))
+        lines += table("", sorted(MONSTERS))
+    return lines
 
 
 # name -> (function, usage, what it does)
 COMMANDS = {
     "help": (show_help, "help [command]", "List the commands, or explain one"),
-    "list": (list_names, "list", "List item and monster names"),
+    "list": (list_names, "list [items|monsters]", "List item and monster names"),
     "info": (info, "info", "Seed, floor, locked rooms and cloaks"),
     "give": (give, "give <item> [count]", "Put an item, or gold, in your pack"),
     "gold": (gold, "gold <amount>", "Add gold"),
@@ -243,7 +281,7 @@ COMMANDS = {
     "goto": (goto, "goto <floor>", "Go to any floor"),
     "floor": (floor, "floor <number> [player]", "Move you, or another player, to a floor"),
     "summon": (summon, "summon [player]", "Bring a player, or everyone, to you"),
-    "spawn": (spawn, "spawn <monster> [count]", "Add monsters; spawn cult adds a cult"),
+    "spawn": (spawn, "spawn <monster> [count]", "Add monsters; cult or nest adds a group"),
     "killall": (killall, "killall", "Kill every monster on this floor"),
     "reveal": (reveal, "reveal", "Map floors, mark monsters and items"),
     "ultrabright": (ultrabright, "ultrabright", "Light up every floor, on or off"),
@@ -271,7 +309,7 @@ def run(w, p, text: str) -> None:
         reply(str(why), BAD)
         return
     for line in [result] if isinstance(result, str) else result:
-        reply(line, GOOD)
+        reply(*line) if isinstance(line, tuple) else reply(line, GOOD)  # a tuple brings its own color
     w.dirty = True
     if name not in ("help", "list", "info"):
         w.note(p, "CONSOLE " + " ".join(words))

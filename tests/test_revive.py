@@ -14,7 +14,9 @@ REVIVE_TICKS = int(REVIVE_SECONDS * TICKS_PER_SECOND)
 
 
 def setup_world(mode="Revive", players=2):
-    w = World(1, mode=mode)
+    w = World(1)
+    if mode == "Classic":
+        w.revive_seconds = None  # the fallen stay down
     lvl = w.level(1)
     for m in list(lvl.monsters):
         lvl.remove(m)
@@ -66,10 +68,10 @@ class DownedTests(unittest.TestCase):
         w.drain_outbox()
         down(w, a)
         texts = [m["text"] for _, m in w.drain_outbox()]
-        self.assertTrue(any("Alice is down on floor 1" in t and "3 seconds" in t and BONES_GLYPH in t for t in texts))
+        self.assertTrue(any("Alice is down on floor 1" in t and f"{w.revive_seconds:.0f} seconds" in t and BONES_GLYPH in t for t in texts))
 
     def test_the_call_for_help_fits_and_skips_the_victim(self):
-        w = World(1, mode="Revive")
+        w = World(1)
         a, b = w.join("A" * 16), w.join("Bob")
         w.level(40)
         w.levels[40].place(a, *w.levels[40].up_front)
@@ -94,7 +96,7 @@ class DownedTests(unittest.TestCase):
         text = screen(view_of(w, a))
         self.assertIn("You are down!", text)
         self.assertIn("standing next to your", text)
-        self.assertIn("3 seconds", text)
+        self.assertIn(f"{w.revive_seconds:.0f} seconds", text)
         self.assertIn("Killed by a rat", text)
         self.assertTrue(w.state_for(a)["visible"])
         self.assertIn(BONES_GLYPH, text)               # their own bones, still in view under the box

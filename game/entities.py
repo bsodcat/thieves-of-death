@@ -54,6 +54,7 @@ class Player(Actor):
     sprinting: bool = False      # Shift is held down
     aim: str = "Strongest"       # which monster ranged weapons pick: Strongest or Weakest
     pickup_key: str = "g"        # how this player's own copy shows their pick up key
+    met: int | None = None       # the merchant or fisherman this player last walked into, if that was their last action
     can_command: bool = False    # playing on the server's own computer, so the console works
     god: bool = False            # console: takes no damage
     chased: bool = False         # left the necromancer's floor with it awake
@@ -66,6 +67,9 @@ class Player(Actor):
     food_ticks: int = 0          # time fed, toward the next health it gives
     fire_ticks: int = 0          # time standing in fire, toward the next point of damage
     slow_until: int = 0          # tick when they can move normally again
+    webbed_until: int = 0        # tick when a spider queen's spat web stops slowing them even more
+    venom_until: int = 0         # tick when a spider's venom wears off
+    venom_ticks: int = 0         # time envenomed, toward the next point of damage
     noclip: bool = False         # console: walks through everything
     bright: bool = False         # console: every floor is drawn fully lit
     reveal: bool = False         # console: every floor is mapped, with all its monsters and items
@@ -101,6 +105,7 @@ class Monster(Actor):
     post: tuple | None = None    # a place it guards
     float_until: int = 0         # a cultist mage: tick it comes back down, out of reach of melee till then
     float_next: int = 0          # and the tick it next rises
+    volley: int = 0              # a cult leader: bolts thrown so far in this volley
 
 
 # What players can choose on the character screen. Shapes that look like a monster,
@@ -175,6 +180,7 @@ def reset_player(p: Player) -> None:
     p.waterwalk_until = p.lavawalk_until = p.gas_ticks = 0
     p.chased, p.reflect_until, p.haunts = False, 0, []
     p.toxin_until = p.toxin_ticks = p.slow_until = 0
+    p.webbed_until = p.venom_until = p.venom_ticks = 0
     p.food_until = p.food_ticks = p.fire_ticks = 0
     p.fov_key, p.fov = None, None
     p.pack, p.gold, p.weapon, p.armor, p.cloak, p.pack_dirty = [], 0, None, None, None, True
@@ -232,10 +238,10 @@ MONSTERS = {
     "cultist": dict(name="cultist", glyph="c", color=(170, 60, 70), hp=18, accuracy=90, defense=10,
                     damage=(2, 5), move=100, attack=100, depths=(0, 0), weight=0, verbs=("stabs", "stab"),
                     desc="Robed, chanting and never alone."),
-    "cult_leader": dict(name="cult leader", glyph="C", color=(235, 80, 60), hp=50, accuracy=110, defense=20,
-                        damage=(3, 7), move=100, attack=100, depths=(0, 0), weight=0, verbs=("strikes", "strike"),
-                        desc="Carries a wand of fire."),
-    "cult_mage": dict(name="cultist mage", glyph="M", color=(180, 100, 255), hp=45, accuracy=100, defense=20,
+    "cult_leader": dict(name="cult leader", glyph="C", color=(235, 80, 60), hp=75, accuracy=110, defense=25,
+                        damage=(4, 8), move=100, attack=100, depths=(0, 0), weight=0, verbs=("strikes", "strike"),
+                        desc="Hangs back and throws fire from its wand, three bolts at a time."),
+    "cult_mage": dict(name="cultist mage", glyph="M", color=(180, 100, 255), hp=65, accuracy=100, defense=25,
                       damage=(3, 6), move=100, attack=100, depths=(0, 0), weight=0, verbs=("strikes", "strike"),
                       desc="Casts lightning, and floats out of melee reach."),
     "kobold_leader": dict(name="kobold leader", glyph="K", color=(90, 130, 255), hp=45, accuracy=90, defense=15,
@@ -244,6 +250,13 @@ MONSTERS = {
     "kobold_scout": dict(name="kobold scout", glyph="k", color=(235, 75, 55), hp=10, accuracy=80, defense=5,
                          damage=(1, 4), move=100, attack=100, depths=(0, 0), weight=0, verbs=("hits", "hit"),
                          desc="Keeps its distance and throws fire."),
+    "spider_queen": dict(name="spider queen", glyph="A", color=(170, 70, 190), hp=110, accuracy=100,
+                         defense=20, damage=(5, 10), move=150, attack=100, depths=(0, 0), weight=0,
+                         verbs=("bites", "bite"),
+                         desc="A giant spider in a webbed cave. Run and she spits web. Venomous."),
+    "spider": dict(name="spider", glyph="a", color=(150, 120, 170), hp=14, accuracy=95, defense=15,
+                   damage=(2, 4), move=80, attack=100, depths=(0, 0), weight=0, verbs=("bites", "bite"),
+                   desc="Leaps, bites and backs off. Its venom never kills."),
 }
 
 

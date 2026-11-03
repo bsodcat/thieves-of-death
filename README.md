@@ -14,7 +14,7 @@ What's in it so far:
   unless someone is standing in them, no cutting diagonally around wall corners,
   sneak attacks on unaware monsters, and walking into stairs to use them.
 - Per-player field of view and memory of explored tiles (per depth).
-- Monsters that sleep, wander and hunt, with melee combat and HP regeneration.
+- Monsters that sleep, wander and hunt, with melee combat, and three difficulties.
 - Real-time online co-op: nobody ever waits for anybody (see "How time works").
 - Items: potions, weapons, armor and gold, a 10-slot pack, and dropping things for
   teammates. A run clock in the sidebar.
@@ -103,7 +103,9 @@ do one thing, and giving `h j k l y u b n` another job takes it off movement. Nu
 `` ` ``, F1 and F2 can't be changed. The arrows and numpad always move you, unless you bind them.
 
 Walk into a teammate to go straight past them, which leaves them where they are. If there's nowhere
-to land on the far side you trade places instead, so nobody can block a corridor.
+to land on the far side you trade places instead, so nobody can block a corridor. Merchants and the
+fisherman can stand in doorways, so they never block you either: walk into one to shop or talk, and
+walk into them again straight away to step past the same way.
 
 ## How time works
 
@@ -113,25 +115,32 @@ The game runs in real time, on one clock shared by everyone:
   action happens at once. Press again during the cooldown and it's queued for when the
   cooldown ends, with the newest press replacing any older one.
 - Nobody waits for anybody. Your actions depend only on your own cooldown.
-- Monsters act on their own clock whether or not anyone is pressing keys, at 1.5 times the
-  player's action time (`MONSTER_TIME`), so you can get away from most of them. Jackals
-  are still faster than you.
+- Monsters act on their own clock whether or not anyone is pressing keys. On Medium that's 1.5
+  times the player's action time (`MONSTER_TIME`), so you can get away from most of them. Jackals
+  are still faster than you. Easy makes them slower, and Hard faster.
 - Monsters only run on levels with a living player. Other levels stay frozen until
   someone arrives.
-- Health returns over time, a full bar in about 48 seconds, so there's no rest key.
+- On Easy, health returns over time, a full bar in about 48 seconds. On Medium and Hard it
+  doesn't: heal with potions, ponds, food and fairies.
 
 All of these numbers are in `game/constants.py`.
 
-## Game modes
+## Difficulty
 
-Choose one under Host Game or Server Tool.
+The host chooses one under Host Game or Server Tool, and it holds for the whole game. The server
+command line takes `--difficulty Easy|Medium|Hard`.
 
-- **Classic**: a fallen player is out until the next run, and their gear lands around them
-  for the party to collect.
-- **Revive**: a fallen player stays on the map as bones (`%`), keeps their gear, and can watch
-  what's nearby. Stand next to the bones for 3 seconds to bring them back at half health. If you
-  move out of reach, the progress resets. Monsters ignore bones. If everyone goes down, the run
-  restarts.
+| | Monsters | Their health and armor | Health over time | Reviving a teammate |
+|---|---|---|---|---|
+| **Easy** | slow (2 times your action time) | 80%, 5 less armor | returns | 3 seconds |
+| **Medium** | normal (1.5 times) | as listed | doesn't return | 8 seconds |
+| **Hard** | fast (as fast as you) | 130%, 5 more armor | doesn't return | none |
+
+When a player falls on Easy or Medium they stay on the map as bones (`%`), keep their gear, and can
+watch what's nearby. Stand next to the bones to bring them back at half health. If you move out of
+reach, the progress resets. Monsters ignore bones. On Hard a fallen player is out until the next
+run, and their gear lands around them for the party to collect. If everyone goes down, the run
+restarts.
 
 ## Your character
 
@@ -172,7 +181,7 @@ Your score is the gold you're carrying times your kills, times 100, divided by y
 score = gold x kills x 100 / moves. A win doubles it. So gold and kills raise it, every move lowers
 it, and with no kills or no gold it's 0. It's shown in the sidebar as you play. Moves
 counts every action, including attacks and using items. The score uses
-the gold you carry when you fall, so gold you drop no longer counts, and in Classic the gold that
+the gold you carry when you fall, so gold you drop no longer counts, and on Hard the gold that
 scatters from you still does.
 
 Press `t` for your tally: score, kills by monster, and the hardest enemy you've fought, ranked by
@@ -253,7 +262,7 @@ it. The game keeps running behind it.
 
 | Command | Does |
 | --- | --- |
-| `help`, `list` | List the commands, or the item and monster names |
+| `help`, `list [items\|monsters]` | List the commands, or the item and monster names in columns, items by kind |
 | `info` | Seed, floor, locked rooms and where cloaks are waiting |
 | `give <item> [count]` | Put an item in your pack, such as `give wand` or `give tele 3`. `give gold 500` adds gold |
 | `gold <amount>` | Add gold, which raises your score |
@@ -300,9 +309,9 @@ down as close as possible to where you fell, and that can be lava. It costs 25 h
 fall and can kill you. If you live, you end up on the nearest ground. Lava always stays 2 tiles
 clear of deep water, so it never touches water of any kind.
 
-Some walls are cracked, with a hidden room behind them. A cracked wall is the same `#` as the rest,
-a shade off in color. A floor with no locked door and no cult altar has a 33% chance of one. A bomb
-set off beside it breaks it open, and inside is a fairy: walk into it to free it, and every living
+Some walls are cracked, with a hidden room behind them. A cracked wall is a gold `▒` stretch, 1 to 3
+tiles wide. A floor with no locked door and no cult altar has a 33% chance of one. A bomb
+set off beside any of it breaks the whole stretch open, and inside is a fairy: walk into it to free it, and every living
 player's maximum health rises by a fifth, healed at once.
 
 Now and then a room closed off by doors, with a torch and nothing else in it, holds a barrel of
@@ -336,14 +345,26 @@ food (`Θ`). Walk into it and "Food is good!": you heal 2 health a second for 8 
   touch poisons you for 1 damage a second for 6 seconds, with no healing meanwhile, and halves your
   speed for 3 seconds, and so
   does walking on the green trail they leave, which lasts 15 seconds. Levitating avoids the trail.
+- **Spider queens** (`A`), giants: on about a third of the floors from 8 to 40 that grew from a big
+  cave, one nests in it with 2 or 3 **spiders** (`a`), and webs (`:`) spun across the cave. Walking
+  into a web slows you for 3 seconds; fire burns webs away. The queen is slow and tough. Run more
+  than 5 tiles from her and she spits web at you from up to 10 tiles, every 4 seconds: it slows you
+  to a third of your speed for 3 seconds and leaves a web where you stand. Spiders leap at you from
+  up to 3 tiles away, biting as they land, then back off two steps and come again. Every spider's
+  bite adds 10 seconds of venom, up to 40: 1 damage every 2 seconds and no healing meanwhile, but
+  venom never takes you below 1 health.
 - **Ghosts** (`G`): only appear after you've used an altar. See Altars.
 - **Zombies** (`z`): slow, and only raised by the necromancer.
 
 A monster on fire and below half health runs from you. Where a monster dies it leaves a mark on
-the floor: blood for most, green goo for slimes, bones for skeletons, rot for zombies and spores
-for mushrooms. Ghosts leave nothing.
+the floor: blood for most, green goo for slimes and spiders, bones for skeletons, rot for zombies
+and spores for mushrooms. Ghosts leave nothing.
 
-Walk into the **fisherman** (`F`), who waits on one floor from 2 to 6, often by the water. He tells
+Arrows, rocks, kobold scouts' fireballs and the spider queen's web fly across the map a tile at a
+time, as your own arrows and boomerang do; magic flashes along its whole line at once. Anything
+your arrow or boomerang kills stays in view until the shot reaches it.
+
+Walk into the **fisherman** (`F`), who waits at the water's edge on one floor from 2 to 6. He tells
 you which floor a locked room's key lies on, a different room each time, or gives you a tip if
 there are no locked rooms this run.
 
@@ -352,8 +373,8 @@ there are no locked rooms this run.
 About 1 floor in 8 has a small bright teal pond. Step in to heal fully and be warded for 3 minutes:
 a blue glow surrounds you, and magic aimed at you goes straight back at whoever cast it. The pond is then spent.
 Magic armor has the same ward for as long as you wear it, with a smaller, slower glow. So far the dragon's fire is the only magic
-aimed at players, along with the cultist mage's lightning and the kobold scouts' fireballs. A ward
-stops those two outright.
+aimed at players, along with the cultist mage's lightning, the cult leader's fire bolts and the kobold
+scouts' fireballs. A ward stops those three outright.
 
 A monster about to hit you in melee warns you first: it blinks, faster and faster as the blow gets
 close. When a player strikes a monster, a red glow flares around it and fades. Most monsters give you about half a second, and slow hitters like ogres nearly a
@@ -382,7 +403,10 @@ that goes through walls, and it always knows where you are. You get one ghost fo
 ## Cultists
 
 From floor 10 down, a floor has a 20% chance of a group of 6 to 12 cultists, one of them their
-leader (`C`). When one notices you they all do. Kill the leader and it drops a wand of fire, which
+leader (`C`). When one notices you they all do. The leader fights with its wand of fire: it backs
+off to 3 to 6 tiles away, throws three fire bolts one after another for 4 to 8 damage each, the last
+setting the ground around you alight, then rests 2 seconds before the next three. Cornered, it fights
+hand to hand. A ward stops its bolts. Kill the leader and it drops that wand of fire, which
 anyone can pick up with `g`. Use it like any pack item: it burns the nearest monster in sight within
 10 tiles for 8 to 14 damage and sets it alight for 3 of its turns. The ground around it burns for 2
 to 3.5 seconds, and fire spreads through grass until it has all burned away to ash. Anything that
@@ -391,14 +415,15 @@ and if there's nothing to aim at, a use isn't spent.
 
 Every cult has a **cultist mage** (`M`) a floor above or below it. Every 10 seconds it rises into
 the air for 6 seconds, glowing violet, and drifts over to hang near you, usually above you. While
-it floats, melee can't reach it: use a bow, a boomerang, a wand or a staff. Every 3 seconds it casts
+it floats, melee can't reach it: use a bow, a boomerang, a wand or a staff. Every 2.5 seconds it casts
 lightning at you from up to 8 tiles, for 6 to 12 damage, which a pond's ward or magic armor stops.
 It drops a staff of lightning, which never runs out. It isn't a melee weapon, so no altar can
 enhance it.
 
 ## Locked rooms
 
-Each of floors 4 to 14 has a 15% chance of a locked room, in red, blue, green or yellow. Its key is
+Each of floors 4 to 14 has a 15% chance of a locked room, in red, blue, green or yellow. Its walls are
+drawn in its color, so you can pick it out from across the floor. Its key is
 the same color and lies exactly 2 floors above or below, so you may have to come back for it. Walk over a
 key to pick it up, then walk into the door. Anyone in the party can use it, and it's used up.
 Inside are two pieces of gear from deeper down, a potion and a big pile of gold.
@@ -409,7 +434,8 @@ Every 5th floor has a 60% chance of a merchant (`$`), and you'll hear them when 
 into them to see their stock, and press a number to buy. They sell 3 to 5 weapons and armor suited
 to the floor, and there's one of each, shared by the whole party. Every merchant also has bombs,
 which never sell out. Walking away closes the shop.
-Spending gold lowers your score, since it counts what you're carrying. You can't walk through a merchant.
+Spending gold lowers your score, since it counts what you're carrying. Walk into a merchant again
+right after the shop opens to step past them.
 
 Press Tab at a shop to sell instead. It lists your pack with what the merchant will pay, which is
 half an item's price, and a number sells it: one potion or bomb at a time, or a whole quiver of

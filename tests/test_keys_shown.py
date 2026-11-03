@@ -19,7 +19,7 @@ def screen_text(frame) -> str:
 
 class KillallTests(unittest.TestCase):
     def setUp(self):
-        self.w = World(7, mode="Revive")
+        self.w = World(7)
         self.down, self.other = self.w.join("Down"), self.w.join("Other")
         self.lvl = self.w.levels[self.down.depth]
         self.lvl.monsters.clear()

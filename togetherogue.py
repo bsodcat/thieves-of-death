@@ -12,7 +12,7 @@ import tcod.event
 
 import client
 from game import controls, seasons, settings
-from game.constants import GAME_MODES, MONSTER_TIME, REVIVE_SECONDS
+from game.constants import DEFAULT_DIFFICULTY, DIFFICULTIES
 from game.entities import PLAYER_COLOR_NAMES, PLAYER_GLYPHS
 from game.menu import DIM, GREEN, TEXT, WHITE, Form, Row
 from game.version import AUTHOR, STARTED, VERSION
@@ -25,10 +25,21 @@ FONTS = {
     "Consolas (11x20)":      ("C:/Windows/Fonts/consola.ttf", 11, 20),
 }
 TYPED_WAIT = 0.05  # how long after a key press what it typed can take to arrive
-MONSTER_SPEEDS = {"Slow": 2.0, "Normal": MONSTER_TIME, "Fast": 1.0}
-SETUP_NOTE = (f"Leave the seed blank for a random dungeon.\n"
-              f"Classic: a fallen player is out until the next run.\n"
-              f"Revive: stand next to a fallen player for {REVIVE_SECONDS:.0f} seconds to bring them back.")
+
+
+def _difficulty_line(name: str) -> str:
+    """What a difficulty means, in a line for the setup screen."""
+    rules = DIFFICULTIES[name]
+    speed = {2.0: "slow", 1.0: "fast"}.get(rules["monster_time"], "normal")
+    health, _ = rules["toughness"]
+    tough = "weaker" if health < 1 else "tougher" if health > 1 else "normal"
+    revive = f"revive a teammate in {rules['revive']:.0f}s" if rules["revive"] else "no revives"
+    heal = "you heal over time" if rules["regen"] else "no healing over time"
+    monsters = ", ".join(w for w in (speed, tough) if w != "normal") or "normal"
+    return f"{name}: {monsters} monsters; {heal}; {revive}."
+
+
+SETUP_NOTE = "Leave the seed blank for a random dungeon.\n" + "\n".join(map(_difficulty_line, DIFFICULTIES))
 
 
 class WindowClosed(Exception):
@@ -75,11 +86,11 @@ def parse_port(text: str) -> int:
     return int(text)
 
 
-def parse_setup(values: dict) -> tuple[int, int | None, float, str]:
-    """(port, seed, monster_time, mode) from a setup form. Raises ValueError with a message to show."""
-    mode = values["game_mode"] if values["game_mode"] in GAME_MODES else GAME_MODES[0]
+def parse_setup(values: dict) -> tuple[int, int | None, str]:
+    """(port, seed, difficulty) from a setup form. Raises ValueError with a message to show."""
+    difficulty = values.get("difficulty")
     return (parse_port(values["port"]), int(values["seed"]) if values["seed"] else None,
-            MONSTER_SPEEDS.get(values["monster_speed"], MONSTER_TIME), mode)
+            difficulty if difficulty in DIFFICULTIES else DEFAULT_DIFFICULTY)
 
 
 def title_footer() -> str:
@@ -160,8 +171,7 @@ class App:
         c = self.config
         return [Row("Port", "port", c["port"], digits=True, limit=5),
                 Row("Dungeon seed", "seed", c["seed"], digits=True, limit=10),
-                Row("Monster speed", "monster_speed", c["monster_speed"], choices=tuple(MONSTER_SPEEDS)),
-                Row("Game mode", "game_mode", c["game_mode"], choices=GAME_MODES)]
+                Row("Difficulty", "difficulty", c["difficulty"], choices=tuple(DIFFICULTIES))]
 
     def look(self) -> dict:
         return {"aim": self.config["ranged_target"], "glyph": self.config["shape"], "color": self.config["color"],
@@ -183,11 +193,11 @@ class App:
             values = form.values()
             self.remember(values)
             try:
-                port, seed, monster_time, mode = parse_setup(values)
+                port, seed, difficulty = parse_setup(values)
             except ValueError as exc:
                 form.error = str(exc)
                 continue
-            runner = ServerRunner(port, seed, monster_time, mode=mode, season_fn=self.season_fn)
+            runner = ServerRunner(port, seed, difficulty=difficulty, season_fn=self.season_fn)
             try:
                 runner.start()
             except OSError:
@@ -235,11 +245,11 @@ class App:
             values = form.values()
             self.remember(values)
             try:
-                port, seed, monster_time, mode = parse_setup(values)
+                port, seed, difficulty = parse_setup(values)
             except ValueError as exc:
                 form.error = str(exc)
                 continue
-            runner = ServerRunner(port, seed, monster_time, mode=mode, season_fn=self.season_fn)
+            runner = ServerRunner(port, seed, difficulty=difficulty, season_fn=self.season_fn)
             try:
                 runner.start()
             except OSError:
@@ -260,7 +270,7 @@ class App:
             status = runner.status
             y = 12
             console.print(20, y, f"Port {runner.port}    Seed {status['seed']}    Run {status['run']}"
-                                 f"    {status['mode']} mode", fg=WHITE)
+                                 f"    {status['difficulty']}", fg=WHITE)
             y += 1
             shown = ", ".join(addresses[:2]) or "no network found"
             console.print(20, y, f"On your network, friends join at: {shown}", fg=GREEN)

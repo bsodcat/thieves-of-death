@@ -570,6 +570,7 @@ class WinningTests(unittest.TestCase):
     def test_a_classic_death_leaves_it_behind(self):
         self.w.join("B")
         self.p.pack.append(make_amulet())
+        self.w.revive_seconds = None  # the fallen stay down, as on Hard
         self.w._kill(self.p, None)
         self.assertTrue(any(i.category == "amulet" for i in self.lvl.items.values()))
 

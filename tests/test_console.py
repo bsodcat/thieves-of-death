@@ -356,7 +356,6 @@ class CollisionTests(unittest.TestCase):
         self.assertEqual((self.p.x, self.p.y), (x + 1, y + 1))
 
     def test_dying_inside_a_wall_leaves_bones_where_they_can_be_reached(self):
-        self.w.mode = "Revive"
         self.w.join("Friend")
         self.ghost()
         wall = next((x, y) for x in range(2, MAP_W - 2) for y in range(2, MAP_H - 2)
@@ -453,6 +452,26 @@ class ViewTests(unittest.TestCase):
         for _, msg in w.drain_outbox():
             v.apply(msg)
         self.assertIn("cult_leader", "".join(line for line, _ in v.console_log))
+
+    def test_list_is_in_tidy_columns(self):
+        from game.render import CONSOLE_WIDTH
+        w, p = host()
+        w.drain_outbox()
+        commands.run(w, p, "list")
+        sent = [m for _, m in w.drain_outbox() if m["t"] == "console"]
+        rows = [m["text"] for m in sent]
+        self.assertTrue(all(len(r) <= CONSOLE_WIDTH - 4 for r in rows))  # nothing wraps
+        self.assertEqual(sum(tuple(m["c"]) == commands.HEADING for m in sent), 2)
+        self.assertTrue(any(r.startswith("Weapons") and "sword" in r for r in rows))
+        listed = " ".join(rows).split()
+        for name in [*commands.item_names(), *commands.MONSTERS]:
+            self.assertIn(name, listed)
+
+    def test_list_just_the_monsters(self):
+        w, p = host()
+        rows = " ".join(run(w, p, "list mon"))
+        self.assertIn("skeleton_warrior", rows)
+        self.assertNotIn("greatsword", rows)
 
     def test_up_and_down_recall(self):
         v, w, p = self.view()

@@ -8,12 +8,12 @@ from unittest import mock
 
 import client
 from game import settings
-from game.constants import MONSTER_SWING, MONSTER_TIME, TICKS_PER_TURN
+from game.constants import DIFFICULTIES, MONSTER_SWING, REVIVE_HEALTH, TICKS_PER_SECOND, TICKS_PER_TURN
 from game.entities import PLAYER_COLOR_NAMES, PLAYER_GLYPHS, make_monster
 from game.menu import ROW_STEP, ROW_Y, Form, Row
 from game.world import World
 from server import ServerRunner
-from togetherogue import MONSTER_SPEEDS, lan_addresses, parse_port, parse_setup
+from togetherogue import SETUP_NOTE, lan_addresses, parse_port, parse_setup
 
 
 def sample_form():
@@ -100,25 +100,87 @@ class SetupTests(unittest.TestCase):
                 parse_port(bad)
 
     def test_setup_values(self):
-        self.assertEqual(parse_setup({"port": "6000", "seed": "", "monster_speed": "Normal", "game_mode": "Classic"}),
-                         (6000, None, MONSTER_TIME, "Classic"))
-        self.assertEqual(parse_setup({"port": "6000", "seed": "42", "monster_speed": "Fast", "game_mode": "Revive"})[1:],
-                         (42, MONSTER_SPEEDS["Fast"], "Revive"))
+        self.assertEqual(parse_setup({"port": "6000", "seed": "", "difficulty": "Medium"}), (6000, None, "Medium"))
+        self.assertEqual(parse_setup({"port": "6000", "seed": "42", "difficulty": "Hard"})[1:], (42, "Hard"))
+        self.assertEqual(parse_setup({"port": "6000", "seed": "", "difficulty": "Silly"})[2], "Medium")
+        self.assertEqual(parse_setup({"port": "6000", "seed": ""})[2], "Medium")  # an old settings file
 
-    def test_monster_speed_reaches_the_world(self):
-        for time_scale in MONSTER_SPEEDS.values():
-            w = World(1, monster_time=time_scale)
-            lvl = w.level(1)
-            for m in list(lvl.monsters):
-                lvl.remove(m)
-            lvl.monsters.clear()
-            a = w.join("A")
-            rat = make_monster("rat", 900)
-            rat.state = "wandering"
-            lvl.place(rat, *lvl.free_near(a.x, a.y))
-            lvl.monsters.append(rat)
+    def test_the_setup_screen_explains_each(self):
+        for name in DIFFICULTIES:
+            self.assertIn(f"{name}:", SETUP_NOTE)
+        self.assertLess(max(map(len, SETUP_NOTE.splitlines())), 80)
+
+
+class DifficultyTests(unittest.TestCase):
+    def rat_beside(self, w):
+        lvl = w.level(1)
+        for m in list(lvl.monsters):
+            lvl.remove(m)
+        lvl.monsters.clear()
+        a = w.join("A")
+        rat = make_monster("rat", 900)
+        rat.state = "wandering"
+        lvl.place(rat, *lvl.free_near(a.x, a.y))
+        lvl.monsters.append(rat)
+        return a, rat
+
+    def test_monster_speed(self):
+        for name, rules in DIFFICULTIES.items():
+            w = World(1, name)
+            a, rat = self.rat_beside(w)
             w.advance(0)
-            self.assertEqual(rat.next_time, int(TICKS_PER_TURN * MONSTER_SWING * time_scale))
+            self.assertEqual(rat.next_time, int(TICKS_PER_TURN * MONSTER_SWING * rules["monster_time"]), name)
+        self.assertGreater(DIFFICULTIES["Easy"]["monster_time"], DIFFICULTIES["Medium"]["monster_time"])
+        self.assertLess(DIFFICULTIES["Hard"]["monster_time"], DIFFICULTIES["Medium"]["monster_time"])
+
+    def test_monster_toughness(self):
+        hp = {}
+        for name in DIFFICULTIES:
+            ogre = World(1, name)._new_monster("ogre")
+            hp[name] = (ogre.max_hp, ogre.defense)
+        self.assertEqual(hp["Medium"][0], make_monster("ogre", 1).max_hp)
+        self.assertLess(hp["Easy"], hp["Medium"])
+        self.assertGreater(hp["Hard"], hp["Medium"])
+
+    def test_only_easy_heals_over_time(self):
+        for name in DIFFICULTIES:
+            w = World(1, name)
+            a = w.join("A")
+            a.hp = 1
+            w.advance(int(30 * TICKS_PER_SECOND))
+            self.assertEqual(a.hp > 1, name == "Easy", name)
+
+    def fall(self, name):
+        w = World(1, name)
+        a, b = w.join("A"), w.join("B")
+        lvl = w.level(1)
+        lvl.move(b, *lvl.free_near(a.x, a.y))
+        w._kill(b, None, "test")
+        return w, a, b
+
+    def test_revive_times(self):
+        for name in ("Easy", "Medium"):
+            w, a, b = self.fall(name)
+            seconds = DIFFICULTIES[name]["revive"]
+            self.assertTrue(b.downed, name)
+            w.advance(int((seconds - 0.5) * TICKS_PER_SECOND))
+            self.assertFalse(b.alive, name)
+            w.advance(int(TICKS_PER_SECOND))
+            self.assertTrue(b.alive, name)
+            self.assertEqual(b.hp, max(1, int(b.max_hp * REVIVE_HEALTH)))
+
+    def test_no_revives_on_hard(self):
+        w, a, b = self.fall("Hard")
+        self.assertFalse(b.downed)
+        w.advance(int(20 * TICKS_PER_SECOND))
+        self.assertFalse(b.alive)
+
+    def test_the_host_and_server_pass_it_on(self):
+        runner = ServerRunner(0, host="127.0.0.1", difficulty="Hard")
+        self.addCleanup(runner.loop.close)
+        self.assertEqual(runner.world.difficulty, "Hard")
+        self.assertIsNone(runner.world.revive_seconds)
+        self.assertEqual(settings.DEFAULTS["difficulty"], "Medium")
 
 
 class SettingsTests(unittest.TestCase):

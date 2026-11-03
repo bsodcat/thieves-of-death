@@ -9,7 +9,7 @@ from game.constants import (BOOMERANG_TILE_SECONDS, BOOMERANG_WAIT, ENHANCE_BOOS
                             MAP_Y, SCORE_SCALE, TICKS_PER_SECOND)
 from game.items import ITEMS, enhance_weapon, make_amulet, make_item, make_key
 from game.render import ClientView
-from game.tiles import DOOR
+from game.tiles import DEEP, DOOR, POND, SHALLOW, WALL
 from game.world import World
 from helpers_210 import add, deliver, empty_world, open_spot, put, said, seconds, view_of
 from test_shop import screen, with_merchant
@@ -117,9 +117,24 @@ class FishermanTests(unittest.TestCase):
     def test_one_on_an_early_floor(self):
         for seed in range(8):
             w = World(seed)
-            found = [d for d in range(1, 9) for n in w.level(d).npcs if n.role == "fisherman"]
+            found = [(d, n) for d in range(1, 9) for n in w.level(d).npcs if n.role == "fisherman"]
             self.assertEqual(len(found), 1, seed)
-            self.assertTrue(FISHER_FLOORS[0] <= found[0] <= FISHER_FLOORS[1])
+            depth, f = found[0]
+            self.assertTrue(FISHER_FLOORS[0] <= depth <= FISHER_FLOORS[1])
+            beside = {int(w.level(depth).tiles[f.x + dx, f.y + dy]) for dx in (-1, 0, 1) for dy in (-1, 0, 1)}
+            self.assertTrue(beside & {SHALLOW, DEEP, POND}, seed)  # he's always at the water's edge
+
+    def test_no_water_no_fisherman(self):
+        w = World(1)
+        with mock.patch.object(World, "_shore", return_value=[]):
+            self.assertIsNone(w.fisher_floor())
+            self.assertFalse([n for d in range(1, 8) for n in w.level(d).npcs if n.role == "fisherman"])
+
+    def test_looking_ahead_doesnt_change_the_floors(self):
+        early, late = World(4), World(4)
+        early.fisher_floor()
+        for depth in range(1, 8):
+            self.assertTrue((early.level(depth).tiles == late.level(depth).tiles).all(), depth)
 
     def talk(self, w):
         p = w.join("Alice")
@@ -237,6 +252,118 @@ class BoomerangTests(unittest.TestCase):
         self.assertEqual(path, path[::-1])  # the same way back as out
         self.assertEqual(path[0], (self.x + 1, self.y))
         self.assertEqual(len(path), 5)  # out three tiles, back two to your side
+
+    def test_what_it_kills_stays_in_view_until_it_gets_there(self):
+        import client
+        v = view_of(self.w, self.p)
+        self.m.hp = 1
+        glyph, color = self.m.glyph, tuple(self.m.color)
+        self.throw()
+        deliver(self.w, v, self.p.id)
+        self.assertNotIn(self.m, self.lvl.occupant.values())  # the server has it dead already
+        cells, thrown, fell = v.throws[-1]
+        self.assertEqual(fell, (self.x + 3, self.y, glyph, color))
+
+        def drawn_at(flown):
+            con = client.new_console()
+            with mock.patch("game.render.time.monotonic", return_value=thrown + flown):
+                v._draw_throws(con.rgb)
+            return chr(con.rgb["ch"][MAP_X + self.x + 3, MAP_Y + self.y])
+
+        self.assertEqual(drawn_at(0.0), glyph)
+        self.assertEqual(drawn_at(BOOMERANG_TILE_SECONDS * 1.5), glyph)
+        self.assertNotEqual(drawn_at(BOOMERANG_TILE_SECONDS * 2.5), glyph)  # the boomerang is on it
+        self.assertNotEqual(drawn_at(BOOMERANG_TILE_SECONDS * 3.5), glyph)  # and it's gone
+
+    def test_a_wounded_target_needs_no_stand_in(self):
+        v = view_of(self.w, self.p)
+        self.throw()
+        deliver(self.w, v, self.p.id)
+        self.assertIsNone(v.throws[-1][2])
+
+
+class WalkPastTests(unittest.TestCase):
+    """Merchants and the fisherman can stand in doorways, so they never block the way."""
+
+    def walk(self, w, p, step):
+        p.next_time = w.clock
+        w.submit(p, step)
+
+    def test_first_the_shop_then_past_the_merchant(self):
+        w, lvl, m, step, (a,) = with_merchant()
+        start, at = (a.x, a.y), (m.x, m.y)
+        w.drain_outbox()
+        self.walk(w, a, step)
+        self.assertIn("shop", [msg["t"] for _, msg in w.drain_outbox()])
+        self.assertEqual((a.x, a.y), start)  # just the shop the first time
+        self.walk(w, a, step)
+        self.assertNotEqual((a.x, a.y), start)
+        self.assertIn(m, lvl.occupant.values())
+        self.assertIn((a.x, a.y), ((at[0] + step["dx"], at[1] + step["dy"]), at))  # beyond them, or in their place
+
+    def test_the_hint_fits_the_message_line(self):
+        from game import seasons
+        from game.constants import MAP_W
+        for season in (None, *seasons.SEASONS):
+            w, lvl, m, step, (a,) = with_merchant()
+            m.name = seasons.merchant_name(season)
+            w.drain_outbox()
+            self.walk(w, a, step)
+            text = next(msg["text"] for _, msg in w.drain_outbox() if msg["t"] == "msg" and "again" in msg["text"])
+            self.assertLessEqual(len(text), MAP_W, season)
+
+    def test_anything_in_between_and_its_the_shop_again(self):
+        w, lvl, m, step, (a,) = with_merchant()
+        start = (a.x, a.y)
+        self.walk(w, a, step)
+        w.submit(a, {"a": "sort"})
+        self.walk(w, a, step)
+        self.assertEqual((a.x, a.y), start)
+
+    def test_in_a_doorway_you_trade_places(self):
+        w, lvl, m, step, (a,) = with_merchant()
+        ahead = (m.x + step["dx"], m.y + step["dy"])
+        lvl._set_tile(*ahead, WALL)  # nowhere to land beyond them
+        start, at = (a.x, a.y), (m.x, m.y)
+        self.walk(w, a, step)
+        self.walk(w, a, step)
+        self.assertEqual((a.x, a.y), at)
+        self.assertEqual((m.x, m.y), start)
+
+    def test_past_the_fisherman_too(self):
+        w = World(3)
+        p, _ = FishermanTests.talk(None, w)
+        f = next(n for n in w.level(p.depth).npcs if n.role == "fisherman")
+        start = (p.x, p.y)
+        self.walk(w, p, {"a": "move", "dx": f.x - p.x, "dy": f.y - p.y})
+        self.assertNotEqual((p.x, p.y), start)
+
+
+class VaultWallTests(unittest.TestCase):
+    def test_a_locked_rooms_walls_wear_its_color(self):
+        import numpy as np
+        from game.tiles import LOCK_COLORS, WALL
+        w = next(World(s) for s in range(50) if World(s).locked_rooms)
+        room = sorted(w.locked_rooms.values(), key=lambda r: r.depth)[0]
+        p = w.join("Alice")
+        w.warp(p, room.depth)
+        lvl = w.level(room.depth)
+        sent = w.level_msg(room.depth)["vault"]
+        self.assertEqual(tuple(sent["c"]), LOCK_COLORS[room.color])
+        for x, y in sent["cells"]:
+            self.assertEqual(lvl.tiles[x, y], WALL)
+            self.assertTrue(lvl.vault[x - 1:x + 2, y - 1:y + 2].any())  # right up against the room
+        v = view_of(w, p)
+        v.bright = True
+        x, y = sent["cells"][0]
+        tint = v.draw()["fg"][MAP_X + x, MAP_Y + y]
+        key = np.array(LOCK_COLORS[room.color], float)
+        same_hue = tint @ key / (np.linalg.norm(tint) * np.linalg.norm(key))
+        self.assertGreater(same_hue, 0.98)  # lit more or less, but the key's own color
+
+    def test_other_floors_send_none(self):
+        w = World(next(s for s in range(50) if not World(s).locked_rooms))
+        self.assertNotIn("vault", w.level_msg(1))
 
 
 class ScoreTests(unittest.TestCase):

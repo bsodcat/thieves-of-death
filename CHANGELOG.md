@@ -2,6 +2,46 @@
 
 Versions are MAJOR.MINOR.PATCH. See "Versions" in the README for what each number means.
 
+## 2.11.0 - November 2, 2026
+
+2.10 players can still join a 2.11 game.
+
+### Added
+
+- Difficulty, chosen by the host, in place of Monster speed and Game mode:
+  - **Easy**: slow monsters with less health and armor, health returns over time, and a teammate
+    revives you in 3 seconds.
+  - **Medium**: normal monsters, no health over time, and reviving takes 8 seconds.
+  - **Hard**: fast monsters with more health and armor, no health over time, and no reviving.
+  The server's `--mode` option is now `--difficulty`.
+- The giant spider queen (`A`) nests in big caves on floors 8 to 40, with 2 or 3 spiders (`a`) and
+  webs that slow you. Run more than 5 tiles from her and she spits web that slows you even more.
+  Spiders leap at you, bite, and back off. Their venom lasts up to 40 seconds and stops healing,
+  but never takes you below 1 health. The console's `spawn nest` adds one.
+- Arrows, rocks, kobold scouts' fireballs and spat web fly across the map a tile at a time, like
+  the boomerang, instead of flashing. Magic still flashes.
+- Merchants and the fisherman no longer block the way, even in a doorway. Walk into one to shop or
+  talk, then walk into them again straight away to step past.
+
+### Changed
+
+- The cult leader fights with its wand of fire. It backs off out of reach, throws three fire bolts
+  one after another, the last setting the ground around you alight, then rests 2 seconds. It has 75
+  health instead of 50, more armor and hits harder up close.
+- The cultist mage has 65 health instead of 45 and more armor, and casts lightning every 2.5
+  seconds instead of 3.
+- A locked room's walls are drawn in its key's color, so it stands out from across the floor.
+- The fisherman always waits at the water's edge, on a floor from 2 to 6 that has water.
+- The console's `list` sorts items by kind and puts everything in columns. `list items` or
+  `list monsters` shows just one.
+
+### Fixed
+
+- A monster killed by a boomerang or an arrow stays in view until the shot reaches it.
+- The way into a hidden room was a single `#` a shade off from the rest of the wall, so it looked
+  as if its fairy was shut in for good. It's now a gold `▒` stretch 1 to 3 tiles wide, and a bomb
+  beside any of it breaks all of it open. 2.10.0 and 2.10.1 players still see it as a `#`.
+
 ## 2.10.1 - November 2, 2026
 
 ### Changed

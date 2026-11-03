@@ -22,7 +22,7 @@ from .constants import (ATTACK_STAMINA, BONES_GLYPH, BOOMERANG_TILE_SECONDS, LOO
                         TICKS_PER_TURN, VICTORY_SECONDS)
 from .entities import MONSTERS
 from .tiles import (ALTAR, BG, DEEP, DESCRIPTIONS, FG, GLYPH, LAVA, NAMES, POND, SHALLOW, STAIRS_DOWN, STAIRS_UP,
-                    TOWER_WALL, WALKABLE)
+                    TOWER_WALL, WALKABLE, WALL)
 
 FRAME_DTYPE = np.dtype([("ch", np.int32), ("fg", "3u1"), ("bg", "3u1")])
 
@@ -77,7 +77,7 @@ HELP_TIPS = (
     "Past floor 50, a pit might drop you straight into lava.",
     "Score is gold times kills, divided by your moves.",
     "Merchants buy gear for half price. Tab switches to selling.",
-    "A bomb breaks a cracked wall. Look for a wall a shade off.",
+    "A bomb breaks a cracked wall, and there's a room behind it.",
     "A fisherman on an early floor knows where keys lie.",
     "A barrel of food heals you quickly for a few seconds.",
     "Fire spreads through grass. Burning monsters run when hurt.",
@@ -108,7 +108,9 @@ DEATH_BG = (40, 10, 10)
 BOLT_SECONDS = 0.35
 FLAME = (255, 120, 20)
 BOLT_COLORS = {"fire": FLAME, "blink": (230, 120, 255), "frost": (150, 215, 255), "sparkle": (150, 255, 240),
-               "bow": (225, 215, 180), "lightning": (200, 160, 255), "blast": (255, 150, 40), "rock": (150, 140, 128)}
+               "bow": (225, 215, 180), "lightning": (200, 160, 255), "blast": (255, 150, 40), "rock": (150, 140, 128),
+               "web": (215, 215, 225), "leap": (120, 90, 140)}
+WEB_GLYPH, WEB_FG, WEB_BG = ord(":"), (215, 215, 228), (38, 36, 44)   # a spider web, over the ground
 SPIN = "/-\\|"               # a thrown boomerang turns through these
 SPIN_COLOR = (235, 190, 100)
 SPIN_TILE_SECONDS = BOOMERANG_TILE_SECONDS   # how long it takes to cross a tile, out and back
@@ -122,6 +124,10 @@ MAGE_GLOW = np.array((120, 40, 200), np.float32)
 NPC_LABELS = {"sleeping": "asleep", "merchant": "shop", "fisherman": "talk", "fairy": "fairy"}
 SCROLL_PAUSE, SCROLL_SPEED = 1.2, 5.0   # a name too long to fit waits, then scrolls this many letters a second
 SPIN_TURN_SECONDS = 0.05   # how long each glyph shows
+# Things thrown or shot without magic fly across one tile at a time, instead of flashing:
+# kind -> (glyph, or None for an arrow pointing the way it flies, color, seconds per tile).
+FLIGHTS = {"bow": (None, (225, 215, 180), 0.025), "rock": ("*", (165, 155, 140), 0.05),
+           "fireball": ("*", (255, 140, 40), 0.045), "web": (":", (215, 215, 228), 0.05)}
 SPARKLE = (90, 240, 220)
 # Each animated tile cycles through glyphs that look alike: (tile, glyphs, steps a second).
 RIPPLES = ((DEEP, (0x2248, ord("~"), 0x2248, 0x2248), 3), (SHALLOW, (ord("~"), 0x2248, ord("~"), ord("-")), 2),
@@ -156,6 +162,8 @@ MARK_MONSTER, MARK_ITEM = (150, 30, 45), (125, 105, 15)   # behind whatever reve
 GAS = np.array((50, 120, 30), np.float32)
 WIN_BG = (30, 26, 6)
 SLIME_BG = (32, 70, 26)
+VAULT_WALL_FG, VAULT_WALL_BG = 0.85, 0.22   # a locked room's walls: its key's color, as glyph and ground
+VAULT_WALL_MEMORY = 0.3                     # and how bright they stay once out of sight
 SLOWED_TEXT = (150, 220, 110)
 CONSOLE_WIDTH, CONSOLE_ROWS = 72, 14
 WALK_ON_WATER, WALK_ON_LAVA = (120, 190, 255), (255, 130, 40)
@@ -216,6 +224,12 @@ class ClientView:
         self.shop_pos = (0, 0)
         self.shop_selling = False                 # the shop shows your pack, to sell from
         self.stains: dict[int, dict] = {}         # depth -> {(x, y): what a monster left there}
+        self.difficulty = ""                      # the host's, from the welcome
+        self.revive_seconds = REVIVE_SECONDS      # how long a teammate stands by the fallen
+        self.vault_walls: dict[int, tuple] = {}   # depth -> (walls around its locked room, key color)
+        self.webs: dict[int, set] = {}            # depth -> spider webs, remembered like the map
+        self.webbed = False                       # a spider queen's web holds you
+        self.venom = 0.0                          # seconds of spider venom left
         self.fire: list = []                      # burning tiles in sight
         self.bombs: list = []                     # lit bombs in sight
         self.fed = False                          # a meal is healing you
@@ -224,6 +238,7 @@ class ClientView:
         self.bolts: list[tuple] = []              # (tiles, when, color) of magic still on screen
         self.hits: list[tuple] = []               # (x, y, when) of blows still showing
         self.throws: list[tuple] = []             # (tiles, when) of boomerangs in the air
+        self.flights: list[tuple] = []            # (tiles, when, glyph, color, seconds a tile, what fell) in the air
         self.gas: list = []                       # tiles of toxic gas in sight
         self.slime: list = []                     # tiles of slime trail in sight
         self.slowed = self.toxin = False
@@ -262,6 +277,8 @@ class ClientView:
         t = msg.get("t")
         if t == "welcome":
             self.my_id, self.name = msg["id"], msg["name"]
+            self.difficulty = msg.get("difficulty", "")
+            self.revive_seconds = msg.get("revive") or REVIVE_SECONDS  # only shown when the fallen can be revived
         elif t == "level":
             if msg.get("run") != self.run:  # new dungeon: forget the old map
                 self.run = msg.get("run")
@@ -270,16 +287,28 @@ class ClientView:
                 self.item_memory.clear()
                 self.lights.clear()
                 self.stains.clear()
+                self.webs.clear()
             shape = (msg["w"], msg["h"])
             self.levels[msg["depth"]] = protocol.unpack_u8(msg["tiles"], shape)
             self.lights[msg["depth"]] = [protocol.unpack_u8(m, shape) / 255 for m in msg.get("lights", ())]
             self.seen.setdefault(msg["depth"], np.zeros(shape, dtype=bool))
             self.stains[msg["depth"]] = {(x, y): kind for x, y, kind in msg.get("stains", ())}
+            self.webs[msg["depth"]] = {tuple(c) for c in msg.get("webs", ())}
+            vault = msg.get("vault")
+            if vault:  # a locked room's walls, in its key's color
+                walls = np.zeros(shape, dtype=bool)
+                for x, y in vault["cells"]:
+                    walls[x, y] = True
+                self.vault_walls[msg["depth"]] = (walls, np.array(vault["c"], np.float32))
+            else:
+                self.vault_walls.pop(msg["depth"], None)
         elif t == "tiles":
             tiles = self.levels.get(msg["depth"])
             if tiles is not None:
                 for x, y, tile in msg["cells"]:
                     tiles[x, y] = tile
+        elif t == "webs":
+            self.webs[msg["depth"]] = {tuple(c) for c in msg["cells"]}
         elif t == "stains":
             here = self.stains.setdefault(msg["depth"], {})
             for x, y, kind in msg["cells"]:
@@ -319,6 +348,7 @@ class ClientView:
             self.levitate = msg.get("levitate", False)
             self.gas, self.victory = msg.get("gas", ()), msg.get("victory", "")
             self.slime, self.slowed, self.toxin = msg.get("slime", ()), msg.get("slowed", False), msg.get("toxin", False)
+            self.webbed, self.venom = msg.get("webbed", False), msg.get("venom", 0.0)
             self.waterwalk, self.lavawalk = msg.get("waterwalk", False), msg.get("lavawalk", False)
             self.stamina, self.lit = msg.get("stamina", STAMINA_MAX), msg.get("lit", False)
             self.detect = msg.get("detect", 0)
@@ -331,7 +361,15 @@ class ClientView:
             self.show_pack = self.drop_mode = self.show_help = self.show_tally = self.show_log = False
         elif t == "fx" and msg.get("kind") == "boomerang":
             out = [tuple(c) for c in msg["cells"]]
-            self.throws.append((out + out[-2::-1], time.monotonic()))  # out to the target, and back
+            fell = msg.get("fell")  # the monster it killed, shown until the boomerang reaches it
+            self.throws.append((out + out[-2::-1], time.monotonic(),  # out to the target, and back
+                                (*out[-1], fell["g"], tuple(fell["c"])) if fell else None))
+        elif t == "fx" and msg.get("kind") in FLIGHTS:
+            cells = [tuple(c) for c in msg["cells"]]
+            glyph, color, pace = FLIGHTS[msg["kind"]]
+            fell = msg.get("fell")  # the monster it killed, shown until it gets there
+            self.flights.append((cells, time.monotonic(), glyph or self.arrow(msg.get("from"), cells), color, pace,
+                                 (*cells[-1], fell["g"], tuple(fell["c"])) if fell and cells else None))
         elif t == "fx" and msg.get("kind") == "hit":
             self.hits += [(x, y, time.monotonic()) for x, y in msg["cells"]]
         elif t == "fx":
@@ -518,6 +556,11 @@ class ClientView:
         fg = FG[tiles].astype(np.float32)
         bg = BG[tiles].astype(np.float32)
         ch, fg, bg = self._animate(tiles, ch, fg, bg)
+        walls, color = self.vault_walls.get(self.depth, (None, None))
+        if walls is not None:
+            walls = (walls & (tiles == WALL))[..., None]  # only while they're still walls
+            fg = np.where(walls, color * VAULT_WALL_FG, fg)
+            bg = np.where(walls, color * VAULT_WALL_BG, bg)
         me = self.me()
         if me is not None:  # gentle light falloff around you
             light = np.clip(1.15 - np.hypot(XS - me["x"], YS - me["y"]) / 28.0, 0.55, 1.0)[..., None]
@@ -529,6 +572,8 @@ class ClientView:
         # Remembered tiles: dark and bluish, like Brogue's magic-mapped memory.
         mem_fg = fg.mean(axis=-1, keepdims=True) * 0.32 + np.array([12, 14, 34], np.float32)
         mem_bg = bg * 0.22 + np.array([0, 0, 10], np.float32)
+        if walls is not None:  # remembered in color too, dimmer, so you can find the room again
+            mem_fg = np.where(walls, color * VAULT_WALL_MEMORY, mem_fg)
         v, s = vis[..., None], seen[..., None]
         lit_fg, lit_bg = fg * light, bg * light
         glow = self._torchlight()
@@ -558,6 +603,13 @@ class ClientView:
 
         for x, y in self.slime:
             f["bg"][MAP_X + x, MAP_Y + y] = SLIME_BG
+
+        for x, y in self.webs.get(self.depth, ()):
+            if vis[x, y] or seen[x, y]:
+                dim = 1.0 if vis[x, y] else 0.35  # remembered, like the rest of the map
+                f["ch"][MAP_X + x, MAP_Y + y] = WEB_GLYPH
+                f["fg"][MAP_X + x, MAP_Y + y] = scale(WEB_FG, dim)
+                f["bg"][MAP_X + x, MAP_Y + y] = scale(WEB_BG, dim)
 
         for x, y, thickness in self.gas:  # fades to nothing, and thins to specks on the way
             share = thickness / 9
@@ -605,6 +657,7 @@ class ClientView:
             f["fg"][MAP_X + x, MAP_Y + y] = BOMB_COLORS[int(now * 8) % 2]
         self._draw_bolts(f)
         self._draw_throws(f)
+        self._draw_flights(f)
 
         hover = self.hovered()
         if hover is not None:
@@ -630,14 +683,47 @@ class ClientView:
         return ch, fg, bg
 
     def _draw_throws(self, f) -> None:
-        """One tile at a time from the thrower to the target, spinning all the way."""
+        """One tile at a time from the thrower to the target, spinning all the way. A monster it
+        killed stays in view until the boomerang reaches it."""
         now = time.monotonic()
         self.throws = [t for t in self.throws if now - t[1] < len(t[0]) * SPIN_TILE_SECONDS]
-        for cells, thrown in self.throws:
+        for cells, thrown, fell in self.throws:
             flown = now - thrown
+            if fell and flown < (len(cells) // 2) * SPIN_TILE_SECONDS:  # the target is the middle tile
+                x, y, glyph, color = fell
+                f["ch"][MAP_X + x, MAP_Y + y] = ord(glyph)
+                f["fg"][MAP_X + x, MAP_Y + y] = color
             x, y = cells[int(flown / SPIN_TILE_SECONDS)]
             f["ch"][MAP_X + x, MAP_Y + y] = ord(SPIN[int(flown / SPIN_TURN_SECONDS) % len(SPIN)])
             f["fg"][MAP_X + x, MAP_Y + y] = SPIN_COLOR
+
+    @staticmethod
+    def arrow(start, cells) -> str:
+        """An arrow's glyph, pointing the way it flies."""
+        if not cells:
+            return "-"
+        sx, sy = start if start else cells[0]
+        dx, dy = cells[-1][0] - sx, cells[-1][1] - sy
+        if abs(dx) >= 2 * abs(dy):
+            return "-"
+        if abs(dy) >= 2 * abs(dx):
+            return "|"
+        return "\\" if (dx > 0) == (dy > 0) else "/"
+
+    def _draw_flights(self, f) -> None:
+        """Arrows, rocks and the like, a tile at a time from whoever threw them to where they land.
+        Anything it killed stays in view until it gets there."""
+        now = time.monotonic()
+        self.flights = [t for t in self.flights if now - t[1] < len(t[0]) * t[4]]
+        for cells, thrown, glyph, color, pace, fell in self.flights:
+            flown = now - thrown
+            if fell and flown < (len(cells) - 1) * pace:
+                x, y, g, c = fell
+                f["ch"][MAP_X + x, MAP_Y + y] = ord(g)
+                f["fg"][MAP_X + x, MAP_Y + y] = c
+            x, y = cells[int(flown / pace)]
+            f["ch"][MAP_X + x, MAP_Y + y] = ord(glyph)
+            f["fg"][MAP_X + x, MAP_Y + y] = color
 
     def _draw_bolts(self, f) -> None:
         now = time.monotonic()
@@ -722,7 +808,7 @@ class ClientView:
             if e["id"] == self.my_id:
                 return [(f"{e['g']} Your bones", color), ("A teammate can stand here to revive you.", TEXT)]
             return [(f"{e['g']} {e['name']}'s bones", color),
-                    (f"Stand next to them for {REVIVE_SECONDS:.0f} seconds to revive them.", TEXT)]
+                    (f"Stand next to them for {self.revive_seconds:.0f} seconds to revive them.", TEXT)]
         if e["p"]:
             name = "You" if e["id"] == self.my_id else e["name"]
             lines = [(f"{e['g']} {name}", color), (f"Health {e['hp']}/{e['mhp']}", TEXT)]
@@ -776,6 +862,10 @@ class ClientView:
         if item is not None:
             lines += self._describe_item(item, in_sight)
         tile = int(tiles[x, y])
+        if not lines and (x, y) in self.webs.get(self.depth, ()):
+            return [(f"{chr(WEB_GLYPH)} Spider web", WEB_FG),
+                    ("Sticky strands. Walk into it and it slows you down. Fire burns it away."
+                     + ("" if in_sight else " As you remember it."), DIM)]
         if not lines:
             lines.append((NAMES[tile].capitalize(), TEXT))
             lines.append((DESCRIPTIONS[tile] + ("" if in_sight else " As you remember it."), DIM))
@@ -817,8 +907,12 @@ class ClientView:
             self.text(f, 1, y, clock, (255, 255, 255))
             if self.haste:
                 self.text(f, len(clock) + 2, y, "Haste", (120, 220, 255))
+            elif self.webbed:
+                self.text(f, len(clock) + 2, y, "Webbed", WEB_FG)
             elif self.slowed:
                 self.text(f, len(clock) + 2, y, "Slowed", SLOWED_TEXT)
+            elif self.venom:
+                self.text(f, len(clock) + 2, y, f"Venom {math.ceil(self.venom)}s", (150, 200, 90))
             elif self.fed:
                 self.text(f, len(clock) + 2, y, "Fed", (255, 215, 90))
             y += 1
@@ -1103,7 +1197,7 @@ class ClientView:
         if self.downed:
             lines = ["You are down!", self.death, "",
                      "A teammate can revive you by standing next to your",
-                     f"bones ({BONES_GLYPH}) for {REVIVE_SECONDS:.0f} seconds. You come back at half health",
+                     f"bones ({BONES_GLYPH}) for {self.revive_seconds:.0f} seconds. You come back at half health",
                      "with all your gear.", "",
                      "If everyone goes down, the run restarts.", "", *self.tally_lines(), "",
                      self._key_text("Press {log} to see what happened.")]

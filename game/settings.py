@@ -5,15 +5,14 @@ import json
 import os
 
 from . import controls
-from .constants import DEFAULT_PORT
+from .constants import DEFAULT_DIFFICULTY, DEFAULT_PORT
 
 DEFAULTS = {
     "name": os.environ.get("USERNAME") or os.environ.get("USER") or "Adventurer",
     "address": "127.0.0.1",
     "port": str(DEFAULT_PORT),
     "seed": "",
-    "monster_speed": "Normal",
-    "game_mode": "Classic",
+    "difficulty": DEFAULT_DIFFICULTY,
     "font": "Terminal (10x20)",
     "shape": "@",
     "color": "Gold",

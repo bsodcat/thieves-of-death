@@ -138,6 +138,7 @@ class WearingTests(unittest.TestCase):
 
     def test_a_classic_death_leaves_it_behind(self):
         w, lvl, p = self.wear()
+        w.revive_seconds = None  # the fallen stay down, as on Hard
         w._kill(p, None)
         self.assertIsNone(p.cloak)
         self.assertTrue(any(i.category == "cloak" for i in lvl.items.values()))

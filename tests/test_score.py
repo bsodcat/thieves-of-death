@@ -2,7 +2,7 @@
 import unittest
 
 from game import protocol
-from game.constants import MAP_H, MAP_W, MAP_X, MAP_Y, SCORE_SCALE, SIDEBAR_W, TICKS_PER_TURN
+from game.constants import MAP_H, MAP_W, MAP_X, MAP_Y, SCORE_SCALE, SIDEBAR_W, TICKS_PER_SECOND, TICKS_PER_TURN
 from game.entities import MONSTERS, danger, make_monster
 from game.items import make_gold
 from game.render import ClientView
@@ -10,7 +10,9 @@ from game.world import World
 
 
 def setup_world(mode="Classic", names=("Alice",)):
-    w = World(1, mode=mode)
+    w = World(1)
+    if mode == "Classic":
+        w.revive_seconds = None  # the fallen stay down
     lvl = w.level(1)
     for m in list(lvl.monsters):
         lvl.remove(m)
@@ -124,7 +126,7 @@ class ScoreTests(unittest.TestCase):
         a.gold = 40
         w._kill(a, make_monster("rat", 800))
         self.assertEqual(w.state_for(a)["score_gold"], 40)
-        w.advance(2000)
+        w.advance(int(w.revive_seconds * TICKS_PER_SECOND) + 100)
         self.assertTrue(a.alive)
         self.assertIsNone(a.final_gold)
         a.gold = 60

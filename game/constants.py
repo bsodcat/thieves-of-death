@@ -206,10 +206,19 @@ SNEAK_DAMAGE = 3
 CRIT_DAMAGE = 10
 CRIT_STEALTH = 40
 
-# Game modes. In Revive, a fallen player stays on the map as bones until a teammate
-# stands next to them for REVIVE_SECONDS. Classic is permanent until the next run.
-GAME_MODES = ("Classic", "Revive")
-REVIVE_SECONDS = 3.0
+# Difficulty, picked by the host. For each:
+#   monster_time  how slow monsters are next to players (see MONSTER_TIME)
+#   toughness     monsters' health multiplier, and what's added to their defense
+#   regen         whether players heal over time on their own
+#   revive        seconds a teammate stands by a fallen player to bring them back, or None:
+#                 the fallen stay down until the next run
+DIFFICULTIES = {
+    "Easy":   dict(monster_time=2.0, toughness=(0.8, -5), regen=True, revive=3.0),
+    "Medium": dict(monster_time=MONSTER_TIME, toughness=(1.0, 0), regen=False, revive=8.0),
+    "Hard":   dict(monster_time=1.0, toughness=(1.3, 5), regen=False, revive=None),
+}
+DEFAULT_DIFFICULTY = "Medium"
+REVIVE_SECONDS = DIFFICULTIES[DEFAULT_DIFFICULTY]["revive"]
 REVIVE_HEALTH = 0.5        # share of full health a revived player comes back with
 BONES_GLYPH = "%"
 
@@ -267,9 +276,41 @@ SKELETON_MOST = 9
 # MAGE_CYCLE, out of reach of melee, and casts lightning every MAGE_BOLT seconds.
 MAGE_FLOAT = 6.0
 MAGE_CYCLE = 10.0
-MAGE_BOLT = 3.0
+MAGE_BOLT = 2.5
 MAGE_RANGE = 8
 LIGHTNING_DAMAGE = (6, 12)
+
+# The cult leader fights with its wand of fire: it backs off to LEADER_RANGE, throws LEADER_VOLLEY
+# bolts one after another, the last setting the ground alight around you, then rests LEADER_REST
+# seconds before the next volley.
+LEADER_RANGE = (3, 6)
+LEADER_VOLLEY = 3
+LEADER_REST = 2.0
+LEADER_FIRE_DAMAGE = (4, 8)
+
+# A giant spider queen nests in the big cave on SPIDER_CHANCE of floors SPIDER_FLOORS that have
+# one, with SPIDER_BROOD smaller spiders, and webs over WEB_SHARE of the cave. Walking into a web
+# slows you for SLOW_SECONDS. Run more than WEB_SPIT_RANGE tiles from her and she spits web at you
+# every WEB_SPIT_SECONDS, out to WEB_SPIT_REACH, which slows you to WEB_FACTOR for WEB_SECONDS.
+SPIDER_FLOORS = (8, 40)
+SPIDER_CHANCE = 0.35
+SPIDER_BROOD = (2, 3)
+WEB_SHARE = 0.12
+WEB_SPIT_RANGE = 5
+WEB_SPIT_REACH = 10
+WEB_SPIT_SECONDS = 4.0
+WEB_FACTOR = 3             # a webbed step takes this many times as long
+WEB_SECONDS = 3.0
+# Smaller spiders leap from up to LEAP_RANGE tiles away to bite, every LEAP_SECONDS, then back
+# off LEAP_RETREAT steps. A spider's bite adds VENOM_PER_BITE seconds of venom, up to VENOM_MOST,
+# taking VENOM_DAMAGE every VENOM_EVERY seconds. Venom never takes you below 1 health.
+LEAP_RANGE = 3
+LEAP_SECONDS = 3.0
+LEAP_RETREAT = 2
+VENOM_PER_BITE = 10.0
+VENOM_MOST = 40.0
+VENOM_DAMAGE = 1
+VENOM_EVERY = 2.0
 STAFF_RANGE = 9
 
 # Kobolds. A kobold next to a rat may turn on it. Leaders keep a tile away and reach in with a

@@ -116,8 +116,7 @@ class ItemTests(unittest.TestCase):
         away, step = step_cell(lvl, a)
         w.submit(a, step)
         self.ready(w)
-        lvl.move(b, *step_cell(lvl, a)[0])
-        lvl.move(b, *lvl.free_near(*spot))
+        lvl.move(b, *spot)  # a teammate steps onto it
         w.submit(b, {"a": "pickup"})
         self.assertEqual([i.kind for i in b.pack], ["sword"])
 
@@ -220,6 +219,7 @@ class ItemTests(unittest.TestCase):
         lvl.items.clear()
         a.pack, a.gold = [make_item("sword"), make_item("leather")], 40
         w._perform(a, {"a": "use", "slot": 0})
+        w.revive_seconds = None  # the fallen stay down, as on Hard
         spot = (a.x, a.y)
         w._kill(a, make_monster("rat", 800))
         self.assertEqual((a.pack, a.gold, a.weapon), ([], 0, None))
