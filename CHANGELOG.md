@@ -6,6 +6,8 @@ Versions are MAJOR.MINOR.PATCH. See "Versions" in the README for what each numbe
 
 ### Added
 
+- Antidote (`!`, 40 gold): every merchant sells it. It cures slime poison and the slowness that
+  comes with it, and spider venom.
 - Menus: click a choice's `<` to step it back or `>` to step it on. Clicking the value itself still
   steps it on.
 - The test console finishes what you type. Tab completes command names and then what each command
@@ -24,6 +26,19 @@ Versions are MAJOR.MINOR.PATCH. See "Versions" in the README for what each numbe
 
 ### Changed
 
+- Floor layouts change with depth. Floors 9 to 14 are mostly caves, round rooms come back from
+  floor 15, and from floor 41 rooms tend to come in mirrored pairs. Floors 50 to 59 try out new
+  layouts: a maze, rings, a grid of rooms, a pillared hall and one huge cavern. Floors 1 to 8 are
+  unchanged.
+- A kobold leader's spear thrust shows: a red `-`, `|`, `/` or `\`, depending on the angle, across
+  the tile between you and lunging into yours. After 5 thrusts it's winded and backs off for 3
+  seconds before coming back.
+- Grass (`"`) no longer blocks sight; only tall grass (`τ`, once called foliage) does.
+- One monkey a run, on the floor above or below the fisherman's, instead of monkeys on any floor
+  from 2 to 10. A run without a fisherman has none.
+- When the whole party falls, the new dungeon waits 10 seconds instead of 4, with a countdown on
+  the status line. Press Enter to start it sooner; with more than one player, it starts once
+  everyone still connected has pressed Enter.
 - Kobolds (green `k`) keep their distance and throw 3 or 4 rocks, up to 6 tiles, before they close
   in to fight. One you get next to steps back to throw again; cornered, it fights.
 - Wolves can lose their nerve. A wolf has a 20% chance of running when it falls below 20% of its

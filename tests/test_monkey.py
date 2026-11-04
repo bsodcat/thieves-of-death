@@ -406,5 +406,22 @@ class HookTests(unittest.TestCase):
         self.assertEqual(m.damage, (low + 2, high + 2))
 
 
+
+class MonkeySpawnTests(unittest.TestCase):
+    def test_one_monkey_beside_the_fishermans_floor(self):
+        from game.world import World
+        for seed in (1, 2, 3, 4):
+            w = World(seed)
+            fisher, home = w.fisher_floor(), w.monkey_floor()
+            if fisher is None:
+                self.assertIsNone(home)
+                continue
+            self.assertIn(home, (fisher - 1, fisher + 1))
+            self.assertGreaterEqual(home, 2)
+            counts = {d: sum(m.kind == "monkey" for m in w.level(d).monsters) for d in range(1, 9)}
+            self.assertEqual(counts[home], 1, (seed, counts))
+            self.assertEqual(sum(counts.values()), 1, (seed, counts))
+
+
 if __name__ == "__main__":
     unittest.main()

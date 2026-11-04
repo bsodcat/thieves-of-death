@@ -12,7 +12,7 @@ CRACKED = POND + 1 + len(LOCK_COLORS)
 ASH = CRACKED + 1
 
 NAMES = ("granite wall", "floor", "door", "downward staircase", "upward staircase",
-         "shallow water", "deep water", "pit", "torch", "lava", "tall grass", "foliage",
+         "shallow water", "deep water", "pit", "torch", "lava", "grass", "tall grass",
          "trampled grass", "altar", "cold altar", "glowing wall",
          "pond of healing") + tuple(f"{name} locked door" for name in LOCK_COLORS) + ("cracked wall", "ash")
 DESCRIPTIONS = ("Solid rock.", "Bare stone.", "Blocks sight unless someone stands in it.",
@@ -21,8 +21,8 @@ DESCRIPTIONS = ("Solid rock.", "Bare stone.", "Blocks sight unless someone stand
                 "Step in and you'll fall to the next floor.",
                 "Monsters notice you from further away in its light.",
                 "Molten rock. Nobody walks on this unprotected.",
-                "Too tall to see through until it's trodden down.",
-                "Thick leaves. Push through to see what's behind.", "Someone has been through here.",
+                "Short enough to see over.",
+                "Too tall to see through until it's trodden down.", "Someone has been through here.",
                 "It glows with purple light. Walk into it.", "Its power is spent.", "Old stone, lit green from within.",
                 "Bright water. Step in to be healed and warded.") + tuple(
                     f"Needs the {name} key." for name in LOCK_COLORS) + (
@@ -35,7 +35,7 @@ WALKABLE = np.array([False, True, True, False, False, True, False, False, False,
 # Everything a levitating player can be over, and all that diagonal moves can't cut past the rest.
 HOVER = np.array([False, True, True, False, False, True, True, True, False, True, True, True, True, False, False, False, True] + [False] * _LOCKS + [False, True])
 # Doors block sight unless someone is standing in the doorway (see Level).
-TRANSPARENT = np.array([False, True, False, False, False, True, True, True, False, True, False, False, True, True, True, False, True] + [False] * _LOCKS + [False, True])
+TRANSPARENT = np.array([False, True, False, False, False, True, True, True, False, True, True, False, True, True, True, False, True] + [False] * _LOCKS + [False, True])
 
 GLYPH = np.array([ord("#"), 0xB7, ord("+"), ord(">"), ord("<"), ord("~"), 0x2248, 0x2591, 0xA1, 0x2248, ord('"'), 0x3C4, ord(","), 0x2229, 0x2229, ord("#"), 0x2248]
                  + [ord("+")] * _LOCKS + [0x2592, ord(",")], dtype=np.int32)

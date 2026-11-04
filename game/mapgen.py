@@ -13,11 +13,18 @@ needed to walk between the stairs, or to a locked room's door. Anything else the
 water cuts off stays cut off, as an island. Pits and lava never make one, so a
 player who gets out to an island can always swim back; see World._player_move.
 
+How a level grows depends on its depth (see `_style`). Floors 1 to 8 mix rooms and caves.
+From CAVE_FLOORS they're mostly caves, from ROUND_FLOORS round rooms come back, and from
+MIRROR_FLOORS rooms tend to come in pairs mirrored across the middle. Floors ODD_FLOORS each
+start from one of a few other layouts instead: a maze, rings, a grid of rooms, a pillared hall
+or one great cavern.
+
 The end of the dungeon isn't grown at all. The atrium and the buried tower below it
 are laid out by hand, with one half drawn and mirrored, so they're symmetrical.
 """
 from __future__ import annotations
 
+import math
 import random
 from collections import deque
 from dataclasses import dataclass
@@ -200,6 +207,12 @@ def _room_small_cave(rng: random.Random) -> np.ndarray:
     return _room_cave(rng, rng.randint(10, 16), rng.randint(7, 10))
 
 
+def _room_big_circle(rng: random.Random) -> np.ndarray:
+    r = rng.randint(4, 6)
+    xs, ys = np.ogrid[-r:r + 1, -r:r + 1]
+    return (xs * xs + ys * ys) <= r * r + r
+
+
 ROOM_DESIGNS = (
     (_room_small, 4),
     (_room_large, 3),
@@ -207,6 +220,39 @@ ROOM_DESIGNS = (
     (_room_circle, 2),
     (_room_small_cave, 2),
 )
+
+CAVE_FLOORS = 9       # from here, levels are mostly caves
+ROUND_FLOORS = 15     # from here, round rooms come back
+MIRROR_FLOORS = 41    # from here, rooms tend to come in mirrored pairs
+ODD_FLOORS = (50, 59)  # these start from one of ODD_LAYOUTS, in turn
+
+
+@dataclass(frozen=True)
+class Style:
+    """How a level grows: the room shapes and how often each comes up, the chance the first
+    room is a cave, of a door in each doorway (with and without a hallway), of a hallway, and of
+    a room getting a mirrored twin across the middle."""
+    designs: tuple = ROOM_DESIGNS
+    cave_first: float = 0.5
+    door: float = 0.7
+    hall_door: float = 0.5
+    hallway: float = 0.3
+    mirror: float = 0.0
+
+
+CAVES = ((_room_small, 1), (_room_large, 1), (_room_circle, 1), (_room_small_cave, 7))
+ROUNDS = ((_room_small, 2), (_room_large, 2), (_room_cross, 1), (_room_circle, 5), (_room_big_circle, 3),
+          (_room_small_cave, 4))
+
+
+def _style(depth: int) -> Style:
+    if depth < CAVE_FLOORS:
+        return Style()
+    if depth < ROUND_FLOORS:
+        return Style(CAVES, cave_first=1.0, door=0.25, hall_door=0.15, hallway=0.15)
+    if depth < MIRROR_FLOORS:
+        return Style(ROUNDS, cave_first=0.6, door=0.5, hall_door=0.35, hallway=0.25)
+    return Style(ROUNDS, cave_first=0.6, door=0.5, hall_door=0.35, hallway=0.25, mirror=0.6)
 
 
 # ----------------------------------------------------------- attachment
@@ -257,6 +303,193 @@ def _try_attach(rng: random.Random, fl: np.ndarray, piece: np.ndarray, site: Poi
         fl[ox:ox + pw, oy:oy + ph] |= piece
         return cx, cy
     return None
+
+
+def _attach_mirror(fl: np.ndarray, doors: set, piece: np.ndarray, origin: Point, door: Point, d: Point,
+                   has_door: bool) -> None:
+    """The room just attached, again on the other side of the middle, if it fits there the same way."""
+    w, h = fl.shape
+    pw, ph = piece.shape
+    ox, oy = origin
+    mx = w - ox - pw
+    mdoor = (w - 1 - door[0], door[1])
+    back = (mdoor[0] + d[0], mdoor[1] - d[1])  # where the map is, behind the mirrored doorway
+    if mx < 1 or mx + pw > w - 1 or mdoor == door or fl[mdoor] or not fl[back]:
+        return
+    twin = piece[::-1, :]
+    if (fl[mx - 1:mx + pw + 1, oy - 1:oy + ph + 1] & _dilate(twin)).any():
+        return
+    fl[mx:mx + pw, oy:oy + ph] |= twin
+    fl[mdoor] = True
+    if has_door:
+        doors.add(mdoor)
+
+
+def _accrete(rng: random.Random, fl: np.ndarray, doors: set, style: Style, rooms: int = 150) -> None:
+    """Grows the level a room at a time, each fitted against a wall of what's there."""
+    designs = [d for d, _ in style.designs]
+    weights = [wt for _, wt in style.designs]
+    for _ in range(rooms):
+        room = rng.choices(designs, weights)[0](rng)
+        d = rng.choice(DIRS4)
+        hallway = rng.randint(2, 7) if rng.random() < style.hallway else 0
+        piece, site = _make_piece(rng, room, d, hallway)
+        door = _try_attach(rng, fl, piece, site, d)
+        if door:
+            fl[door] = True
+            if rng.random() < (style.hall_door if hallway else style.door):
+                doors.add(door)
+            if style.mirror and rng.random() < style.mirror:
+                origin = (door[0] - site[0], door[1] - site[1])
+                _attach_mirror(fl, doors, piece, origin, door, d, door in doors)
+
+
+# ------------------------------------------------------- floors 50 to 59
+
+def _odd_maze(rng: random.Random, style: Style):
+    """Twisting passages, a tile wide, with a few chambers knocked through them."""
+    w, h = MAP_W, MAP_H
+    fl = np.zeros((w, h), bool)
+    cols, rows = (w - 1) // 2, (h - 1) // 2
+    seen = np.zeros((cols, rows), bool)
+    start = (rng.randrange(cols), rng.randrange(rows))
+    seen[start] = True
+    fl[1 + 2 * start[0], 1 + 2 * start[1]] = True
+    stack = [start]
+    while stack:
+        cx, cy = stack[-1]
+        nexts = [(cx + dx, cy + dy) for dx, dy in DIRS4
+                 if 0 <= cx + dx < cols and 0 <= cy + dy < rows and not seen[cx + dx, cy + dy]]
+        if not nexts:
+            stack.pop()
+            continue
+        nx, ny = rng.choice(nexts)
+        seen[nx, ny] = True
+        fl[1 + 2 * nx, 1 + 2 * ny] = fl[1 + cx + nx, 1 + cy + ny] = True
+        stack.append((nx, ny))
+    for x in range(1, w - 1, 2):  # open up some dead ends, so it isn't all doubling back
+        for y in range(1, h - 1, 2):
+            walls = [(dx, dy) for dx, dy in DIRS4 if 1 <= x + 2 * dx < w - 1 and 1 <= y + 2 * dy < h - 1
+                     and not fl[x + dx, y + dy]]
+            if len(walls) == 3 and rng.random() < 0.5:
+                dx, dy = rng.choice(walls)
+                fl[x + dx, y + dy] = True
+    for _ in range(rng.randint(5, 7)):
+        rw, rh = rng.randint(3, 4), rng.randint(1, 2)
+        x, y = 1 + 2 * rng.randrange(cols - rw), 1 + 2 * rng.randrange(rows - rh)
+        _rect(fl, x, y, x + 2 * rw, y + 2 * rh)
+    return fl, set(), None, False
+
+
+def _odd_rings(rng: random.Random, style: Style):
+    """Rings around a round hall in the middle, joined by a few passages each."""
+    fl = np.zeros((MAP_W, MAP_H), bool)
+    radii = [(37, 13), (29, 10), (21, 7), (13, 4)]
+    bands = []
+    for rx, ry in radii:
+        band = _ellipse(MIDDLE_X, MIDDLE_Y, rx, ry) & ~_ellipse(MIDDLE_X, MIDDLE_Y, rx - 2.4, ry - 1.2)
+        bands.append(band)
+        fl |= band
+    hub = _ellipse(MIDDLE_X, MIDDLE_Y, 6, 2.2)
+    bands.append(hub)
+    fl |= hub
+    for outer in range(len(bands) - 1):
+        start = rng.random() * 2 * math.pi
+        ways = rng.randint(2, 3)
+        for i in range(ways):
+            angle = start + 2 * math.pi * i / ways + rng.uniform(-0.4, 0.4)
+            _spoke(fl, bands, outer, angle)
+    return fl, set(), None, False
+
+
+def _spoke(fl: np.ndarray, bands: list, outer: int, angle: float) -> None:
+    """A passage straight out from the middle, from ring `outer + 1` to ring `outer`."""
+    last = len(bands) - 1  # the hub
+    cells = []
+    for i in range(400):
+        t = i * 0.1
+        c = (int(round(MIDDLE_X + math.cos(angle) * t * 2.8)), int(round(MIDDLE_Y + math.sin(angle) * t)))
+        if not (0 < c[0] < MAP_W - 1 and 0 < c[1] < MAP_H - 1):
+            break
+        if not cells or cells[-1] != c:
+            cells.append(c)
+    on = None
+    for c in cells:
+        here = next((k for k in range(last, -1, -1) if bands[k][c]), None)
+        if here is not None:
+            on = here
+            if here == outer:
+                return
+            continue
+        if on == outer + 1:
+            fl[c] = True
+
+
+def _odd_grid(rng: random.Random, style: Style):
+    """Rooms laid out in rows and columns, with passages between neighbors."""
+    fl = np.zeros((MAP_W, MAP_H), bool)
+    cols, rows = 4, 3
+    cw, ch = (MAP_W - 2) // cols, (MAP_H - 2) // rows
+    centers = {}
+    for i in range(cols):
+        for j in range(rows):
+            rw, rh = rng.randint(5, cw - 4), rng.randint(3, ch - 3)
+            x0 = 1 + i * cw + rng.randint(1, cw - rw - 2)
+            y0 = 1 + j * ch + rng.randint(1, ch - rh - 2)
+            _rect(fl, x0, y0, x0 + rw - 1, y0 + rh - 1)
+            centers[i, j] = (x0 + rw // 2, y0 + rh // 2)
+    links = set()
+    seen, stack = {(0, 0)}, [(0, 0)]
+    while stack:  # every room joined up, then a few more passages for loops
+        here = stack[-1]
+        nexts = [(here[0] + dx, here[1] + dy) for dx, dy in DIRS4 if (here[0] + dx, here[1] + dy) in centers
+                 and (here[0] + dx, here[1] + dy) not in seen]
+        if not nexts:
+            stack.pop()
+            continue
+        there = rng.choice(nexts)
+        links.add((here, there))
+        seen.add(there)
+        stack.append(there)
+    for a in centers:
+        for dx, dy in ((1, 0), (0, 1)):
+            b = (a[0] + dx, a[1] + dy)
+            if b in centers and rng.random() < 0.3:
+                links.add((a, b))
+    for a, b in links:
+        (ax, ay), (bx, by) = centers[a], centers[b]
+        if rng.random() < 0.5:
+            _rect(fl, min(ax, bx), ay, max(ax, bx), ay)
+            _rect(fl, bx, min(ay, by), bx, max(ay, by))
+        else:
+            _rect(fl, ax, min(ay, by), ax, max(ay, by))
+            _rect(fl, min(ax, bx), by, max(ax, bx), by)
+    return fl, set(), None, False
+
+
+def _odd_hall(rng: random.Random, style: Style):
+    """A great hall held up by rows of pillars, with rooms grown around it."""
+    fl = np.zeros((MAP_W, MAP_H), bool)
+    hw, hh = rng.randint(17, 24), rng.randint(5, 7)
+    _rect(fl, MIDDLE_X - hw, MIDDLE_Y - hh, MIDDLE_X + hw, MIDDLE_Y + hh)
+    step = rng.choice((3, 4))
+    for x in range(MIDDLE_X - hw + 2, MIDDLE_X + hw - 1, step):
+        for y in range(MIDDLE_Y - hh + 2, MIDDLE_Y + hh - 1, 3):
+            fl[x, y] = fl[MAP_W - 1 - x, y] = False
+    return fl, set(), None, True
+
+
+def _odd_cavern(rng: random.Random, style: Style):
+    """One cavern filling most of the floor, and a few smaller caves off it."""
+    fl = np.zeros((MAP_W, MAP_H), bool)
+    first = _room_cave(rng, 72, 26)
+    pw, ph = first.shape
+    ox, oy = (MAP_W - pw) // 2, (MAP_H - ph) // 2
+    fl[ox:ox + pw, oy:oy + ph] = first
+    return fl, set(), fl.copy(), True
+
+
+ODD_LAYOUTS = (_odd_maze, _odd_rings, _odd_grid, _odd_hall, _odd_cavern)
 
 
 # --------------------------------------------------------- finishing passes
@@ -667,34 +900,32 @@ def _atrium(rng: random.Random) -> GeneratedLevel | None:
 def _try_generate(rng: random.Random, depth: int, lock_tile: int | None = None,
                   hidden_room: bool = False) -> GeneratedLevel | None:
     w, h = MAP_W, MAP_H
-    fl = np.zeros((w, h), bool)
-    doors: set[Point] = set()
-
-    is_cave = rng.random() < 0.5
-    first = _room_cave(rng, rng.randint(24, 34), rng.randint(12, 18)) if is_cave else _room_cross(rng)
-    pw, ph = first.shape
-    ox = min(max(1, (w - pw) // 2 + rng.randint(-12, 12)), w - pw - 1)
-    oy = min(max(1, (h - ph) // 2 + rng.randint(-3, 3)), h - ph - 1)
-    fl[ox:ox + pw, oy:oy + ph] = first
-    cave = None
-    if is_cave:
-        cave = np.zeros((w, h), bool)
-        cave[ox:ox + pw, oy:oy + ph] = first
-
-    designs = [d for d, _ in ROOM_DESIGNS]
-    weights = [wt for _, wt in ROOM_DESIGNS]
-    for _ in range(150):
-        room = rng.choices(designs, weights)[0](rng)
-        d = rng.choice(DIRS4)
-        hallway = rng.randint(2, 7) if rng.random() < 0.3 else 0
-        piece, site = _make_piece(rng, room, d, hallway)
-        door = _try_attach(rng, fl, piece, site, d)
-        if door:
-            fl[door] = True
-            if rng.random() < (0.5 if hallway else 0.7):
-                doors.add(door)
-
-    _add_loops(rng, fl, doors)
+    style = _style(depth)
+    if ODD_FLOORS[0] <= depth <= ODD_FLOORS[1]:
+        layout = ODD_LAYOUTS[(depth - ODD_FLOORS[0]) % len(ODD_LAYOUTS)]
+        fl, doors, cave, grow = layout(rng, style)
+        _fix_diagonals(rng, fl)  # so it all joins up tile to tile
+        if grow:
+            _accrete(rng, fl, doors, style, 100)
+        fl &= _largest_component(fl)
+        _add_loops(rng, fl, doors, 60 if layout is _odd_maze else 20)
+    else:
+        fl = np.zeros((w, h), bool)
+        doors = set()
+        is_cave = rng.random() < style.cave_first
+        first = _room_cave(rng, rng.randint(24, 34), rng.randint(12, 18)) if is_cave else _room_cross(rng)
+        pw, ph = first.shape
+        if style.mirror:  # in the middle, and the same both sides
+            ox = (w - pw) // 2
+        else:
+            ox = min(max(1, (w - pw) // 2 + rng.randint(-12, 12)), w - pw - 1)
+        oy = min(max(1, (h - ph) // 2 + rng.randint(-3, 3)), h - ph - 1)
+        fl[ox:ox + pw, oy:oy + ph] = first
+        if style.mirror:
+            fl = _largest_component(fl | fl[::-1, :])
+        cave = fl.copy() if is_cave else None
+        _accrete(rng, fl, doors, style)
+        _add_loops(rng, fl, doors)
     _fix_diagonals(rng, fl)
     _clean_doors(fl, doors)
 

@@ -22,8 +22,8 @@ TICK_RATE = 30             # server updates per second
 PING_SECONDS = 1.0         # how often each player's ping is measured
 PING_TIMEOUT = 5.0         # give up on an unanswered ping after this long
 
-# Seconds between the whole party dying and a fresh dungeon.
-RESET_DELAY = 4.0
+# Seconds between the whole party dying and a fresh dungeon, unless everyone presses Enter first.
+RESET_DELAY = 10.0
 
 # Items.
 PACK_SIZE = 10             # slots, one per number key; potions of a kind share a slot
@@ -339,6 +339,11 @@ KOBOLD_ROCK_CHANCE = 0.05  # after that, each turn below half health, for anothe
 KOBOLD_ROCK_RANGE = 6
 ROCK_DAMAGE = (1, 3)
 KOBOLD_LEADER_FLOORS = (5, 25)
+# A leader thrusts its spear SPEAR_THRUSTS times, then tires and backs off to at least
+# SPEAR_REST_DISTANCE tiles away for SPEAR_REST seconds before coming back for more.
+SPEAR_THRUSTS = 5
+SPEAR_REST = 3.0
+SPEAR_REST_DISTANCE = 4
 KOBOLD_LEADER_CHANCE = 0.35  # of one leader on a floor; it has this chance again of a second
 KOBOLD_SCOUT_FLOORS = (10, 15)
 KOBOLD_SCOUT_CHANCE = 0.6

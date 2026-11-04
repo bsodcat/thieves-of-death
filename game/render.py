@@ -125,6 +125,10 @@ MAGE_GLOW = np.array((120, 40, 200), np.float32)
 NPC_LABELS = {"sleeping": "asleep", "merchant": "shop", "fisherman": "talk", "fairy": "fairy"}
 SCROLL_PAUSE, SCROLL_SPEED = 1.2, 5.0   # a name too long to fit waits, then scrolls this many letters a second
 SPIN_TURN_SECONDS = 0.05   # how long each glyph shows
+# A kobold leader's spear: drawn across the tile between it and you, it lunges into your tile
+# from SPEAR_LUNGE seconds in until SPEAR_BACK, and is gone at SPEAR_SECONDS.
+SPEAR_COLOR = (230, 40, 40)
+SPEAR_LUNGE, SPEAR_BACK, SPEAR_SECONDS = 0.07, 0.2, 0.3
 # Things thrown or shot without magic fly across one tile at a time, instead of flashing:
 # kind -> (glyph, or None for an arrow pointing the way it flies, color, seconds per tile).
 FLIGHTS = {"bow": (None, (225, 215, 180), 0.025), "rock": ("*", (165, 155, 140), 0.05),
@@ -178,7 +182,8 @@ FLOAT_DIM, FLOAT_BRIGHT, FLOAT_SHADOW = (30, 50, 110), (90, 150, 240), (6, 6, 14
 FLOAT_TEXT = (190, 170, 255)
 STATE_NAMES = {"sleeping": "Asleep", "wandering": "Wandering", "hunting": "Hunting you"}
 
-STATUS_COLORS = {"go": (140, 230, 140), "revive": (255, 215, 90), "dead": (255, 100, 100)}
+STATUS_COLORS = {"go": (140, 230, 140), "revive": (255, 215, 90), "dead": (255, 100, 100),
+                 "over": (255, 100, 100)}
 
 
 def scale(color, k: float) -> tuple:
@@ -244,6 +249,7 @@ class ClientView:
         self.bolts: list[tuple] = []              # (tiles, when, color) of magic still on screen
         self.hits: list[tuple] = []               # (x, y, when) of blows still showing
         self.throws: list[tuple] = []             # (tiles, when) of boomerangs in the air
+        self.spears: list[tuple] = []             # (tiles, when, glyph) of spear thrusts
         self.flights: list[tuple] = []            # (tiles, when, glyph, color, seconds a tile, what fell) in the air
         self.gas: list = []                       # tiles of toxic gas in sight
         self.slime: list = []                     # tiles of slime trail in sight
@@ -377,6 +383,9 @@ class ClientView:
             fell = msg.get("fell")  # the monster it killed, shown until it gets there
             self.flights.append((cells, time.monotonic(), glyph or self.arrow(msg.get("from"), cells), color, pace,
                                  (*cells[-1], fell["g"], tuple(fell["c"])) if fell and cells else None))
+        elif t == "fx" and msg.get("kind") == "spear":
+            cells = [tuple(c) for c in msg["cells"]]
+            self.spears.append((cells, time.monotonic(), self.arrow(msg.get("from"), cells)))
         elif t == "fx" and msg.get("kind") == "hit":
             self.hits += [(x, y, time.monotonic()) for x, y in msg["cells"]]
         elif t == "fx":
@@ -757,6 +766,7 @@ class ClientView:
         self._draw_bolts(f)
         self._draw_throws(f)
         self._draw_flights(f)
+        self._draw_spears(f)
 
         hover = self.hovered()
         if hover is not None:
@@ -823,6 +833,22 @@ class ClientView:
             x, y = cells[int(flown / pace)]
             f["ch"][MAP_X + x, MAP_Y + y] = ord(glyph)
             f["fg"][MAP_X + x, MAP_Y + y] = color
+
+    def spear_cells(self, cells, age: float) -> list:
+        """The tiles a spear thrust covers this long after it began: the shaft across the gap,
+        and the point in the target's tile while it lunges."""
+        if age >= SPEAR_SECONDS:
+            return []
+        shaft = list(cells[:-1])
+        return shaft + list(cells[-1:]) if SPEAR_LUNGE <= age < SPEAR_BACK else shaft
+
+    def _draw_spears(self, f) -> None:
+        now = time.monotonic()
+        self.spears = [s for s in self.spears if now - s[1] < SPEAR_SECONDS]
+        for cells, thrust, glyph in self.spears:
+            for x, y in self.spear_cells(cells, now - thrust):
+                f["ch"][MAP_X + x, MAP_Y + y] = ord(glyph)
+                f["fg"][MAP_X + x, MAP_Y + y] = SPEAR_COLOR
 
     def _draw_bolts(self, f) -> None:
         now = time.monotonic()

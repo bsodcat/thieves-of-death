@@ -29,6 +29,7 @@ The server is single-threaded: call `submit`, `chat`, `join`, `leave` and
 from __future__ import annotations
 
 import itertools
+import math
 import random
 import time
 from collections import deque
@@ -64,6 +65,7 @@ from .constants import (OGRE_LATE_SHARE, MUSHROOM_MOST, MUSHROOM_SHARE, GHOST_DI
                         DEFAULT_DIFFICULTY, DIFFICULTIES, STEALTH_FILL_SECONDS,
                         STEALTH_MAX, STEALTH_MOVE_DRAIN, STEALTH_RANGE_MIN, TICKS_PER_SECOND,
                         TICKS_PER_TURN)
+from .constants import SPEAR_REST, SPEAR_REST_DISTANCE, SPEAR_THRUSTS
 from .constants import KOBOLD_ROCKS, WOLF_FLEE_CHANCE, WOLF_FLEE_HEALTH, WOLF_PACK_HURT, WOLF_PACK_SHARE
 from .constants import (MONKEY_DEATH_GOLD, MONKEY_DRINK_CHANCE, MONKEY_FLEE, MONKEY_FLEE_CHANCE, MONKEY_FLEE_HEALTH,
                         MONKEY_GOLD)
@@ -422,6 +424,7 @@ class World:
         self.run = 1
         self.run_start = 0                     # the tick this run began, for the UI clock
         self.reset_at: float | None = None
+        self.ready: set[int] = set()           # players who pressed Enter to skip the wipe wait
         self._ids = itertools.count(1)
         self.ledger: list[dict] = [self.ledger_head()]  # action log messages to send out
 
@@ -515,6 +518,7 @@ class World:
             self._add_kobolds(lvl)
             self._add_mage(lvl)
             self._add_spiders(lvl)
+            self._add_monkey(lvl)
         if lvl.depth == DRAGON_FLOOR:
             self._add_dragon(lvl)
         self._add_items(lvl)
@@ -616,6 +620,27 @@ class World:
             spots = [c for c in lvl.floor_cells if c not in lvl.occupant and 24 < from_stairs[c] < algo.INF]
             for spot in rng.sample(spots, min(len(spots), rng.randint(1, KOBOLD_SCOUT_MOST))):
                 self._spawn(lvl, "kobold_scout", spot, rng, "wandering")
+
+    def monkey_floor(self) -> int | None:
+        """The one floor with a monkey, the thief of the fisherman's hooks: the floor below his or
+        the one above, never floor 1. None in a run with no fisherman."""
+        fisher = self.fisher_floor()
+        if fisher is None:
+            return None
+        below = random.Random(f"{self.seed}:monkey").random() < 0.5 or fisher - 1 < 2
+        return fisher + 1 if below else fisher - 1
+
+    def _add_monkey(self, lvl: Level) -> None:
+        """Only near the fisherman's floor, so the floors he can't be next to never work it out."""
+        if not (max(2, FISHER_FLOORS[0] - 1) <= lvl.depth <= FISHER_FLOORS[1] + 1):
+            return
+        if self.monkey_floor() != lvl.depth:
+            return
+        rng = random.Random(f"{self.seed}:{lvl.depth}:monkey")
+        from_stairs = lvl.distances_to(*lvl.up_front)
+        spots = [c for c in lvl.floor_cells if c not in lvl.occupant and 24 < from_stairs[c] < algo.INF]
+        if spots:
+            self._spawn(lvl, "monkey", rng.choice(spots), rng, "wandering")
 
     def _add_mage(self, lvl: Level) -> None:
         """A cultist mage, a floor away from each cult that has one."""
@@ -772,7 +797,7 @@ class World:
         kinds = rng.sample(gear, min(len(gear), rng.randint(*MERCHANT_STOCK)))
         if rng.random() < LEVITATION_STOCK_CHANCE:
             kinds.append("levitation")
-        kinds.append("bomb")  # always in stock
+        kinds += ["antidote", "bomb"]  # always in stock
         m.stock = {i: self._item(kind) for i, kind in enumerate(kinds)}
         lvl.place(m, *rng.choice(spots))
         lvl.merchant = m
@@ -928,6 +953,9 @@ class World:
         a = msg.get("a")
         if a == "sprint":  # kept even while down, or a held Shift would be lost on revival
             p.sprinting = bool(msg.get("on"))
+            return
+        if a == "ready":
+            self._ready(p)
             return
         if not p.alive or not p.connected:
             return
@@ -1441,6 +1469,22 @@ class World:
         tired = p.stamina < ATTACK_STAMINA
         self._spend_stamina(p, ATTACK_STAMINA)
         return p.attack_cost * TIRED_ATTACK if tired else p.attack_cost
+
+    def wiped(self) -> bool:
+        """The whole party has fallen and a fresh dungeon is on its way."""
+        return self.reset_at is not None and not self.victory
+
+    def _ready(self, p: Player) -> None:
+        """Enter after a wipe: start the new dungeon now, once every connected player wants to."""
+        if not self.wiped() or p.id in self.ready:
+            return
+        self.ready.add(p.id)
+        waiting = [q for q in self.players.values() if q.connected and q.id not in self.ready]
+        if not waiting:
+            self.reset_at = 0.0
+            return
+        total = sum(1 for q in self.players.values() if q.connected)
+        self.broadcast(f"{p.name} is ready for a new dungeon ({total - len(waiting)}/{total}).", GOLD)
 
     def check_reset(self, now: float) -> bool:
         """Start a fresh dungeon once the wipe delay is over. Returns True if it did."""
@@ -1973,6 +2017,9 @@ class World:
         elif item.heal and p.hp >= p.max_hp:
             self.tell(p, "You are already at full health.", GRAY)
             return 0
+        elif item.cure and p.toxin_until <= self.clock and p.venom_until <= self.clock:
+            self.tell(p, "You aren't poisoned.", GRAY)
+            return 0
         else:
             p.hp = min(p.max_hp, p.hp + item.heal)
             self.note(p, f"drank {item.name} hp {self._hp(p)}")
@@ -1989,11 +2036,14 @@ class World:
             if item.strength:
                 p.strength += item.strength
                 apply_gear(p)
+            if item.cure:
+                p.toxin_until = p.toxin_ticks = p.venom_until = p.venom_ticks = p.slow_until = 0
             self.tell(p, "You feel better." if item.heal else "You rise off the ground!" if item.levitate
                       else f"The world lurches, and you're on floor {p.depth}!" if item.teleport
                       else "Your feet feel strangely light." if item.waterwalk
                       else "Your feet stop feeling the heat." if item.lavawalk
                       else "You feel stronger!" if item.strength
+                      else "The burning fades, and your limbs loosen." if item.cure
                       else "Everything around you slows down.", GOLD)
             self._take_one(p, item)
             return TICKS_PER_TURN
@@ -2461,6 +2511,7 @@ class World:
         self.run += 1
         self.run_start = self.clock
         self.reset_at = None
+        self.ready = set()
         lvl = self.level(1)
         for p in self.players.values():
             reset_player(p)
@@ -2806,19 +2857,40 @@ class World:
         return m.attack_cost
 
     def _spearman(self, m: Monster, lvl: Level, t: Player) -> int:
-        """A kobold leader likes a tile between it and you, and its spear reaches across it."""
+        """A kobold leader likes a tile between it and you, and its spear reaches across it. After
+        SPEAR_THRUSTS thrusts it's winded, and backs off for SPEAR_REST seconds before coming again."""
         away = cheb(m, t)
+        if self.clock < m.rest_until:
+            if away < SPEAR_REST_DISTANCE:
+                cost = self._step_away(m, lvl, t)
+                if cost:
+                    return cost
+            if away == 1 and not lvl.diagonal_blocked(m.x, m.y, t.x, t.y):  # cornered: it fights
+                return self._thrust(m, lvl, t)
+            return TICKS_PER_TURN
         if away == 1:
             cost = self._step_away(m, lvl, t)
             if cost:
                 return cost
             if not lvl.diagonal_blocked(m.x, m.y, t.x, t.y):
-                self._attack(m, t)
-                return m.attack_cost * MONSTER_SWING
+                return self._thrust(m, lvl, t)
         if away == 2 and self._clear_shot(lvl, m, t):
-            self._attack(m, t)
-            return m.attack_cost * MONSTER_SWING
+            return self._thrust(m, lvl, t)
         return self._step_toward(m, lvl, t.x, t.y) or TICKS_PER_TURN
+
+    def _thrust(self, m: Monster, lvl: Level, t: Player) -> int:
+        """One jab of the spear, shown reaching across the tile between, and counted toward tiring."""
+        cells = line_between((m.x, m.y), (t.x, t.y))
+        for v in self._living_on(m.depth):
+            self.outbox.append((v.id, {"t": "fx", "kind": "spear", "cells": cells, "from": [m.x, m.y]}))
+        self._attack(m, t)
+        m.thrusts += 1
+        if m.thrusts >= SPEAR_THRUSTS and m.hp > 0:
+            m.thrusts = 0
+            m.rest_until = self.clock + self._seconds(SPEAR_REST)
+            self.note(m, "winded, backing off")
+            self._narrate(lvl, [(m.x, m.y)], set(), lambda v: (f"The {m.name} is winded and backs off.", GRAY))
+        return m.attack_cost * MONSTER_SWING
 
     def _rock(self, m: Monster, lvl: Level, t: Player) -> int:
         cells = line_between((m.x, m.y), (t.x, t.y))
@@ -2977,6 +3049,8 @@ class World:
         if item.strength:
             m.damage = (m.damage[0] + item.strength, m.damage[1] + item.strength)
             effects.append("looks stronger")
+        if item.cure:
+            effects.append("looks no different")
         if item.teleport:
             effects.append("vanishes")
         self.note(m, f"drank {item.name} hp {self._hp(m)}")
@@ -3131,6 +3205,11 @@ class World:
         return {"vault": {"c": list(LOCK_COLORS[room.color]), "cells": [[int(x), int(y)] for x, y in np.argwhere(walls)]}}
 
     def _status(self, p: Player) -> list[str]:
+        if self.wiped():
+            left = max(0, math.ceil(self.reset_at - time.monotonic()))
+            if p.id in self.ready:
+                return ["over", f"New dungeon in {left}s. Waiting for the rest of the party..."]
+            return ["over", f"New dungeon in {left}s. Press Enter to start it now."]
         if p.downed:
             if p.revive_ticks:
                 return ["revive", f"You are being revived... {self._revive_percent(p)}%"]

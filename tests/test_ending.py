@@ -10,7 +10,7 @@ from game.constants import (GAS_DAMAGE, GAS_SECONDS, GAS_TRIGGER, LAST_FLOOR, SC
 from game.entities import make_monster
 from game.items import ITEMS, make_amulet, make_item
 from game.render import ClientView
-from game.tiles import FOLIAGE, GRASS, NAMES, PIT, STAIRS_DOWN, TRAMPLED, WALKABLE
+from game.tiles import FOLIAGE, GRASS, NAMES, PIT, STAIRS_DOWN, TRAMPLED, TRANSPARENT, WALKABLE
 from game.world import World, appears_on, cheb
 
 
@@ -240,7 +240,7 @@ class PlantTests(unittest.TestCase):
         p = w.join("A")
         x, y = next(c for c in lvl.land_cells if all(lvl.tiles[c[0] + i, c[1]] in (1, GRASS, FOLIAGE) for i in range(1, 6)))
         lvl.move(p, x, y)
-        lvl.tiles[x + 1, y] = lvl.tiles[x + 2, y] = GRASS
+        lvl.tiles[x + 1, y] = lvl.tiles[x + 2, y] = FOLIAGE
         lvl._base_transparent[x + 1:x + 3, y] = False
         lvl.plants[x + 1:x + 3, y] = True
         lvl.door_version += 1
@@ -291,8 +291,17 @@ class PlantTests(unittest.TestCase):
         self.assertFalse([m for _, m in w.drain_outbox() if m["t"] == "tiles"])
 
     def test_they_have_names(self):
-        self.assertEqual(NAMES[GRASS], "tall grass")
-        self.assertEqual(NAMES[FOLIAGE], "foliage")
+        self.assertEqual(NAMES[GRASS], "grass")
+        self.assertEqual(NAMES[FOLIAGE], "tall grass")
+
+    def test_you_see_over_grass_but_not_tall_grass(self):
+        self.assertTrue(TRANSPARENT[GRASS])
+        self.assertFalse(TRANSPARENT[FOLIAGE])
+        w, lvl, p = self.plant_row()
+        x, y = p.x, p.y
+        for c in ((x + 1, y), (x + 2, y)):
+            lvl._set_tile(*c, GRASS)
+        self.assertTrue(w.fov(p)[x + 3, y])
 
 
 class LastFloorTests(unittest.TestCase):

@@ -70,6 +70,7 @@ SEASONS = {
             "greatsword": ("reaper's blade", (190, 190, 200)),
             "strength": ("ogre's blood", (200, 60, 40)),
             "hook": ("fisherman's bone hook", (225, 220, 195)),
+            "antidote": ("garlic tonic", (200, 220, 150)),
         },
     },
     "christmas": {
@@ -133,6 +134,7 @@ SEASONS = {
             "greatsword": ("nutcracker's saber", (235, 235, 250)),
             "strength": ("mug of eggnog", (250, 235, 190)),
             "hook": ("candy cane fish hook", (255, 120, 120)),
+            "antidote": ("peppermint tonic", (150, 240, 170)),
         },
     },
 }

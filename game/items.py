@@ -27,6 +27,7 @@ class Item:
     lavawalk: float = 0.0       # seconds of walking on lava
     teleport: bool = False      # moves you elsewhere on the floor
     strength: int = 0           # melee damage added for good
+    cure: bool = False          # ends slime poison and spider venom
     price: int = 0              # what a merchant asks for it
     damage: tuple = (0, 0)
     attack_cost: int = TICKS_PER_TURN
@@ -94,6 +95,8 @@ class Item:
             return "give it to the fisherman"
         if self.strength:
             return f"+{self.strength} damage for good"
+        if self.cure:
+            return "cures poison and venom"
         if self.category == "cloak":
             return f"detection -{self.hush:.0%}, noise {self.noise}"
         if self.heal:
@@ -172,6 +175,9 @@ ITEMS = {
                     depths=(30, 75), weight=2),
     "greatsword": dict(name="greatsword", category="weapon", color=(235, 235, 250), damage=(20, 28), noise=30,
                        price=560, attack_cost=TICKS_PER_TURN * 3 // 2, depths=(55, 98), weight=2),
+    # Only merchants sell it (weight 0), and every one has it.
+    "antidote": dict(name="antidote", category="potion", color=(120, 220, 110), cure=True, price=40,
+                     depths=(1, 1), weight=0),
     # Never found lying about (weight 0): monkeys drop hooks, and the fisherman trades them for strength.
     "strength": dict(name="potion of strength", category="potion", color=(230, 90, 40), strength=2, price=200,
                      depths=(1, 1), weight=0),

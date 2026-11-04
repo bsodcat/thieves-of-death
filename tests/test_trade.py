@@ -352,7 +352,7 @@ class VaultWallTests(unittest.TestCase):
         self.assertEqual(tuple(sent["c"]), LOCK_COLORS[room.color])
         for x, y in sent["cells"]:
             self.assertEqual(lvl.tiles[x, y], WALL)
-            self.assertTrue(lvl.vault[x - 1:x + 2, y - 1:y + 2].any())  # right up against the room
+            self.assertTrue(lvl.vault[max(0, x - 1):x + 2, max(0, y - 1):y + 2].any())  # right up against the room
         v = view_of(w, p)
         v.bright = True
         x, y = sent["cells"][0]

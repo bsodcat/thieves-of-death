@@ -189,7 +189,8 @@ scatters from you still does.
 Press `t` for your tally: score, kills by monster, and the hardest enemy you've fought, ranked by
 health times damage per turn. Any monster that's hit or been hit by you counts, even if nobody won.
 The same numbers appear when you fall, and when the whole party falls everyone sees a ranked
-scoreboard. Scores aren't kept between runs. Change the 100 with `SCORE_SCALE` in
+scoreboard. A fresh dungeon starts 10 seconds later (`RESET_DELAY`), or as soon as everyone still
+connected presses Enter. Scores aren't kept between runs. Change the 100 with `SCORE_SCALE` in
 `game/constants.py`.
 
 ## Action log
@@ -292,6 +293,22 @@ Names can be cut short as long as they still match only one thing. Only someone 
 computer running the server can use commands, and everyone else in the game is told when one
 runs. Add your own in `game/commands.py`.
 
+## Floor layouts
+
+How a floor is laid out changes as you go down:
+
+- Floors 1 to 8 mix rectangular, cross-shaped and round rooms with caves.
+- Floors 9 to 14 are mostly caves: they grow from a big cave, the rooms off it are nearly all
+  small caves, and there are few doors or hallways.
+- From floor 15, round rooms come back, some of them bigger than before, alongside caves.
+- From floor 41, the first room sits in the middle and is the same on both sides, and each room
+  after it has a 60% chance of a mirrored twin across the middle, so floors are more symmetrical.
+- Floors 50 to 59 try out new layouts, each used on two floors: a maze of narrow passages with a
+  few chambers (50 and 55), rings around a round hall (51 and 56), a grid of rooms (52 and 57), a
+  great hall with rows of pillars (53 and 58), and one huge cavern (54 and 59).
+
+The bands are `CAVE_FLOORS`, `ROUND_FLOORS`, `MIRROR_FLOORS` and `ODD_FLOORS` in `game/mapgen.py`.
+
 ## Terrain
 
 Some floors have lakes or a river running through them, across rock as well as rooms. You can wade
@@ -330,7 +347,8 @@ food (`Θ`). Walk into it and "Food is good!": you heal 2 health a second for 8 
 - **Skeletal dragon** (`D`): sleeps on floor 80, as far from the stairs as it can. Every 6 seconds it
   breathes fire in a line at whoever it's hunting, from up to 8 tiles, for 8 to 14 damage.
 
-- **Monkeys** (`m`): floors 2 to 10. A monkey leaves you be unless you attack it. It comes up to you
+- **Monkeys** (`m`): just one a run, on the floor above or below the fisherman's (never floor 1),
+  and none in a run without him. A monkey leaves you be unless you attack it. It comes up to you
   and steals one item or 15 to 25 gold, never what you're wearing, a key or the Amulet, then runs
   until it's more than 30 tiles away. Half the time it drinks a stolen potion, and the potion works
   on it as it would on you: healing, haste, strength, levitating out of reach and over water,
@@ -352,7 +370,9 @@ food (`Θ`). Walk into it and "Food is good!": you heal 2 health a second for 8 
   monster within 4 tiles, runs from you. Below half health it has a 5% chance each turn of throwing
   another rock instead, and one next to a rat has a 3% chance each turn of killing it.
 - **Kobold leaders** (`K`, blue): floors 5 to 25, no more than 2 on a floor, each with 2 or 3
-  kobolds. Slow and tough, it keeps a tile between you and it and reaches across with its spear.
+  kobolds. Slow and tough, it keeps a tile between you and it and reaches across with its spear,
+  shown as a red `-`, `|`, `/` or `\` lunging at you. After 5 thrusts it's winded and backs off to 4
+  tiles away for 3 seconds, then comes back for 5 more.
 - **Kobold scouts** (`k`, red): floors 10 to 15, up to 3 on a floor. They keep 4 to 8 tiles away and
   throw a fireball every 5 seconds, for 4 to 8 damage. A ward stops it.
 - **Ogres** (`O`): from floor 7 to floor 65, and most common on floors 45 to 55.
@@ -406,8 +426,9 @@ second, so you can step away. Monsters attack half as often as they did before 2
 
 ## Plants
 
-Some floors have patches of tall grass (`"`) and thicker foliage (`τ`). You can walk through them, but
-you can't see through them. Whatever walks through tramples them for good, for everyone.
+Some floors have patches of grass (`"`) with tall grass (`τ`) in them. You can walk through both.
+You can see over grass, but not through tall grass. Whatever walks through tramples them for good,
+for everyone.
 
 ## Altars
 
@@ -456,7 +477,8 @@ Inside are two pieces of gear from deeper down, a potion and a big pile of gold.
 Every 5th floor has a 60% chance of a merchant (`$`), and you'll hear them when you arrive. Walk
 into them to see their stock, and press a number to buy. They sell 3 to 5 weapons and armor suited
 to the floor, and there's one of each, shared by the whole party. Every merchant also has bombs,
-which never sell out. Walking away closes the shop.
+which never sell out, and antidotes (40 gold), which cure slime poison and its slowness, and
+spider venom. Antidotes aren't found anywhere else. Walking away closes the shop.
 Spending gold lowers your score, since it counts what you're carrying. Walk into a merchant again
 right after the shop opens to step past them.
 
@@ -509,6 +531,7 @@ doesn't pause while the pack is open; the panel opens on the far side of the map
 | Potion of levitation | `!` | Float for 9 seconds, out of reach of ground monsters | |
 | Potion of teleportation | `!` | Jump to a random spot on a random floor, anywhere from 1 to 99. A real gamble | |
 | Potion of water walking | `!` | Walk on deep water for 1 minute, in a blue glow reaching 5 tiles that fades away as it runs out. Floors 18 to 42 | |
+| Antidote | `!` | Cures slime poison, its slowness, and spider venom. Only merchants sell it | |
 | Potion of lava walking | `!` | Walk on lava for 1 minute, in an orange glow reaching 5 tiles that fades away as it runs out. Floors 18 to 42 | |
 | Dagger | `)` | 3-5 damage | 5 |
 | Sword | `)` | 5-9 damage | 15 |

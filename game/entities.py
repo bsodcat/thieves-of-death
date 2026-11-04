@@ -110,6 +110,8 @@ class Monster(Actor):
     float_next: int = 0          # and the tick it next rises
     volley: int = 0              # a cult leader: bolts thrown so far in this volley
     rocks: int | None = None     # a kobold: rocks left to throw before it closes in; None until it fights
+    thrusts: int = 0             # a kobold leader: spear thrusts since it last rested
+    rest_until: int = 0          # and the tick it gets its wind back
     nerve_tested: tuple = ()     # a wolf or monkey: what it has already rolled to flee for ("hurt", "pack")
     fleeing: bool = False        # a wolf or monkey that lost its nerve
     provoked: bool = False       # a monkey someone has attacked: it fights back
@@ -216,7 +218,7 @@ MONSTERS = {
                    damage=(2, 4), move=50, attack=100, depths=(1, 8), weight=8, verbs=("bites", "bite"),
                    desc="Runs you down."),
     "monkey": dict(name="monkey", glyph="m", color=(170, 120, 80), hp=12, accuracy=100, defense=17,
-                   damage=(1, 3), move=100, attack=100, depths=(2, 10), weight=6, verbs=("hits", "hit"),
+                   damage=(1, 3), move=100, attack=100, depths=(2, 10), weight=0, verbs=("hits", "hit"),
                    desc="Quick to dodge, and quicker to rob you. It leaves you be unless you hit it."),
     "goblin": dict(name="goblin", glyph="g", color=(120, 170, 90), hp=15, accuracy=70, defense=10,
                    damage=(2, 5), move=100, attack=100, depths=(3, 12), weight=7, verbs=("slashes", "slash"),

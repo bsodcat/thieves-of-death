@@ -328,6 +328,10 @@ def play(context, console, net: Net, leave_note: str = "", intro: tuple = (), co
                     auto_walk = False
                     send_sprint(False)
                     continue
+                if event.sym in enter_keys and view.status[:1] == ["over"]:
+                    if not event.repeat:
+                        net.send({"t": "act", "a": "ready"})
+                    continue
                 if event.sym in enter_keys:
                     view.chat_mode, view.chat_buf = True, ""
                     held.clear()
