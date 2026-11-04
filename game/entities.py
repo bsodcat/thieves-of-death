@@ -47,12 +47,15 @@ class Player(Actor):
     levitate_until: int = 0      # tick when they come back down
     waterwalk_until: int = 0     # tick when deep water stops holding them
     lavawalk_until: int = 0      # tick when lava starts burning them
+    strength: int = 0            # melee damage added by potions of strength, for the rest of the run
     stealth: float = 0.0         # 0 to stealth_cap
     stealth_cap: int = STEALTH_MAX   # lowered by the noise of equipped gear
     stamina: float = STAMINA_MAX
     stamina_rest: int = 0        # tick when stamina starts refilling
     sprinting: bool = False      # Shift is held down
     aim: str = "Strongest"       # which monster ranged weapons pick: Strongest or Weakest
+    auto_attack: bool = False    # hits monsters fighting them, and fires `ranged`, while they're idle
+    ranged: Item | None = None   # with auto attack: the bow, boomerang, wand or staff it fires
     pickup_key: str = "g"        # how this player's own copy shows their pick up key
     met: int | None = None       # the merchant or fisherman this player last walked into, if that was their last action
     can_command: bool = False    # playing on the server's own computer, so the console works
@@ -106,6 +109,18 @@ class Monster(Actor):
     float_until: int = 0         # a cultist mage: tick it comes back down, out of reach of melee till then
     float_next: int = 0          # and the tick it next rises
     volley: int = 0              # a cult leader: bolts thrown so far in this volley
+    rocks: int | None = None     # a kobold: rocks left to throw before it closes in; None until it fights
+    nerve_tested: tuple = ()     # a wolf or monkey: what it has already rolled to flee for ("hurt", "pack")
+    fleeing: bool = False        # a wolf or monkey that lost its nerve
+    provoked: bool = False       # a monkey someone has attacked: it fights back
+    robbed: bool = False         # a monkey that has had its go at stealing
+    stolen: Item | None = None   # and what it took, dropped when it dies
+    stolen_gold: int = 0
+    drink_next: bool = False     # it'll drink the potion it stole
+    haste_until: int = 0         # potions a monkey drank: ticks they wear off
+    levitate_until: int = 0
+    waterwalk_until: int = 0
+    lavawalk_until: int = 0
 
 
 # What players can choose on the character screen. Shapes that look like a monster,
@@ -158,7 +173,8 @@ def make_player(pid: int, name: str, color: tuple) -> Player:
 def apply_gear(p: Player) -> None:
     """Recomputes a player's stats from what they have equipped."""
     s, w, a = PLAYER_STATS, p.weapon, p.armor
-    p.damage = w.damage if w else s["damage"]
+    damage = w.damage if w else s["damage"]
+    p.damage = (damage[0] + p.strength, damage[1] + p.strength)
     p.accuracy = s["accuracy"] + (w.accuracy if w else 0)
     p.attack_cost = w.attack_cost if w else TICKS_PER_TURN
     p.defense = s["defense"] + (a.armor if a else 0)
@@ -176,7 +192,7 @@ def reset_player(p: Player) -> None:
     p.stamina, p.stamina_rest = STAMINA_MAX, 0
     p.downed, p.revive_ticks = False, 0
     p.final_gold, p.kill_tally, p.hardest = None, {}, ""
-    p.turns = p.kills = p.regen_acc = p.next_time = p.haste_until = p.levitate_until = 0
+    p.turns = p.kills = p.regen_acc = p.next_time = p.haste_until = p.levitate_until = p.strength = 0
     p.waterwalk_until = p.lavawalk_until = p.gas_ticks = 0
     p.chased, p.reflect_until, p.haunts = False, 0, []
     p.toxin_until = p.toxin_ticks = p.slow_until = 0
@@ -184,6 +200,7 @@ def reset_player(p: Player) -> None:
     p.food_until = p.food_ticks = p.fire_ticks = 0
     p.fov_key, p.fov = None, None
     p.pack, p.gold, p.weapon, p.armor, p.cloak, p.pack_dirty = [], 0, None, None, None, True
+    p.ranged = None
     apply_gear(p)
 
 
@@ -200,7 +217,7 @@ MONSTERS = {
                    desc="Runs you down."),
     "monkey": dict(name="monkey", glyph="m", color=(170, 120, 80), hp=12, accuracy=100, defense=17,
                    damage=(1, 3), move=100, attack=100, depths=(2, 10), weight=6, verbs=("hits", "hit"),
-                   desc="Quick to dodge."),
+                   desc="Quick to dodge, and quicker to rob you. It leaves you be unless you hit it."),
     "goblin": dict(name="goblin", glyph="g", color=(120, 170, 90), hp=15, accuracy=70, defense=10,
                    damage=(2, 5), move=100, attack=100, depths=(3, 12), weight=7, verbs=("slashes", "slash"),
                    desc="A hardened fighter."),

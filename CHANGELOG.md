@@ -2,6 +2,47 @@
 
 Versions are MAJOR.MINOR.PATCH. See "Versions" in the README for what each number means.
 
+## Unreleased
+
+### Added
+
+- Menus: click a choice's `<` to step it back or `>` to step it on. Clicking the value itself still
+  steps it on.
+- The test console finishes what you type. Tab completes command names and then what each command
+  takes: items, monsters, players or on/off. Press Tab again for the next choice, or click one in
+  the list shown above the typing line.
+- Click a command, item or monster name in the console to fill it in: after `list`, clicking an
+  item makes `give <item> ` and a monster makes `spawn <monster> `. Click `help` in the title to
+  list the commands, or `[x]` to close. What can be clicked lights up under the pointer.
+- Auto attack, in Options. While you stand still you hit monsters fighting you from the 8 tiles
+  around you, and with nothing beside you, a readied bow, boomerang, wand or staff fires at them.
+  With it on, using one of those from the pack readies it instead of firing it. It never attacks
+  sleeping or wandering monsters, or a monkey you haven't attacked.
+- The fisherman's hook (`⌡`), dropped by every monkey. Give hooks back to the fisherman and he
+  thanks you with a potion of strength for each, which adds 2 to your melee damage for the rest of
+  the run. Potions of strength aren't found anywhere else.
+
+### Changed
+
+- Kobolds (green `k`) keep their distance and throw 3 or 4 rocks, up to 6 tiles, before they close
+  in to fight. One you get next to steps back to throw again; cornered, it fights.
+- Wolves can lose their nerve. A wolf has a 20% chance of running when it falls below 20% of its
+  health, and another 20% chance when more than a third of its pack is below half health. One that
+  runs keeps running, and fights only when cornered.
+- Monkeys are thieves. One leaves you be unless you attack it, then fights back. It steals one item
+  or 15 to 25 gold, never what you're wearing, a key or the Amulet, and runs until it's more than 30
+  tiles away. Half the time it drinks a stolen potion, which works on it as it would on you:
+  healing, haste, strength, levitation, water or lava walking, or teleporting to a random floor.
+  Attacked and below 40% health, it has a 66% chance of running, and drops what it stole. Killed,
+  it drops what it stole, 10 to 30 gold and a fisherman's hook.
+
+- Options: "Ranged weapons aim at" is now "Ranged aim at", so it no longer runs into its value.
+
+### Removed
+
+- The Go downstairs and Go upstairs keys (`>` and `<`). Walk into the stairs to take them, as
+  before. `>` and `<` are free to give to other actions.
+
 ## 2.11.0 - November 2, 2026
 
 2.10 players can still join a 2.11 game.

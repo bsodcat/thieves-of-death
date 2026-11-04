@@ -16,7 +16,7 @@ from collections import deque
 
 import numpy as np
 
-from . import controls, pathing, protocol, seasons
+from . import commands, controls, pathing, protocol, seasons
 from .constants import (ATTACK_STAMINA, BONES_GLYPH, BOOMERANG_TILE_SECONDS, LOOK_Y, MAP_H, MAP_W, MAP_X, MAP_Y,
                         MSG_LINES, PACK_SIZE, REVIVE_SECONDS, SCREEN_H, SCREEN_W, SIDEBAR_W, STAMINA_MAX, STEALTH_MAX,
                         TICKS_PER_TURN, VICTORY_SECONDS)
@@ -34,7 +34,7 @@ HELP_LINES = (
     ("Arrows, {keys}{letters}", "Move or attack; hold to keep going"),
     ("Two arrows together", "Move diagonally"),
     ("Hold {sprint}", "Sprint, while you have the stamina"),
-    ("{descend} or {ascend}", "Take the stairs, or walk into them"),
+    ("Walk into > or <", "Take the stairs"),
     ("1-9, 0, or {heal}", "Use a pack slot, or quick heal"),
     ("{pack} or {tally}", "Show or hide your pack, or your tally"),
     ("{drop}, then 1-0 or $", "Drop an item, or 25 gold"),
@@ -79,6 +79,7 @@ HELP_TIPS = (
     "Merchants buy gear for half price. Tab switches to selling.",
     "A bomb breaks a cracked wall, and there's a room behind it.",
     "A fisherman on an early floor knows where keys lie.",
+    "Monkeys stole the fisherman's hooks. He rewards their return.",
     "A barrel of food heals you quickly for a few seconds.",
     "Fire spreads through grass. Burning monsters run when hurt.",
     "A floating cultist mage can only be hit from range.",
@@ -166,6 +167,11 @@ VAULT_WALL_FG, VAULT_WALL_BG = 0.85, 0.22   # a locked room's walls: its key's c
 VAULT_WALL_MEMORY = 0.3                     # and how bright they stay once out of sight
 SLOWED_TEXT = (150, 220, 110)
 CONSOLE_WIDTH, CONSOLE_ROWS = 72, 14
+CONSOLE_TITLE = "Test console. Type help for commands, wheel scrolls, Esc closes"
+CONSOLE_CLOSE = "[x]"
+CONSOLE_SUGGESTIONS = 6                   # completions shown at once, above the typing line
+SUGGEST_BG, LINK_BG = (40, 40, 70), (60, 60, 105)
+WORD = re.compile(r"[A-Za-z0-9_]+")
 WALK_ON_WATER, WALK_ON_LAVA = (120, 190, 255), (255, 130, 40)
 XS, YS = np.indices((MAP_W, MAP_H))
 FLOAT_DIM, FLOAT_BRIGHT, FLOAT_SHADOW = (30, 50, 110), (90, 150, 240), (6, 6, 14)
@@ -251,6 +257,7 @@ class ClientView:
         self.console_history: list[str] = []
         self.console_back = 0                     # how far back up the history you've gone
         self.console_scroll = 0                   # lines scrolled up from the newest
+        self.console_tab: tuple | None = None     # (what was typed, what Tab made of it, which choice) while cycling
         self.score = self.score_gold = 0
         self.tally: dict = {}                     # monster name -> kills
         self.hardest = ""
@@ -440,6 +447,98 @@ class ClientView:
         """Up and down arrows: older or newer lines you've typed."""
         self.console_back = max(0, min(len(self.console_history), self.console_back + step))
         self.console_buf = self.console_history[-self.console_back] if self.console_back else ""
+
+    def console_players(self) -> list[str]:
+        names = [self.name, *(q["name"] for q in self.party)]
+        return list(dict.fromkeys(n for n in names if n))
+
+    def console_suggestions(self) -> tuple[str, int, list[str], int]:
+        """The completions for what's typed: (the text they finish, where its last word starts,
+        the choices, the highlighted one). Pressing Tab again keeps the same list and moves on."""
+        cycling = self.console_tab is not None and self.console_buf == self.console_tab[1]
+        base = self.console_tab[0] if cycling else self.console_buf
+        start, found = commands.complete(base, self.console_players())
+        if found == [base[start:]]:
+            found = []  # already typed in full
+        return base, start, found, self.console_tab[2] if cycling else 0
+
+    def console_complete(self, choice: int | None = None) -> None:
+        """Tab: finish the word with the highlighted completion; again for the next one. A click picks one."""
+        base, start, found, at = self.console_suggestions()
+        if not found:
+            return
+        cycling = self.console_tab is not None and self.console_buf == self.console_tab[1]
+        at = choice if choice is not None else (at + 1) % len(found) if cycling else 0
+        self.console_buf = (base[:start] + found[at] + " ")[:200]
+        self.console_tab = (base, self.console_buf, at) if choice is None and len(found) > 1 else None
+
+    def _console_lines(self) -> list:
+        end = len(self.console_log) - self.console_scroll
+        return list(self.console_log)[max(0, end - (CONSOLE_ROWS - 2)):end]
+
+    def _suggestion_cells(self) -> list[tuple]:
+        """Where each completion shown sits: (x, y, width, which choice, text)."""
+        base, start, found, at = self.console_suggestions()
+        if not found:
+            return []
+        x0, y0 = self._panel_pos(CONSOLE_WIDTH, CONSOLE_ROWS)
+        first = max(0, at - CONSOLE_SUGGESTIONS + 1)
+        shown = found[first:first + CONSOLE_SUGGESTIONS]
+        width = max(map(len, shown)) + 2
+        x = x0 + 2 + min(2 + start, CONSOLE_WIDTH - 4 - width)
+        top = y0 + CONSOLE_ROWS - 1 - len(shown)
+        return [(x, top + j, width, first + j, name) for j, name in enumerate(shown)]
+
+    def _console_word_at(self, tile) -> tuple | None:
+        """The word under the pointer in the console's title or text: (word, x, y)."""
+        x0, y0 = self._panel_pos(CONSOLE_WIDTH, CONSOLE_ROWS)
+        x, y = tile
+        lines = self._console_lines()
+        line = CONSOLE_TITLE if y == y0 else lines[y - y0 - 1][0] if 0 <= y - y0 - 1 < len(lines) else ""
+        for m in WORD.finditer(line[:CONSOLE_WIDTH - 4]):
+            if m.start() <= x - x0 - 2 < m.end():
+                return m.group(), x0 + 2 + m.start(), y
+        return None
+
+    def console_link(self, tile) -> tuple | None:
+        """What a click there would do: ("close" | "help" | "pick" | "fill", detail, x, y, width),
+        or None if nothing."""
+        if tile is None:
+            return None
+        x0, y0 = self._panel_pos(CONSOLE_WIDTH, CONSOLE_ROWS)
+        x, y = tile
+        if not (x0 <= x < x0 + CONSOLE_WIDTH and y0 <= y < y0 + CONSOLE_ROWS - 1):
+            return None
+        for sx, sy, width, at, _ in self._suggestion_cells():
+            if y == sy and sx <= x < sx + width:
+                return "pick", at, sx, sy, width
+        close_x = x0 + CONSOLE_WIDTH - 1 - len(CONSOLE_CLOSE)
+        if y == y0 and close_x <= x < close_x + len(CONSOLE_CLOSE):
+            return "close", None, close_x, y, len(CONSOLE_CLOSE)
+        found = self._console_word_at(tile)
+        if found is None:
+            return None
+        word, wx, wy = found
+        if wy == y0:
+            return ("help", None, wx, wy, len(word)) if word == "help" else None
+        filled = commands.clicked_word(self.console_buf, word, self.console_players())
+        return ("fill", filled, wx, wy, len(word)) if filled else None
+
+    def console_click(self, tile) -> str | None:
+        """A left click in the open console. Returns "close", or a command to run straight away."""
+        link = self.console_link(tile)
+        if link is None:
+            return None
+        kind, detail = link[:2]
+        if kind == "pick":
+            self.console_complete(detail)
+        elif kind == "fill":
+            self.console_buf, self.console_tab = detail[:200], None
+        elif kind == "help":
+            return "help"
+        elif kind == "close":
+            return "close"
+        return None
 
     def toggle_help(self) -> None:
         """Each time the help opens it shows the next tip, in a shuffled order."""
@@ -801,7 +900,7 @@ class ClientView:
             return [(f"{e['g']} {e['name'].capitalize()}", color),
                     ("Walk into them to see what's for sale, or to sell.", TEXT)]
         if e["st"] == "fisherman":
-            return [(f"{e['g']} Fisherman", color), ("Walk into him to talk. He knows where keys lie.", TEXT)]
+            return [(f"{e['g']} Fisherman", color), ("Walk into him to talk. He knows where keys lie, and wants his hooks back.", TEXT)]
         if e["st"] == "fairy":
             return [(f"{e['g']} Fairy", color), ("Trapped down here. Walk into it to free it.", TEXT)]
         if e["st"] == "down":
@@ -1187,11 +1286,24 @@ class ClientView:
         x0, y0 = self._panel_pos(bw, rows)
         for j in range(rows):
             self.text(f, x0, y0 + j, " " * bw, TEXT, PANEL_BG)
-        self.text(f, x0 + 2, y0, "Test console. Type help for commands, wheel scrolls, Esc closes", HEADING)
-        end = len(self.console_log) - self.console_scroll
-        for j, (line, color) in enumerate(list(self.console_log)[max(0, end - (rows - 2)):end]):
+        self.text(f, x0 + 2, y0, CONSOLE_TITLE, HEADING)
+        self.text(f, x0 + bw - 1 - len(CONSOLE_CLOSE), y0, CONSOLE_CLOSE, HEADING)
+        for j, (line, color) in enumerate(self._console_lines()):
             self.text(f, x0 + 2, y0 + 1 + j, line, color, width=bw - 4)
-        self.text(f, x0 + 2, y0 + rows - 1, "> " + self.console_buf[-(bw - 7):] + "_", (255, 255, 255))
+        _, _, found, at = self.console_suggestions()
+        for x, y, width, i, name in self._suggestion_cells():
+            picked = i == at
+            self.text(f, x, y, f" {name}".ljust(width), (255, 255, 255) if picked else TEXT,
+                      LINK_BG if picked else SUGGEST_BG)
+        count = f"Tab {at + 1}/{len(found)}" if len(found) > 1 else "Tab" if found else ""
+        self.text(f, x0 + 2, y0 + rows - 1, "> " + self.console_buf[-(bw - 9 - len(count)):] + "_", (255, 255, 255))
+        if count:
+            self.text(f, x0 + bw - 2 - len(count), y0 + rows - 1, count, DIM)
+        link = self.console_link(self.mouse)
+        if link:  # light up what a click would do
+            _, _, x, y, width = link
+            for i in range(width):
+                f["bg"][x + i, y] = LINK_BG
 
     def _draw_death(self, f) -> None:
         if self.downed:

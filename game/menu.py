@@ -62,6 +62,14 @@ class Form:
             at = row.choices.index(row.value) if row.value in row.choices else 0
             row.value = row.choices[(at + step) % len(row.choices)]
 
+    def arrow_at(self, index: int, x: int) -> int:
+        """-1 for a choice row's < arrow, 1 for its > arrow, 0 elsewhere."""
+        row = self.rows[index]
+        if not row.choices:
+            return 0
+        width = len(f"< {row.value} >")
+        return -1 if x in (VALUE_X, VALUE_X + 1) else 1 if x in (VALUE_X + width - 2, VALUE_X + width - 1) else 0
+
     def row_at(self, y: int) -> int | None:
         for i in range(len(self.rows)):
             if y == self.top + i * self.step:
@@ -93,11 +101,16 @@ class Form:
             else:
                 self.index = (self.index + 1) % len(self.rows)
         elif name in ("hover", "click"):
-            at = self.row_at(value)
+            x, y = value if isinstance(value, tuple) else (None, value)  # a click on an arrow needs x
+            at = self.row_at(y)
             if at is None:
                 return None
             self.index = at
             if name == "click":
+                arrow = self.arrow_at(at, x) if x is not None else 0
+                if arrow:
+                    self._cycle(arrow)
+                    return None
                 return self.handle("enter") if not self.row.is_text else None
         return None
 

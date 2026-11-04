@@ -316,3 +316,56 @@ def run(w, p, text: str) -> None:
         for q in w.players.values():
             if q is not p:
                 w.tell(q, f"{p.name} used the console: {' '.join(words)[:60]}", GRAY)
+
+
+# ----------------------------- Completion -----------------------------
+# The client uses these to finish what's being typed; nothing here needs the world.
+
+def _arg_pool(name: str, position: int, players) -> list[str]:
+    """What fits the argument at a position after a command, if the console can know."""
+    pools = {("help", 0): list(COMMANDS), ("list", 0): ["items", "monsters"], ("give", 0): item_names(),
+             ("spawn", 0): [*sorted(MONSTERS), "cult", "nest"], ("collision", 0): ["on", "off"],
+             ("summon", 0): list(players), ("floor", 1): list(players)}
+    return pools.get((name, position), [])
+
+
+def _command_named(word: str) -> str | None:
+    word = word.lower()
+    if word in COMMANDS:
+        return word
+    found = [c for c in COMMANDS if c.startswith(word)]
+    return found[0] if len(found) == 1 else None
+
+
+def complete(text: str, players=()) -> tuple[int, list[str]]:
+    """Where the word being typed starts, and the choices that would finish it."""
+    start = len(text) - len(text.split(" ")[-1])
+    word = text[start:].lower()
+    if not word and not text[:start].strip():
+        return start, []  # nothing typed yet: help lists the commands
+    return start, [c for c in _pool_at(text, players) if c.lower().startswith(word)]
+
+
+def _pool_at(text: str, players) -> list[str]:
+    """Everything that fits the word being typed, whatever has been typed of it so far."""
+    start = len(text) - len(text.split(" ")[-1])
+    before = text[:start].split()
+    if not before:
+        return list(COMMANDS)
+    name = _command_named(before[0])
+    return _arg_pool(name, len(before) - 1, players) if name else []
+
+
+def clicked_word(text: str, word: str, players=()) -> str | None:
+    """The console line after clicking a word in the console, or None if the word does nothing.
+    It finishes the word being typed if it fits there; otherwise a command starts a new line,
+    an item gives it and a monster spawns it."""
+    if word in _pool_at(text, players):
+        return text[:len(text) - len(text.split(" ")[-1])] + word + " "
+    if word in COMMANDS:
+        return word + " "
+    if word in item_names():
+        return f"give {word} "
+    if word in MONSTERS or word in ("cult", "nest"):
+        return f"spawn {word} "
+    return None

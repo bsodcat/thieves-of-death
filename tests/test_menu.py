@@ -10,7 +10,7 @@ import client
 from game import settings
 from game.constants import DIFFICULTIES, MONSTER_SWING, REVIVE_HEALTH, TICKS_PER_SECOND, TICKS_PER_TURN
 from game.entities import PLAYER_COLOR_NAMES, PLAYER_GLYPHS, make_monster
-from game.menu import ROW_STEP, ROW_Y, Form, Row
+from game.menu import ROW_STEP, ROW_Y, VALUE_X, Form, Row
 from game.world import World
 from server import ServerRunner
 from togetherogue import SETUP_NOTE, lan_addresses, parse_port, parse_setup
@@ -81,6 +81,23 @@ class FormTests(unittest.TestCase):
         self.assertEqual(f.handle("click", ROW_Y + 3 * ROW_STEP), "go")
         f.handle("click", ROW_Y + 2 * ROW_STEP)
         self.assertEqual(f.values()["speed"], "Fast")
+
+    def test_clicking_a_choices_arrows_steps_it_either_way(self):
+        f = sample_form()
+        y = ROW_Y + 2 * ROW_STEP
+        width = len("< Normal >")
+        f.handle("click", (VALUE_X, y))                  # <
+        self.assertEqual(f.values()["speed"], "Slow")
+        f.handle("click", (VALUE_X, y))                  # < again wraps round
+        self.assertEqual(f.values()["speed"], "Fast")
+        f.handle("click", (VALUE_X + len("< Fast >") - 1, y))   # >
+        self.assertEqual(f.values()["speed"], "Slow")
+        f.handle("click", (VALUE_X + 3, y))              # the value itself still steps on
+        self.assertEqual(f.values()["speed"], "Normal")
+        self.assertEqual(f.index, 2)
+        self.assertEqual(f.arrow_at(2, VALUE_X + width), 0)    # just past the >
+        self.assertEqual(f.arrow_at(0, VALUE_X), 0)            # a text row has no arrows
+        self.assertEqual(f.handle("click", (0, ROW_Y + 3 * ROW_STEP)), "go")
 
     def test_every_screen_draws(self):
         con = client.new_console()

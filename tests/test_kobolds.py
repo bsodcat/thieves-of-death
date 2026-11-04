@@ -94,23 +94,67 @@ class KoboldTests(unittest.TestCase):
 
     def test_a_lone_kobold_runs(self):
         k = add(self.w, self.lvl, "kobold", self.x + 2, self.y, target=self.p)
+        k.rocks = 0
         self.w._monster_turn(k, self.lvl)
         self.assertEqual(cheb(k, self.p), 3)
 
     def test_with_friends_near_it_fights(self):
         k = add(self.w, self.lvl, "kobold", self.x + 2, self.y, target=self.p)
+        k.rocks = 0
         add(self.w, self.lvl, "kobold", self.x + 3, self.y + 2, target=self.p)
         self.w._monster_turn(k, self.lvl)
         self.assertEqual(cheb(k, self.p), 1)
 
     def test_a_hurt_kobold_throws_rocks_now_and_then(self):
         k = add(self.w, self.lvl, "kobold", self.x + 3, self.y, target=self.p)
-        k.hp = 2
+        k.hp, k.rocks = 2, 0
         with mock.patch.object(self.w.rng, "random", return_value=0.01):
             self.w._monster_turn(k, self.lvl)
         rocks = [m for _, m in self.w.drain_outbox() if m.get("kind") == "rock"]
         self.assertTrue(rocks)
         self.assertEqual(cheb(k, self.p), 3)  # it threw instead of running
+
+    def rocks_thrown(self):
+        return len([m for _, m in self.w.drain_outbox() if m.get("kind") == "rock"])
+
+    def kobold_at(self, dx, reach=9):
+        """A kobold dx tiles east of the player, with a friend nearby so it doesn't run."""
+        x, y = open_spot(self.lvl, reach)
+        put(self.lvl, self.p, x, y)
+        k = add(self.w, self.lvl, "kobold", x + dx, y, target=self.p)
+        add(self.w, self.lvl, "kobold", x + dx, y + 2, target=self.p)
+        self.w.drain_outbox()
+        return k
+
+    def test_a_kobold_throws_three_or_four_rocks_then_closes_in(self):
+        counts = set()
+        for seed in range(8):
+            self.w, self.lvl, self.p = empty_world()
+            self.w.rng.seed(seed)
+            k = self.kobold_at(4)
+            thrown = 0
+            for _ in range(6):
+                self.w._monster_turn(k, self.lvl)
+                thrown += self.rocks_thrown()
+            self.assertIn(thrown, (3, 4))
+            self.assertEqual(k.rocks, 0)
+            self.assertLess(cheb(k, self.p), 4)  # done throwing, it came in
+            counts.add(thrown)
+        self.assertEqual(counts, {3, 4})
+
+    def test_it_keeps_its_distance_while_it_has_rocks(self):
+        k = self.kobold_at(1)
+        self.w._monster_turn(k, self.lvl)
+        self.assertEqual(cheb(k, self.p), 2)       # stepped back instead of hitting
+        self.assertEqual(self.rocks_thrown(), 0)
+        self.w._monster_turn(k, self.lvl)
+        self.assertEqual(self.rocks_thrown(), 1)   # then threw
+
+    def test_out_of_range_it_comes_closer_first(self):
+        k = self.kobold_at(8)
+        self.w._monster_turn(k, self.lvl)
+        self.assertEqual(cheb(k, self.p), 7)
+        self.assertEqual(self.rocks_thrown(), 0)
 
     def test_the_leaders_spear_reaches_two_tiles(self):
         k = add(self.w, self.lvl, "kobold_leader", self.x + 2, self.y, target=self.p)

@@ -18,6 +18,7 @@ DEFAULTS = {
     "color": "Gold",
     "holiday_themes": "On",
     "ranged_target": "Strongest",
+    "auto_attack": "Off",
     **{controls.setting(action): key for action, _, key in controls.ACTIONS},
 }
 

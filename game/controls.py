@@ -21,8 +21,6 @@ ACTIONS = (
     ("drop", "Drop", "x"),
     ("tally", "Tally", "t"),
     ("log", "Action log", "v"),
-    ("descend", "Go downstairs", ">"),
-    ("ascend", "Go upstairs", "<"),
     ("help", "Help", "?"),
     ("quit", "Leave game", "Q"),
 )

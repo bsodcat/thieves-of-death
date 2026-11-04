@@ -129,7 +129,8 @@ class App:
             elif isinstance(event, tcod.event.MouseMotion):
                 found.append(("hover", int(self.context.convert_event(event).position[1])))
             elif isinstance(event, tcod.event.MouseButtonDown):
-                found.append(("click", int(self.context.convert_event(event).position[1])))
+                x, y = self.context.convert_event(event).position
+                found.append(("click", (int(x), int(y))))
         return found
 
     def present(self, form: Form, extra=None) -> None:
@@ -174,7 +175,8 @@ class App:
                 Row("Difficulty", "difficulty", c["difficulty"], choices=tuple(DIFFICULTIES))]
 
     def look(self) -> dict:
-        return {"aim": self.config["ranged_target"], "glyph": self.config["shape"], "color": self.config["color"],
+        return {"aim": self.config["ranged_target"], "auto": self.config["auto_attack"],
+                "glyph": self.config["shape"], "color": self.config["color"],
                 "pickup": controls.labels(controls.load(self.config))["pickup"]}
 
     def run_game(self, net, leave_note: str = "", intro: tuple = ()) -> None:
@@ -308,7 +310,7 @@ class App:
                      Row("Shape", "shape", c["shape"], choices=PLAYER_GLYPHS),
                      Row("Color", "color", c["color"], choices=tuple(PLAYER_COLOR_NAMES)),
                      Row("Save", action="save"), Row("Back", action="back")],
-                    note="Use left and right to look through shapes and colors.")
+                    note="Use left and right, or click the arrows, to look through shapes and colors.")
 
         def preview(console) -> None:
             # The character standing in a little room, as they'll look in the dungeon.
@@ -329,11 +331,15 @@ class App:
         form = Form("Options", [Row("Font", "font", self.config["font"], choices=tuple(FONTS)),
                                 Row("Holiday themes", "holiday_themes", self.config["holiday_themes"],
                                     choices=("On", "Off")),
-                                Row("Ranged weapons aim at", "ranged_target", self.config["ranged_target"],
+                                Row("Ranged aim at", "ranged_target", self.config["ranged_target"],
                                     choices=("Strongest", "Weakest")),
+                                Row("Auto attack", "auto_attack", self.config["auto_attack"], choices=("Off", "On")),
                                 Row("Controls", action="controls"),
                                 Row("Save", action="save"), Row("Back", action="back")],
-                    note="Holiday themes follow the host's setting.")
+                    note="Holiday themes follow the host's setting.\n"
+                         "Auto attack hits back at monsters beside you. With it on,\n"
+                         "using a bow, boomerang, wand or staff readies it, and it\n"
+                         "fires on its own at monsters fighting you.")
         action = self.show(form)
         while action == "controls":
             self.controls_screen()

@@ -64,6 +64,9 @@ from .constants import (OGRE_LATE_SHARE, MUSHROOM_MOST, MUSHROOM_SHARE, GHOST_DI
                         DEFAULT_DIFFICULTY, DIFFICULTIES, STEALTH_FILL_SECONDS,
                         STEALTH_MAX, STEALTH_MOVE_DRAIN, STEALTH_RANGE_MIN, TICKS_PER_SECOND,
                         TICKS_PER_TURN)
+from .constants import KOBOLD_ROCKS, WOLF_FLEE_CHANCE, WOLF_FLEE_HEALTH, WOLF_PACK_HURT, WOLF_PACK_SHARE
+from .constants import (MONKEY_DEATH_GOLD, MONKEY_DRINK_CHANCE, MONKEY_FLEE, MONKEY_FLEE_CHANCE, MONKEY_FLEE_HEALTH,
+                        MONKEY_GOLD)
 from .entities import (UNDEAD, MONSTERS, PLAYER_COLOR_NAMES, PLAYER_COLORS, PLAYER_GLYPHS, Merchant, Monster, Npc, Player,
                        apply_gear, danger, make_merchant, make_monster, make_npc, make_player, reset_player)
 from .items import (AUTO_PICKUP, ITEMS, Item, enhance_weapon, make_amulet, make_barrel, make_cloak, make_gold, make_item,
@@ -99,7 +102,8 @@ VIOLET = (190, 140, 255)
 PACK_KINDS = ("cultist", "cult_leader", "wolf", "kobold", "kobold_leader", "skeleton_warrior", "spider_queen", "spider")
 AMULET_FROM_DOORS, AMULET_FROM_STAIRS = 15, 20  # steps' walk
 PATH_MAPS = 256  # distance maps a level keeps before starting over
-PACK_ORDER = ("potion", "wand", "ranged", "ammo", "bomb", "weapon", "armor", "cloak", "key", "amulet", "gold", "food")
+PACK_ORDER = ("potion", "wand", "ranged", "ammo", "bomb", "weapon", "armor", "cloak", "key", "hook", "amulet", "gold",
+              "food")
 FLAMMABLE = (GRASS, FOLIAGE, TRAMPLED)
 BURNABLE = (FLOOR, GRASS, FOLIAGE, TRAMPLED, ASH)   # ground a wand's fire can catch on
 # What a monster leaves on the floor where it dies. Anything not listed bleeds.
@@ -750,7 +754,7 @@ class World:
         hoard, potions = rng.sample(list(lvl.side_rooms), 2)
         for spot in rng.sample(hoard, min(HOARD_PILES, len(hoard))):
             lvl.items[spot] = self._gold(rng.randint(*HOARD_GOLD))
-        kinds = [k for k, t in ITEMS.items() if t["category"] == "potion"]
+        kinds = [k for k, t in ITEMS.items() if t["category"] == "potion" and t["weight"] > 0]
         for spot in rng.sample(potions, min(POTION_ROOM, len(potions))):
             lvl.items[spot] = self._item(rng.choice(kinds))
 
@@ -942,7 +946,7 @@ class World:
             # A press is buffered, so a quick tap during a cooldown still counts. The rest
             # of a hold isn't: it steps only while held, so releasing stops you dead.
             if a == "move" or msg.get("press"):
-                if p.pending is not None and p.pending["a"] != "move":
+                if p.pending is not None and p.pending["a"] not in ("move", "auto"):
                     return  # don't let walking replace a potion or a drop
                 p.pending = {"a": "move", "dx": dx, "dy": dy}
         elif a == "enhance":
@@ -1106,6 +1110,7 @@ class World:
                             self.note(p, f"{effect.removesuffix('_until')} wore off")
                             self.dirty = True
                             self._touch_down(p, text)
+            self._tick_auto_attacks()
             self._tick_revives(ticks)
             self._tick_gas(ticks)
             self._tick_fire(ticks)
@@ -1446,6 +1451,53 @@ class World:
 
     # ----------------------------------------------------------- actions
 
+    def _auto_choice(self, p: Player) -> tuple | None:
+        """What auto attack would do now: ("melee", monster) for one fighting beside you, else
+        ("ranged", monster) for one your readied weapon can reach. None if nothing."""
+        lvl = self.levels[p.depth]
+        sight = self.fov(p)
+
+        def fighting(m) -> bool:
+            return (m.state == "hunting" and sight[m.x, m.y] and not (m.kind == "monkey" and not m.provoked))
+
+        beside = [m for m in lvl.monsters if cheb(p, m) == 1 and fighting(m) and not self._floating(m)
+                  and not self._levitating(m) and not lvl.diagonal_blocked(p.x, p.y, m.x, m.y)]
+        if beside:
+            order = 1 if p.aim == "Weakest" else -1
+            return "melee", min(beside, key=lambda m: (order * danger(m.kind), m.id))
+        item = p.ranged
+        if item is None or item not in p.pack:
+            return None
+        if item.category == "ranged":
+            if item.back_at > self.clock or (item.fires and not any(i.category == "ammo" for i in p.pack)):
+                return None
+            reach = item.reach
+        else:
+            reach = STAFF_RANGE if item.lightning else WAND_RANGE
+        near = [m for m in lvl.monsters if fighting(m) and cheb(p, m) <= reach
+                and not (item.freeze and m.frozen_until > self.clock)]  # no use freezing it twice
+        if not near:
+            return None
+        order = 1 if p.aim == "Weakest" else -1
+        return "ranged", min(near, key=lambda m: (order * danger(m.kind), cheb(p, m), m.id))
+
+    def _tick_auto_attacks(self) -> None:
+        for p in self.players.values():
+            if (p.auto_attack and p.alive and p.connected and p.pending is None and p.hold is None
+                    and p.next_time <= self.clock and self._auto_choice(p)):
+                p.pending = {"a": "auto"}
+
+    def _auto_attack(self, p: Player, lvl: Level, met) -> int:
+        """Decided again as it happens, since things move in the meantime."""
+        choice = self._auto_choice(p)
+        if choice is None:
+            return 0
+        kind, m = choice
+        if kind == "melee":
+            return self._player_move(p, lvl, m.x - p.x, m.y - p.y, met)
+        item = p.ranged
+        return self._shoot(p, item, m) if item.category == "ranged" else self._zap(p, item, m)
+
     def _perform(self, p: Player, act: dict) -> None:
         lvl = self.levels[p.depth]
         a = act["a"]
@@ -1453,6 +1505,8 @@ class World:
         met, p.met = p.met, None  # walking into a merchant or fisherman again right away steps past them
         if a == "move":
             cost = self._player_move(p, lvl, act["dx"], act["dy"], met)
+        elif a == "auto":
+            cost = self._auto_attack(p, lvl, met)
         elif a == "descend":
             if (p.x, p.y) == lvl.down_front:
                 cost = self._take_stairs(p, +1)
@@ -1580,7 +1634,8 @@ class World:
 
     def _meet(self, p: Player, npc: Npc, lvl: Level) -> int:
         if npc.role == "fisherman":
-            self._fisherman_talks(p, npc)
+            if not self._return_hooks(p, lvl):
+                self._fisherman_talks(p, npc)
             if npc.talks == 1:
                 self.tell(p, "Walk into him again to step past.", GRAY)
             return 0
@@ -1598,6 +1653,28 @@ class World:
                 self.note(q, f"fairy: max health +{boost} hp {self._hp(q)}")
         self.broadcast(f"{p.name} frees a fairy! It blesses the party: everyone's health rises by a fifth.", TEAL)
         return TICKS_PER_TURN
+
+    def _return_hooks(self, p: Player, lvl: Level) -> bool:
+        """Monkeys take the fisherman's hooks. He gives a potion of strength for each one brought back."""
+        hooks = next((i for i in p.pack if i.category == "hook"), None)
+        if hooks is None:
+            return False
+        count = hooks.count
+        p.pack.remove(hooks)
+        p.pack_dirty = True
+        for _ in range(count):
+            potion = self._item("strength")
+            if not self._stash(p, potion):
+                lvl.items[lvl.free_item_spot(p.x, p.y)] = potion
+        if count == 1:
+            words = ("My hook! One of those thieving monkeys took it right off my line. "
+                     "Thank you for getting it back. Here, take this potion of strength.")
+        else:
+            words = (f"My hooks! All {count} of them, back from those thieving monkeys. "
+                     f"Thank you for getting them back. Here, take these {count} potions of strength.")
+        self.tell(p, f'The fisherman says: "{words}"', TEAL)
+        self.note(p, f"gave the fisherman {count} hook{'s' if count > 1 else ''} for strength")
+        return True
 
     def _fisherman_talks(self, p: Player, npc: Npc) -> None:
         """He knows where the keys to the locked rooms lie, one at a time. With none, he gives a tip."""
@@ -1849,8 +1926,8 @@ class World:
         self.note(p, f"sold {sold.label} for {price} gold now {p.gold}")
         return TICKS_PER_TURN
 
-    def _levitating(self, p: Player) -> bool:
-        return p.levitate_until > self.clock
+    def _levitating(self, a) -> bool:
+        return a.levitate_until > self.clock
 
     @staticmethod
     def _a(item: Item) -> str:
@@ -1863,6 +1940,15 @@ class World:
         if item.category == "key":
             self.tell(p, f"Walk into the {item.name.replace(' key', '')} locked door to use it.", GRAY)
             return 0
+        if item.category in ("ranged", "wand") and p.auto_attack:
+            p.ranged = None if p.ranged is item else item
+            p.pack_dirty = True
+            if p.ranged is item:
+                self.tell(p, f"You ready the {item.name}. Auto attack fires it at what's fighting you.", WHITE)
+            else:
+                self.tell(p, f"You put away the {item.name}.", WHITE)
+            self.note(p, f"{'readied' if p.ranged is item else 'put away'} {item.name}")
+            return TICKS_PER_TURN
         if item.category == "wand":
             return self._zap(p, item)
         if item.category == "bomb":
@@ -1874,6 +1960,9 @@ class World:
             return 0
         if item.category == "amulet":
             self.tell(p, "It's your way out. Carry it up the stairs on floor 1.", GRAY)
+            return 0
+        if item.category == "hook":
+            self.tell(p, "It's the fisherman's. Walk into him to give it back.", GRAY)
             return 0
         if item.category == "weapon":
             p.weapon = None if p.weapon is item else item
@@ -1897,10 +1986,14 @@ class World:
                 p.waterwalk_until = self.clock + int(item.waterwalk * TICKS_PER_SECOND)
             if item.lavawalk:
                 p.lavawalk_until = self.clock + int(item.lavawalk * TICKS_PER_SECOND)
+            if item.strength:
+                p.strength += item.strength
+                apply_gear(p)
             self.tell(p, "You feel better." if item.heal else "You rise off the ground!" if item.levitate
                       else f"The world lurches, and you're on floor {p.depth}!" if item.teleport
                       else "Your feet feel strangely light." if item.waterwalk
                       else "Your feet stop feeling the heat." if item.lavawalk
+                      else "You feel stronger!" if item.strength
                       else "Everything around you slows down.", GOLD)
             self._take_one(p, item)
             return TICKS_PER_TURN
@@ -1936,7 +2029,7 @@ class World:
     def _sort_pack(p: Player) -> None:
         """What you're wearing first, then the things you reach for in a hurry. It takes no time."""
         def order(item: Item) -> tuple:
-            worn = item in (p.weapon, p.armor, p.cloak)
+            worn = item in (p.weapon, p.armor, p.cloak, p.ranged)
             return (not worn, PACK_ORDER.index(item.category), -item.heal, item.name)
         p.pack.sort(key=order)
         p.pack_dirty = True
@@ -1998,7 +2091,7 @@ class World:
         order = 1 if p.aim == "Weakest" else -1
         return min(fighting, key=lambda m: (order * danger(m.kind), cheb(p, m), m.id))
 
-    def _shoot(self, p: Player, weapon: Item) -> int:
+    def _shoot(self, p: Player, weapon: Item, m: Monster | None = None) -> int:
         """A bow or boomerang. A sneak shot works like a sneak attack."""
         lvl = self.levels[p.depth]
         ammo = next((i for i in p.pack if i.category == "ammo"), None)
@@ -2008,7 +2101,7 @@ class World:
         if weapon.back_at > self.clock:
             self.tell(p, f"Your {weapon.name} hasn't come back yet.", GRAY)
             return 0
-        m = self._target(p, lvl, weapon.reach)
+        m = m or self._target(p, lvl, weapon.reach)
         if m is None:
             self.tell(p, "There's nothing in range to aim at.", GRAY)
             return 0
@@ -2042,10 +2135,10 @@ class World:
             self._hunt(m, p)
         return TICKS_PER_TURN
 
-    def _zap(self, p: Player, wand: Item) -> int:
+    def _zap(self, p: Player, wand: Item, m: Monster | None = None) -> int:
         """Fires at a monster in sight. After its last use the wand breaks."""
         lvl = self.levels[p.depth]
-        m = self._target(p, lvl, STAFF_RANGE if wand.lightning else WAND_RANGE)
+        m = m or self._target(p, lvl, STAFF_RANGE if wand.lightning else WAND_RANGE)
         if m is None:
             self.tell(p, "There's nothing in range to aim at.", GRAY)
             return 0
@@ -2106,6 +2199,8 @@ class World:
             p.armor = None
         if item is p.cloak:
             p.cloak = None
+        if item is p.ranged:
+            p.ranged = None
         apply_gear(p)
         return item
 
@@ -2139,6 +2234,7 @@ class World:
         for item in loot:
             lvl.items[lvl.free_item_spot(p.x, p.y)] = item
         p.pack, p.gold, p.weapon, p.armor, p.cloak, p.pack_dirty = [], 0, None, None, None, True
+        p.ranged = None
         apply_gear(p)
 
     def _take_stairs(self, p: Player, step: int) -> int:
@@ -2199,6 +2295,12 @@ class World:
             for v in self._living_on(att.depth):
                 self.outbox.append((v.id, {"t": "fx", "kind": "hit", "cells": [(dfn.x, dfn.y)]}))
             self._note_fight(att, dfn)
+            dfn.provoked = True
+            if self._levitating(dfn):
+                self.note(att, f"can't reach {self._tag(dfn)}")
+                self._narrate(lvl, [(att.x, att.y), (dfn.x, dfn.y)], {att}, lambda v: (
+                    f"{self._n(att, v, True)} can't reach {self._n(dfn, v)}.", GRAY))
+                return
         elif dfn.is_player:
             self._note_fight(dfn, att)
             if self._levitating(dfn) or dfn.god:
@@ -2276,6 +2378,11 @@ class World:
                 lvl.items[lvl.free_item_spot(victim.x, victim.y)] = seasons.dress_item(make_wand(), self.season)
                 self._narrate(lvl, where, {killer}, lambda v: (f"The {victim.name} drops a wand!", GOLD))
                 self.note(victim, "dropped a wand")
+            if victim.kind == "monkey":
+                victim.stolen_gold += self.rng.randint(*MONKEY_DEATH_GOLD)
+                self._drop_stolen(victim, lvl)
+                lvl.items[lvl.free_item_spot(victim.x, victim.y)] = self._item("hook")
+                self._narrate(lvl, where, {killer}, lambda v: (f"The {victim.name} drops a fisherman's hook!", GOLD))
             if victim.kind == "cult_mage":
                 lvl.items[lvl.free_item_spot(victim.x, victim.y)] = seasons.dress_item(make_staff(), self.season)
                 self._narrate(lvl, where, {killer}, lambda v: (f"The {victim.name} drops its staff of lightning!", GOLD))
@@ -2397,7 +2504,10 @@ class World:
             if m.hp <= 0:
                 self._kill(m, m.burned_by)
                 return
+        self._back_on_land(m, self.levels[m.depth])
         cost = max(1, self._monster_turn(m, self.levels[m.depth]))
+        if m.haste_until > self.clock:
+            cost = max(1, cost // 2)
         m.next_time = self.clock + int(cost * self.monster_time)
 
     def _release_gas(self, m: Monster, lvl: Level) -> int:
@@ -2432,15 +2542,46 @@ class World:
                 return m.move_cost
         return TICKS_PER_TURN
 
+    def _ground(self, m: Monster, lvl: Level) -> np.ndarray:
+        """Where a monster can walk: the floor, and while a potion lasts, the water, lava or chasms it lets it cross."""
+        extra = []
+        if m.levitate_until > self.clock:
+            extra.append(lvl.hover)
+        if m.waterwalk_until > self.clock:
+            extra.append(lvl.tiles == DEEP)
+        if m.lavawalk_until > self.clock:
+            extra.append(lvl.tiles == LAVA)
+        if not extra:
+            return lvl.walkable
+        ground = lvl.walkable.copy()
+        for more in extra:
+            ground |= more
+        return ground
+
+    def _distances(self, m: Monster, lvl: Level, x: int, y: int) -> np.ndarray:
+        """How far every tile is from (x, y) for this monster. Only potions make it differ from the shared map."""
+        ground = self._ground(m, lvl)
+        return lvl.distances_to(x, y) if ground is lvl.walkable else algo.dijkstra(ground, [(x, y)])
+
+    def _back_on_land(self, m: Monster, lvl: Level) -> None:
+        """A potion wore off over water, lava or a chasm: it scrambles to the nearest floor."""
+        if (m.levitate_until or m.waterwalk_until or m.lavawalk_until) and not self._ground(m, lvl)[m.x, m.y]:
+            start = (m.x, m.y)
+            lvl.move(m, *lvl.nearest_floor(m.x, m.y, lvl.occupant))
+            self.note(m, "scrambled back to solid ground")
+            self._narrate(lvl, [start, (m.x, m.y)], set(), lambda v: (
+                f"The {m.name} scrambles back onto solid ground.", GRAY))
+
     def _step_away(self, m: Monster, lvl: Level, target: Player) -> int:
         """One step further from someone on foot, if there's anywhere to go."""
-        walk = lvl.distances_to(target.x, target.y)
+        walk = self._distances(m, lvl, target.x, target.y)
+        ground = self._ground(m, lvl)
         best, best_d = None, walk[m.x, m.y]
         dirs = DIRS8[:]
         self.rng.shuffle(dirs)
         for dx, dy in dirs:
             n = (m.x + dx, m.y + dy)
-            if (lvl.in_bounds(*n) and lvl.walkable[n] and n not in lvl.occupant and best_d < walk[n] < algo.INF
+            if (lvl.in_bounds(*n) and ground[n] and n not in lvl.occupant and best_d < walk[n] < algo.INF
                     and not lvl.diagonal_blocked(m.x, m.y, *n)):
                 best, best_d = n, walk[n]
         if best is None:
@@ -2699,9 +2840,19 @@ class World:
         return m.attack_cost
 
     def _kobold(self, m: Monster, lvl: Level, t: Player) -> int | None:
-        """A hurt kobold sometimes throws a rock, and one with nobody around runs.
-        None means it fights as usual."""
+        """A kobold keeps its distance and throws a few rocks before it closes in. After that a hurt
+        one sometimes throws another, and one with nobody around runs. None means it fights as usual."""
         away = cheb(m, t)
+        if m.rocks is None:
+            m.rocks = self.rng.randint(*KOBOLD_ROCKS)
+        if m.rocks > 0:
+            if away == 1:  # backs off to throw; cornered, it fights
+                cost = self._step_away(m, lvl, t)
+                if cost:
+                    return cost
+            elif away <= KOBOLD_ROCK_RANGE and self._clear_shot(lvl, m, t):
+                m.rocks -= 1
+                return self._rock(m, lvl, t)
         if (m.hp < m.max_hp * FLEE_HEALTH and 2 <= away <= KOBOLD_ROCK_RANGE and self._clear_shot(lvl, m, t)
                 and self.rng.random() < KOBOLD_ROCK_CHANCE):
             return self._rock(m, lvl, t)
@@ -2709,6 +2860,144 @@ class World:
         if not friends:
             return self._step_away(m, lvl, t) or None
         return None
+
+    def _wolf_pack(self, m: Monster, lvl: Level) -> list[Monster]:
+        """The living wolves of its pack, itself included. A wolf on its own is a pack of one."""
+        head = m.leader or m
+        return [o for o in lvl.monsters if o.kind == "wolf" and (o is head or o.leader is head)]
+
+    def _wolf(self, m: Monster, lvl: Level, t: Player) -> int | None:
+        """A wolf badly hurt, or in a pack taking a beating, may lose its nerve and run. It rolls
+        once for each; one that runs keeps running. None means it fights as usual."""
+        reasons = []
+        if m.hp < m.max_hp * WOLF_FLEE_HEALTH:
+            reasons.append("hurt")
+        pack = self._wolf_pack(m, lvl)
+        if sum(o.hp < o.max_hp * WOLF_PACK_HURT for o in pack) > len(pack) * WOLF_PACK_SHARE:
+            reasons.append("pack")
+        for reason in reasons:
+            if m.fleeing or reason in m.nerve_tested:
+                continue
+            m.nerve_tested += (reason,)
+            if self.rng.random() < WOLF_FLEE_CHANCE:
+                m.fleeing = True
+                self.note(m, f"lost its nerve ({reason}) and fled")
+                self._narrate(lvl, [(m.x, m.y)], set(), lambda v: (f"The {m.name} turns tail and runs!", GRAY))
+        if m.fleeing:
+            return self._step_away(m, lvl, t) or None  # cornered, it fights
+        return None
+
+    def _monkey(self, m: Monster, lvl: Level, t: Player) -> int | None:
+        """A monkey leaves you be unless you attack it. It comes to rob you, then runs until it's more
+        than MONKEY_FLEE tiles away, and may drink a potion it took. Attacked, it fights back, and badly
+        hurt it may run instead. None means it fights."""
+        if m.drink_next:
+            return self._monkey_drinks(m, lvl)
+        if m.provoked or m.hp < m.max_hp:  # whatever hurt it, it's angry now
+            m.provoked = True
+            if m.hp < m.max_hp * MONKEY_FLEE_HEALTH and "hurt" not in m.nerve_tested:
+                m.nerve_tested += ("hurt",)
+                if self.rng.random() < MONKEY_FLEE_CHANCE:
+                    m.fleeing = True
+                    self.note(m, "lost its nerve (hurt) and fled")
+                    self._narrate(lvl, [(m.x, m.y)], set(), lambda v: (f"The {m.name} shrieks and flees!", GRAY))
+                    self._drop_stolen(m, lvl)
+            if not m.fleeing:
+                return None
+        if m.robbed or m.fleeing:  # cornered, a frightened one fights
+            if cheb(m, t) > MONKEY_FLEE:
+                return TICKS_PER_TURN
+            return self._step_away(m, lvl, t) or (None if m.fleeing else TICKS_PER_TURN)
+        if cheb(m, t) == 1 and not lvl.diagonal_blocked(m.x, m.y, t.x, t.y):
+            return self._steal(m, lvl, t)
+        return self._step_toward(m, lvl, t.x, t.y) or TICKS_PER_TURN
+
+    def _steal(self, m: Monster, lvl: Level, t: Player) -> int:
+        """One item, or some gold. Never what they're wearing, a key or the Amulet."""
+        m.robbed = True
+        where = [(m.x, m.y), (t.x, t.y)]
+
+        def whose(v) -> str:
+            return "your" if v is t else f"{t.name}'s"
+
+        items = [i for i in t.pack if i not in (t.weapon, t.armor, t.cloak, t.ranged)
+                 and i.category not in ("amulet", "key")]
+        choices = (["item"] if items else []) + (["gold"] if t.gold > 0 else [])
+        if not choices:
+            self.note(m, f"found nothing to steal from {self._tag(t)}")
+            self._narrate(lvl, where, {t}, lambda v: (
+                f"The {m.name} rummages through {whose(v)} pack, finds nothing and scampers off.", GRAY))
+            return m.attack_cost
+        if self.rng.choice(choices) == "item":
+            item = m.stolen = self._take_one(t, self.rng.choice(items))
+            m.drink_next = item.category == "potion" and self.rng.random() < MONKEY_DRINK_CHANCE
+            self.note(m, f"stole {item.name} from {self._tag(t)}")
+            self._narrate(lvl, where, {t}, lambda v: (f"The {m.name} snatches {whose(v)} {item.name}!", RED))
+        else:
+            amount = m.stolen_gold = min(t.gold, self.rng.randint(*MONKEY_GOLD))
+            t.gold -= amount
+            t.pack_dirty = True
+            self.note(m, f"stole {amount} gold from {self._tag(t)}")
+            self._narrate(lvl, where, {t}, lambda v: (f"The {m.name} grabs {amount} of {whose(v)} gold!", RED))
+        return m.attack_cost
+
+    def _drop_stolen(self, m: Monster, lvl: Level) -> None:
+        """A monkey lets go of what it's carrying: what it stole, and any gold."""
+        drops = [m.stolen, self._gold(m.stolen_gold) if m.stolen_gold else None]
+        m.stolen, m.stolen_gold, m.drink_next = None, 0, False
+        names = []
+        for item in drops:
+            if item is not None:
+                lvl.items[lvl.free_item_spot(m.x, m.y)] = item
+                names.append(item.label)
+        if names:
+            self.note(m, "dropped " + ", ".join(names))
+            self._narrate(lvl, [(m.x, m.y)], set(), lambda v: (f"The {m.name} drops {' and '.join(names)}!", GOLD))
+
+    def _monkey_drinks(self, m: Monster, lvl: Level) -> int:
+        """The potion works on the monkey as it would on you."""
+        item, m.stolen, m.drink_next = m.stolen, None, False
+        start = (m.x, m.y)
+        effects = []
+        if item.heal:
+            m.hp = min(m.max_hp, m.hp + item.heal)
+            effects.append("looks better")
+        if item.haste:
+            m.haste_until = self.clock + int(item.haste * TICKS_PER_SECOND)
+            effects.append("speeds up")
+        if item.levitate:
+            m.levitate_until = self.clock + int(item.levitate * TICKS_PER_SECOND)
+            effects.append("floats up out of reach")
+        if item.waterwalk:
+            m.waterwalk_until = self.clock + int(item.waterwalk * TICKS_PER_SECOND)
+            effects.append("can walk on water")
+        if item.lavawalk:
+            m.lavawalk_until = self.clock + int(item.lavawalk * TICKS_PER_SECOND)
+            effects.append("can walk on lava")
+        if item.strength:
+            m.damage = (m.damage[0] + item.strength, m.damage[1] + item.strength)
+            effects.append("looks stronger")
+        if item.teleport:
+            effects.append("vanishes")
+        self.note(m, f"drank {item.name} hp {self._hp(m)}")
+        self._narrate(lvl, [start], set(), lambda v: (
+            f"The {m.name} drinks the {item.name} and {' and '.join(effects)}!", ORANGE))
+        if item.teleport:
+            self._monster_to_floor(m, lvl)
+        return m.attack_cost
+
+    def _monster_to_floor(self, m: Monster, old: Level) -> None:
+        """The potion of teleportation: a random spot on a random other floor, as it does for you."""
+        for v in self._living_on(m.depth):
+            self.outbox.append((v.id, {"t": "fx", "kind": "blink", "cells": [(m.x, m.y)]}))
+        depth = self.rng.choice([d for d in range(1, LAST_FLOOR + 1) if d != old.depth])
+        self.note(m, f"teleported F{old.depth:02d}->F{depth:02d}")
+        old.remove(m)
+        old.monsters.remove(m)
+        lvl = self.level(depth)
+        lvl.place(m, *self._empty_floor(lvl, self.rng))
+        lvl.monsters.append(m)
+        m.state, m.target_id, m.last_seen, m.wander_target = "wandering", None, None, None
 
     def _turn_on_rat(self, m: Monster, lvl: Level) -> bool:
         """Kobolds and rats don't get on. Now and then a kobold kills one beside it."""
@@ -2762,6 +3051,14 @@ class World:
                 cost = self._kobold(m, lvl, t)
                 if cost:
                     return cost
+            if m.kind == "wolf":
+                cost = self._wolf(m, lvl, t)
+                if cost:
+                    return cost
+            if m.kind == "monkey":
+                cost = self._monkey(m, lvl, t)
+                if cost:
+                    return cost
             if m.kind == "necromancer" and self.clock >= m.ready_at:
                 self._summon(m, lvl, t)
                 return m.attack_cost
@@ -2794,13 +3091,14 @@ class World:
         return cost or TICKS_PER_TURN
 
     def _step_toward(self, m: Monster, lvl: Level, tx: int, ty: int) -> int:
-        dist = lvl.distances_to(tx, ty)
+        dist = self._distances(m, lvl, tx, ty)
+        ground = self._ground(m, lvl)
         best, best_d = None, dist[m.x, m.y]
         dirs = DIRS8[:]
         self.rng.shuffle(dirs)
         for dx, dy in dirs:
             nx, ny = m.x + dx, m.y + dy
-            if not lvl.in_bounds(nx, ny) or not lvl.walkable[nx, ny]:
+            if not lvl.in_bounds(nx, ny) or not ground[nx, ny]:
                 continue
             if lvl.diagonal_blocked(m.x, m.y, nx, ny) or lvl.actor_at(nx, ny) is not None:
                 continue
@@ -2867,7 +3165,7 @@ class World:
 
     def pack_msg(self, p: Player) -> dict:
         pack = [{"name": i.label, "g": i.glyph, "c": list(i.color), "info": i.info,
-                 "eq": i in (p.weapon, p.armor, p.cloak), "sell": i.sell_price if i.sellable else 0} for i in p.pack]
+                 "eq": i in (p.weapon, p.armor, p.cloak, p.ranged), "sell": i.sell_price if i.sellable else 0} for i in p.pack]
         return {"t": "pack", "pack": pack, "gold": p.gold, "defense": p.defense,
                 "dmg": f"{p.damage[0]}-{p.damage[1]}", "stealth_cap": p.stealth_cap}
 
@@ -2883,7 +3181,7 @@ class World:
                              "name": a.name, "hp": a.hp, "mhp": a.max_hp, "p": a.is_player,
                              "seen": seen or p.reveal, "hl": p.reveal and not a.is_player,
                              "st": "merchant" if isinstance(a, Merchant) else a.role if isinstance(a, Npc) else getattr(a, "state", ""),
-                             "kind": getattr(a, "kind", ""), "lev": a.is_player and self._levitating(a),
+                             "kind": getattr(a, "kind", ""), "lev": getattr(a, "levitate_until", 0) > self.clock,
                              "float": self._floating(a),
                              "burn": getattr(a, "burning", 0) > 0,
                              "frozen": getattr(a, "frozen_until", 0) > self.clock,

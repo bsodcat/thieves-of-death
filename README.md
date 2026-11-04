@@ -32,9 +32,11 @@ that one file. The main menu has:
 - **Server Tool**: runs a server without playing, and shows the address to share, who's
   connected, their floor and ping, and a log.
 - **Character**: your name, shape and color.
-- **Options**: the font, whether to show the holiday themes, and what ranged weapons aim at.
+- **Options**: the font, whether to show the holiday themes, what ranged weapons aim at, and
+  auto attack.
 
-Use the arrow keys and Enter, or the mouse. Your choices are saved in
+Use the arrow keys and Enter, or the mouse; click a choice's `<` or `>` to step it back or on.
+Your choices are saved in
 `%APPDATA%\Togetherogue\settings.json`. In the game, press `Q` twice to leave.
 
 The version and the date the project began are at the bottom of the title screen, and come from
@@ -81,7 +83,7 @@ On Windows the client uses the classic Terminal font (`8514oem.fon`, 10x20), rea
 | Key | Action |
 | --- | --- |
 | `W A S D`, arrows, numpad, or `h j k l y u b n` | Move or attack (8 directions). Hold to keep going; two keys together move diagonally |
-| Walk into `>` / `<`, or press `>` / `<` next to them | Take the stairs |
+| Walk into `>` / `<` | Take the stairs |
 | `1`-`9`, `0` | Use the item in that pack slot: drink a potion, or equip or remove gear |
 | `q` | Quick heal: drink the smallest healing potion that fills you up, or your biggest if none will |
 | `i` | Show or hide the pack. While it's open, click an item to use it, or press `o` to sort |
@@ -260,6 +262,12 @@ Press `` ` `` or F2 in a game to open the console, type a command and press Ente
 recall what you've typed, the mouse wheel scrolls back through what it's printed, and Esc closes
 it. The game keeps running behind it.
 
+Tab finishes the word you're typing: command names, then items, monsters, players or on/off,
+whichever that command takes. Press Tab again for the next choice, or click one in the list.
+Clicking a command, item or monster name anywhere in the console fills it in, so `list` then a
+click on an item gives you `give <item> `. Click `help` in the title to list the commands, or
+`[x]` to close.
+
 | Command | Does |
 | --- | --- |
 | `help`, `list [items\|monsters]` | List the commands, or the item and monster names in columns, items by kind |
@@ -322,16 +330,27 @@ food (`Θ`). Walk into it and "Food is good!": you heal 2 health a second for 8 
 - **Skeletal dragon** (`D`): sleeps on floor 80, as far from the stairs as it can. Every 6 seconds it
   breathes fire in a line at whoever it's hunting, from up to 8 tiles, for 8 to 14 damage.
 
+- **Monkeys** (`m`): floors 2 to 10. A monkey leaves you be unless you attack it. It comes up to you
+  and steals one item or 15 to 25 gold, never what you're wearing, a key or the Amulet, then runs
+  until it's more than 30 tiles away. Half the time it drinks a stolen potion, and the potion works
+  on it as it would on you: healing, haste, strength, levitating out of reach and over water,
+  walking on water or lava, or teleporting to a random floor. If a potion wears off while it's over
+  water, lava or a chasm, it scrambles to the nearest floor. Attacked, it fights back, and the first
+  time it falls below 40% of its health it has a 66% chance of running, dropping what it stole.
+  Killed, it drops what it stole, 10 to 30 gold of its own and a fisherman's hook (`⌡`).
 - **Wolves** (`w`): from floor 3 down, a floor has a 20% chance of a pack of 3 to 6. They're twice as
-  fast as you, and when one notices you they all do.
+  fast as you, and when one notices you they all do. A wolf may lose its nerve: it has a 20% chance
+  of running when it falls below a fifth of its health, and another 20% chance when more than a
+  third of its pack is below half health. One that runs keeps running, and fights only when cornered.
 - **Mushrooms** (`f`): floors 3 to 50, and never more than 8 on a floor. They never move and don't attack. Get within 2 tiles and one fills the space
   around it with toxic gas, up to 4 tiles away in any direction, however stealthy you are. Walls and
   doors stop it. It thins from the edges inward and is gone
   in 12 seconds. Gas does 2 damage a second, and the mushroom can do it again after 20 seconds. Kill
   it from a distance, or go around.
-- **Kobolds** (`k`, green): floors 1 to 7. One that's alone, with no other monster within 4 tiles,
-  runs from you. Below half health it has a 5% chance each turn of throwing a rock instead, and one
-  next to a rat has a 3% chance each turn of killing it.
+- **Kobolds** (`k`, green): floors 1 to 7. Each throws 3 or 4 rocks from up to 6 tiles away,
+  stepping back if you get next to it, then closes in to fight. One that's alone, with no other
+  monster within 4 tiles, runs from you. Below half health it has a 5% chance each turn of throwing
+  another rock instead, and one next to a rat has a 3% chance each turn of killing it.
 - **Kobold leaders** (`K`, blue): floors 5 to 25, no more than 2 on a floor, each with 2 or 3
   kobolds. Slow and tough, it keeps a tile between you and it and reaches across with its spear.
 - **Kobold scouts** (`k`, red): floors 10 to 15, up to 3 on a floor. They keep 4 to 8 tiles away and
@@ -367,6 +386,10 @@ your arrow or boomerang kills stays in view until the shot reaches it.
 Walk into the **fisherman** (`F`), who waits at the water's edge on one floor from 2 to 6. He tells
 you which floor a locked room's key lies on, a different room each time, or gives you a tip if
 there are no locked rooms this run.
+
+Monkeys have been stealing his hooks. Walk into him with any you've taken from dead monkeys and he
+thanks you and gives you a potion of strength for each one, which adds 2 to your melee damage for
+the rest of the run. Potions of strength aren't found anywhere else.
 
 ## Ponds of healing
 
@@ -518,8 +541,21 @@ random floor among the 4 starting from the one its player joined on, so a late a
 near the party. Anyone can pick one up, and it takes one slot like any other gear.
 
 Use a bow or boomerang from the pack, like a wand. Ranged weapons and wands aim for you: at monsters
-already fighting first, then the strongest of them, or the weakest if you change **Ranged weapons aim
-at** in Options. A change takes effect the next time you join a game.
+already fighting first, then the strongest of them, or the weakest if you change **Ranged aim at**
+in Options. A change takes effect the next time you join a game.
+
+### Auto attack
+
+Turn on **Auto attack** in Options and you fight back by yourself whenever you're standing still.
+A monster fighting you in any of the 8 tiles around you gets hit with your melee weapon. With
+nothing beside you, a readied ranged weapon fires at the monsters fighting you, aimed the same way
+as above. With auto attack on, using a bow, boomerang, wand or staff from the pack readies it
+(it shows as "on") instead of firing it; use it again to put it away.
+
+It leaves sleeping and wandering monsters alone, so it never wakes anything, and it leaves a monkey
+alone until you've attacked it. It doesn't fire without arrows or before a boomerang is back, and a
+wand of frost doesn't freeze what's already frozen. Moving or using anything takes over at once.
+Wands still use up their charges. Like the aim, a change takes effect the next time you join.
 
 ## Versions
 

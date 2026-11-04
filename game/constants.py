@@ -91,6 +91,23 @@ TIDE_MAX = 30
 WOLF_FIRST = 3
 WOLF_CHANCE = 0.2
 WOLF_SIZE = (3, 6)
+# A wolf may lose its nerve and run: it rolls WOLF_FLEE_CHANCE once when it falls below
+# WOLF_FLEE_HEALTH of its health, and once when more than WOLF_PACK_SHARE of its pack is below
+# WOLF_PACK_HURT. One that runs keeps running, and fights only when cornered.
+WOLF_FLEE_CHANCE = 0.2
+WOLF_FLEE_HEALTH = 0.2
+WOLF_PACK_HURT = 0.5
+WOLF_PACK_SHARE = 1 / 3
+# Monkeys leave you be unless you attack one. It steals an item or MONKEY_GOLD gold, then runs
+# until it's more than MONKEY_FLEE tiles away. A stolen potion it drinks MONKEY_DRINK_CHANCE of the time.
+MONKEY_GOLD = (15, 25)
+MONKEY_FLEE = 30
+MONKEY_DRINK_CHANCE = 0.5
+# Attacked, it fights back. The first time it falls below MONKEY_FLEE_HEALTH it has
+# MONKEY_FLEE_CHANCE of running instead, as far as MONKEY_FLEE.
+MONKEY_FLEE_HEALTH = 0.4
+MONKEY_FLEE_CHANCE = 0.66
+MONKEY_DEATH_GOLD = (10, 30)   # its own gold, dropped with what it stole and a fisherman's hook
 
 # Mushrooms never move. Get within GAS_TRIGGER tiles and one fills the open space around it,
 # up to GAS_REACH tiles away in any direction. The edges clear first, and the last of it goes
@@ -317,7 +334,8 @@ STAFF_RANGE = 9
 # spear, on floors KOBOLD_LEADER_FLOORS. Scouts throw fire every SCOUT_RELOAD seconds.
 KOBOLD_RAT_CHANCE = 0.03
 KOBOLD_ALONE = 4           # with no other monster this close, a kobold runs
-KOBOLD_ROCK_CHANCE = 0.05  # each turn below half health, for a thrown rock
+KOBOLD_ROCKS = (3, 4)      # rocks a kobold throws from a distance before it closes in to fight
+KOBOLD_ROCK_CHANCE = 0.05  # after that, each turn below half health, for another rock
 KOBOLD_ROCK_RANGE = 6
 ROCK_DAMAGE = (1, 3)
 KOBOLD_LEADER_FLOORS = (5, 25)
