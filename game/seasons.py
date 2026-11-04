@@ -68,6 +68,8 @@ SEASONS = {
             "frost_brand": ("grave-cold brand", (150, 215, 255)),
             "war_axe": ("headsman's axe", (205, 185, 165)),
             "greatsword": ("reaper's blade", (190, 190, 200)),
+            "strength": ("ogre's blood", (200, 60, 40)),
+            "hook": ("fisherman's bone hook", (225, 220, 195)),
         },
     },
     "christmas": {
@@ -129,6 +131,8 @@ SEASONS = {
             "frost_brand": ("frosty brand", (170, 230, 255)),
             "war_axe": ("woodcutter's axe", (170, 120, 80)),
             "greatsword": ("nutcracker's saber", (235, 235, 250)),
+            "strength": ("mug of eggnog", (250, 235, 190)),
+            "hook": ("candy cane fish hook", (255, 120, 120)),
         },
     },
 }
