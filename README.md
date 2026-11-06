@@ -1,6 +1,8 @@
 # Togetherogue
 
-A starter for an online co-op roguelike in the spirit of Brogue, written in Python with
+<img width="1000" height="680" alt="01_title" src="https://github.com/user-attachments/assets/b90c0778-2f92-4c5c-8af1-679274d6c7fd" />
+
+A revived project for an online co-op roguelike in the spirit of Brogue, written in Python with
 libtcod (python-tcod). One server holds the dungeon; each player runs a client.
 
 The goal: go down to floor 99, take the Amulet from the necromancer's room, and carry it back up
@@ -20,6 +22,8 @@ What's in it so far:
   teammates. A run clock in the sidebar.
 - Chat, joining mid-game, rejoining under the same name, and a fresh dungeon when the
   whole party dies.
+
+<img width="1000" height="680" alt="13_floor_40_mapped_with_reveal" src="https://github.com/user-attachments/assets/c7d484e5-e4ff-44a4-8da0-8c5ea00db19f" />
 
 ## Playing
 
@@ -122,6 +126,8 @@ to land on the far side you trade places instead, so nobody can block a corridor
 fisherman can stand in doorways, so they never block you either: walk into one to shop or talk, and
 walk into them again straight away to step past the same way.
 
+<img width="1000" height="680" alt="16_help" src="https://github.com/user-attachments/assets/d61233f2-5a15-4340-91af-e3050b5126f5" />
+
 ## How time works
 
 The game runs in real time, on one clock shared by everyone:
@@ -162,6 +168,8 @@ restarts.
 The Character screen on the main menu sets your name, shape and color, with a preview.
 Others see the shape and color you pick, in the dungeon and in the Players list.
 
+<img width="1000" height="680" alt="04_character" src="https://github.com/user-attachments/assets/bcc139cd-f72c-4564-aba6-63602bee1fd9" />
+
 ## The buried tower
 
 Floor 89 has no monsters: a long pillared hall opens into a round atrium with green walls, and the
@@ -189,6 +197,8 @@ You can do it two ways:
 If you leave floor 99 while it's awake, you're chased. Every floor you climb to, 2 more zombies
 appear out of sight of you every 4 seconds, for as long as you stay there, up to 30 at a time. It only
 ends if the necromancer dies.
+
+<img width="1000" height="680" alt="14_maze_floor" src="https://github.com/user-attachments/assets/e4ab0dc9-3f92-4e94-b5ad-3faba8742765" />
 
 ## Score and tally
 
@@ -231,6 +241,8 @@ for a bug in the game itself. To chase a bug, the file's first line has the vers
 
 To log something new, call `World.note` where it happens.
 
+<img width="1000" height="680" alt="17_action_log" src="https://github.com/user-attachments/assets/932785c1-06ee-4a69-a961-b456f014f160" />
+
 ## Look
 
 The bottom left of the sidebar is the Look panel. Point the mouse at the map and that tile is
@@ -248,6 +260,9 @@ purely cosmetic: every stat stays the same. The date comes from the clock of the
 the server, so everyone in a game sees the same thing, and it's checked at the start of each run so nothing changes partway
 through. Change the dates and names in `game/seasons.py`. To preview one, use
 `python server.py --season christmas`.
+
+<img width="1000" height="680" alt="19_christmas_title" src="https://github.com/user-attachments/assets/dc7d097b-b9ce-464f-8fe2-ee6c467b6203" />
+
 
 ## Players list
 
@@ -313,6 +328,8 @@ Names can be cut short as long as they still match only one thing. Only someone 
 computer running the server can use commands, and everyone else in the game is told when one
 runs. Add your own in `game/commands.py`.
 
+<img width="1000" height="680" alt="07_dev_console" src="https://github.com/user-attachments/assets/59b26019-018a-4a1d-bf16-96cb8cb45c5a" />
+
 ## Floor layouts
 
 How a floor is laid out changes as you go down:
@@ -328,6 +345,9 @@ How a floor is laid out changes as you go down:
   great hall with rows of pillars (53 and 58), and one huge cavern (54 and 59).
 
 The bands are `CAVE_FLOORS`, `ROUND_FLOORS`, `MIRROR_FLOORS` and `ODD_FLOORS` in `game/mapgen.py`.
+
+<img width="1000" height="680" alt="15_lava_and_water_cavern" src="https://github.com/user-attachments/assets/82fb9f1c-062a-4ea5-856d-f3ce55d0016b" />
+<img width="1000" height="680" alt="20_christmas_dungeon" src="https://github.com/user-attachments/assets/0d39d55e-17aa-4936-aad6-753a4332ab96" />
 
 ## Terrain
 
@@ -361,6 +381,8 @@ player's maximum health rises by a fifth, healed at once.
 
 Now and then a room closed off by doors, with a torch and nothing else in it, holds a barrel of
 food (`Θ`). Walk into it and "Food is good!": you heal 2 health a second for 8 seconds.
+
+<img width="1000" height="680" alt="08_fight" src="https://github.com/user-attachments/assets/82a29a33-4c62-4f01-95e8-63b349ff87c3" />
 
 ## Monsters
 
@@ -648,18 +670,12 @@ tests/             python -m pytest
 The server is authoritative: clients only send key presses, and each client only receives
 what its player can see.
 
-## Good next steps
+## Planned Features
 
 1. More items: scrolls, rings and staffs. Brogue's strength system and enchant scrolls fit
    in from there, and gold needs something to spend it on.
 2. Brogue's lighting and colors: light sources, darkness, and stealth.
 3. Monster abilities (ranged attacks, spellcasters, splitting jellies, thieves).
-4. Mouse support with click-to-travel and auto-explore. These should stop as soon as
-   anything new comes into view.
+4. Greater mouse support with click-to-travel and auto-explore.
 5. Saving the world when the server shuts down.
-
-## A note on Brogue's code
-
-Brogue CE's source code is licensed under the AGPL. This project is written from scratch
-and only borrows ideas. If you copy code or data tables from Brogue CE, your project will
-need to be AGPL too.
+6. Adding more unique NPC's.
