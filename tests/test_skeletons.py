@@ -284,6 +284,7 @@ class SlimeTests(unittest.TestCase):
         self.assertFalse(self.w.state_for(self.p)["toxin"])
 
     def test_poison_stops_healing(self):
+        self.w.regen = True  # as on Easy, where health returns over time
         self.lvl.remove(self.m)
         self.lvl.monsters.clear()
         self.p.hp, self.p.max_hp = 50, 100

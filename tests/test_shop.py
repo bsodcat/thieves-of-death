@@ -95,7 +95,7 @@ class SpawnTests(unittest.TestCase):
                 self.assertFalse(lvl.is_door[m.x, m.y])
                 self.assertNotIn(m, lvl.monsters)
 
-    def test_stock_is_equipment_and_bombs_plus_sometimes_levitation(self):
+    def test_stock_is_equipment_bombs_and_antidotes_plus_sometimes_levitation(self):
         for m in self.merchants(seeds=60):
             kinds = [i.kind for i in m.stock.values()]
             gear = [k for k in kinds if ITEMS[k]["category"] in ("weapon", "armor")]
@@ -103,7 +103,8 @@ class SpawnTests(unittest.TestCase):
             self.assertEqual(len(gear), len(set(gear)))
             self.assertLessEqual(len(kinds), 10)
             self.assertIn("bomb", kinds)
-            self.assertLessEqual(set(kinds) - set(gear), {"levitation", "bomb"})
+            self.assertIn("antidote", kinds)
+            self.assertLessEqual(set(kinds) - set(gear), {"levitation", "bomb", "antidote"})
 
     def test_levitation_is_an_occasional_stock_item(self):
         ms = self.merchants()

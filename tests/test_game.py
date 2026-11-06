@@ -159,6 +159,7 @@ class RealTimeTests(unittest.TestCase):
         self.assertNotEqual((rat.x, rat.y), start)
 
     def test_health_returns_over_time(self):
+        self.w.regen = True  # only on Easy
         self.a.hp = 1
         self.w.advance(REGEN_TURNS * TICKS_PER_TURN // 4)
         self.assertGreater(self.a.hp, 1)

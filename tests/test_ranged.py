@@ -210,7 +210,7 @@ class SpinTests(unittest.TestCase):
 
     def at(self, v, seconds):
         """What a flying boomerang looks like this long after it was thrown: (x, y, glyph)."""
-        cells, thrown = v.throws[0]
+        cells, thrown, _ = v.throws[0]
         with mock.patch("game.render.time.monotonic", return_value=thrown + seconds):
             frame = v.draw()
         found = [(x, y, chr(frame["ch"][21 + x, 3 + y])) for x, y in dict.fromkeys(map(tuple, cells))
@@ -249,15 +249,15 @@ class SpinTests(unittest.TestCase):
 
     def test_it_is_gone_after_it_lands(self):
         v, m = self.thrown()
-        cells, thrown = v.throws[0]
+        cells, thrown, _ = v.throws[0]
         with mock.patch("game.render.time.monotonic", return_value=thrown + len(cells) * SPIN_TILE_SECONDS + 0.01):
             v.draw()
         self.assertEqual(v.throws, [])
 
-    def test_the_bow_still_flashes(self):
+    def test_an_arrow_flies_instead_of_flashing(self):
         v = ClientView()
-        v.apply({"t": "fx", "kind": "bow", "cells": [(1, 1)]})
-        self.assertEqual((len(v.bolts), v.throws), (1, []))
+        v.apply({"t": "fx", "kind": "bow", "cells": [(1, 1)], "from": [0, 1]})
+        self.assertEqual((v.bolts, v.throws, len(v.flights)), ([], [], 1))
 
 
 class AimTests(unittest.TestCase):

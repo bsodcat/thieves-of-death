@@ -42,8 +42,7 @@ FONT_CANDIDATES = [
 ]
 
 # Commands that go straight to the server, and what they're called there.
-SERVER_ACTIONS = {"descend": "descend", "ascend": "ascend", "pickup": "pickup", "quit": "quit", "heal": "quickheal",
-                  "sort": "sort"}
+SERVER_ACTIONS = {"pickup": "pickup", "quit": "quit", "heal": "quickheal", "sort": "sort"}
 
 # Two fingers never leave a diagonal at the same moment. Waiting this long before acting
 # on a partial release stops the last key from stepping you along it by accident.
@@ -99,12 +98,13 @@ def held_direction(held: dict) -> tuple[int, int]:
 class Net:
     """Socket I/O on a background thread; the main thread polls a queue."""
 
-    def __init__(self, host: str, port: int, name: str, timeout: float = 10, look: dict | None = None):
+    def __init__(self, host: str, port: int, name: str, timeout: float = 10, look: dict | None = None,
+                 password: str = ""):
         self.sock = socket.create_connection((host, port), timeout=timeout)
         self.sock.settimeout(None)
         self.inbox: queue.Queue = queue.Queue()
         self.send_lock = threading.Lock()
-        self.send({"t": "hello", "name": name, "version": PROTOCOL_VERSION, **(look or {})})
+        self.send({"t": "hello", "name": name, "version": PROTOCOL_VERSION, "password": password, **(look or {})})
         threading.Thread(target=self._reader, daemon=True).start()
 
     def _reader(self) -> None:
@@ -275,7 +275,15 @@ def play(context, console, net: Net, leave_note: str = "", intro: tuple = (), co
                 view.wheel(event.y)
             action = command = None
             if view.console_open:
-                if isinstance(event, tcod.event.TextInput):
+                if isinstance(event, tcod.event.MouseButtonDown) and event.button == tcod.event.MouseButton.LEFT:
+                    clicked = view.console_click(view.mouse)
+                    if clicked == "close":
+                        view.console_open = False
+                    elif clicked:  # runs it, and keeps what was being typed
+                        typed, view.console_buf = view.console_buf, clicked
+                        net.send({"t": "cmd", "text": view.console_submit()})
+                        view.console_buf = typed
+                elif isinstance(event, tcod.event.TextInput):
                     if event.text not in ("`", "~"):  # the key that opened it
                         view.console_buf = (view.console_buf + event.text)[:200]
                 elif isinstance(event, tcod.event.KeyDown):
@@ -287,6 +295,8 @@ def play(context, console, net: Net, leave_note: str = "", intro: tuple = (), co
                         view.console_open = False
                     elif event.sym in backspace_keys:
                         view.console_buf = view.console_buf[:-1]
+                    elif event.sym in tab_keys:
+                        view.console_complete()
                     elif event.sym in up_keys:
                         view.console_recall(1)
                     elif event.sym in down_keys:
@@ -318,6 +328,10 @@ def play(context, console, net: Net, leave_note: str = "", intro: tuple = (), co
                     held.clear()
                     auto_walk = False
                     send_sprint(False)
+                    continue
+                if event.sym in enter_keys and view.status[:1] == ["over"]:
+                    if not event.repeat:
+                        net.send({"t": "act", "a": "ready"})
                     continue
                 if event.sym in enter_keys:
                     view.chat_mode, view.chat_buf = True, ""
@@ -411,13 +425,14 @@ def main() -> None:
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=DEFAULT_PORT)
     ap.add_argument("--name", default=os.environ.get("USER") or os.environ.get("USERNAME") or "Adventurer")
+    ap.add_argument("--password", default="", help="the server's password, if it has one")
     ap.add_argument("--font", help="a .ttf font, a Windows .fon bitmap font, or a 16x16 CP437 tilesheet .png")
     ap.add_argument("--tile", default="11x20", help="cell size in pixels for TTF fonts, or which size to use from a .fon, e.g. 12x16")
     args = ap.parse_args()
     tw, th = (int(v) for v in args.tile.lower().split("x"))
 
     try:
-        net = Net(args.host, args.port, args.name)
+        net = Net(args.host, args.port, args.name, password=args.password)
     except OSError as exc:
         sys.exit(f"Could not connect to {args.host}:{args.port}: {exc}")
 

@@ -5,20 +5,22 @@ import json
 import os
 
 from . import controls
-from .constants import DEFAULT_PORT
+from .constants import DEFAULT_DIFFICULTY, DEFAULT_PORT
 
 DEFAULTS = {
     "name": os.environ.get("USERNAME") or os.environ.get("USER") or "Adventurer",
     "address": "127.0.0.1",
     "port": str(DEFAULT_PORT),
     "seed": "",
-    "monster_speed": "Normal",
-    "game_mode": "Classic",
+    "difficulty": DEFAULT_DIFFICULTY,
+    "host_password": "",   # what friends must type to join your game; blank lets anyone in
+    "join_password": "",   # the last one you typed to join someone else's
     "font": "Terminal (10x20)",
     "shape": "@",
     "color": "Gold",
     "holiday_themes": "On",
     "ranged_target": "Strongest",
+    "auto_attack": "Off",
     **{controls.setting(action): key for action, _, key in controls.ACTIONS},
 }
 

@@ -36,6 +36,8 @@ SEASONS = {
             "cult_mage": ("banshee witch", (180, 100, 255), "Floats out of reach and calls down lightning."),
             "kobold_leader": ("scarecrow kobold", (90, 130, 255), "Slow, and its pitchfork reaches a tile away."),
             "kobold_scout": ("lantern kobold", (255, 120, 40), "Keeps its distance and throws embers."),
+            "spider_queen": ("widow queen", (200, 40, 50), "A giant widow in a webbed cave. Run and she spits web. Venomous."),
+            "spider": ("black widow", (90, 80, 100), "Leaps, bites and backs off. Its venom never kills."),
         },
         "items": {
             "healing": ("pumpkin juice", (255, 150, 40)),
@@ -66,6 +68,9 @@ SEASONS = {
             "frost_brand": ("grave-cold brand", (150, 215, 255)),
             "war_axe": ("headsman's axe", (205, 185, 165)),
             "greatsword": ("reaper's blade", (190, 190, 200)),
+            "strength": ("ogre's blood", (200, 60, 40)),
+            "hook": ("fisherman's bone hook", (225, 220, 195)),
+            "antidote": ("garlic tonic", (200, 220, 150)),
         },
     },
     "christmas": {
@@ -95,6 +100,8 @@ SEASONS = {
             "cult_mage": ("star topper", (255, 230, 120), "Floats out of reach and throws lightning."),
             "kobold_leader": ("head elf", (90, 130, 255), "Slow, and its candy cane reaches a tile away."),
             "kobold_scout": ("chimney elf", (235, 75, 55), "Keeps its distance and throws hot coals."),
+            "spider_queen": ("ice spider queen", (170, 220, 255), "A giant spider in an icy cave. Run and she spits web. Venomous."),
+            "spider": ("frost spider", (200, 230, 255), "Leaps, bites and backs off. Its venom never kills."),
         },
         "items": {
             "healing": ("mug of cocoa", (170, 110, 70)),
@@ -125,6 +132,9 @@ SEASONS = {
             "frost_brand": ("frosty brand", (170, 230, 255)),
             "war_axe": ("woodcutter's axe", (170, 120, 80)),
             "greatsword": ("nutcracker's saber", (235, 235, 250)),
+            "strength": ("mug of eggnog", (250, 235, 190)),
+            "hook": ("candy cane fish hook", (255, 120, 120)),
+            "antidote": ("peppermint tonic", (150, 240, 170)),
         },
     },
 }

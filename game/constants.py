@@ -22,8 +22,8 @@ TICK_RATE = 30             # server updates per second
 PING_SECONDS = 1.0         # how often each player's ping is measured
 PING_TIMEOUT = 5.0         # give up on an unanswered ping after this long
 
-# Seconds between the whole party dying and a fresh dungeon.
-RESET_DELAY = 4.0
+# Seconds between the whole party dying and a fresh dungeon, unless everyone presses Enter first.
+RESET_DELAY = 10.0
 
 # Items.
 PACK_SIZE = 10             # slots, one per number key; potions of a kind share a slot
@@ -91,6 +91,23 @@ TIDE_MAX = 30
 WOLF_FIRST = 3
 WOLF_CHANCE = 0.2
 WOLF_SIZE = (3, 6)
+# A wolf may lose its nerve and run: it rolls WOLF_FLEE_CHANCE once when it falls below
+# WOLF_FLEE_HEALTH of its health, and once when more than WOLF_PACK_SHARE of its pack is below
+# WOLF_PACK_HURT. One that runs keeps running, and fights only when cornered.
+WOLF_FLEE_CHANCE = 0.2
+WOLF_FLEE_HEALTH = 0.2
+WOLF_PACK_HURT = 0.5
+WOLF_PACK_SHARE = 1 / 3
+# Monkeys leave you be unless you attack one. It steals an item or MONKEY_GOLD gold, then runs
+# until it's more than MONKEY_FLEE tiles away. A stolen potion it drinks MONKEY_DRINK_CHANCE of the time.
+MONKEY_GOLD = (15, 25)
+MONKEY_FLEE = 30
+MONKEY_DRINK_CHANCE = 0.5
+# Attacked, it fights back. The first time it falls below MONKEY_FLEE_HEALTH it has
+# MONKEY_FLEE_CHANCE of running instead, as far as MONKEY_FLEE.
+MONKEY_FLEE_HEALTH = 0.4
+MONKEY_FLEE_CHANCE = 0.66
+MONKEY_DEATH_GOLD = (10, 30)   # its own gold, dropped with what it stole and a fisherman's hook
 
 # Mushrooms never move. Get within GAS_TRIGGER tiles and one fills the open space around it,
 # up to GAS_REACH tiles away in any direction. The edges clear first, and the last of it goes
@@ -206,10 +223,19 @@ SNEAK_DAMAGE = 3
 CRIT_DAMAGE = 10
 CRIT_STEALTH = 40
 
-# Game modes. In Revive, a fallen player stays on the map as bones until a teammate
-# stands next to them for REVIVE_SECONDS. Classic is permanent until the next run.
-GAME_MODES = ("Classic", "Revive")
-REVIVE_SECONDS = 3.0
+# Difficulty, picked by the host. For each:
+#   monster_time  how slow monsters are next to players (see MONSTER_TIME)
+#   toughness     monsters' health multiplier, and what's added to their defense
+#   regen         whether players heal over time on their own
+#   revive        seconds a teammate stands by a fallen player to bring them back, or None:
+#                 the fallen stay down until the next run
+DIFFICULTIES = {
+    "Easy":   dict(monster_time=2.0, toughness=(0.8, -5), regen=True, revive=3.0),
+    "Medium": dict(monster_time=MONSTER_TIME, toughness=(1.0, 0), regen=False, revive=8.0),
+    "Hard":   dict(monster_time=1.0, toughness=(1.3, 5), regen=False, revive=None),
+}
+DEFAULT_DIFFICULTY = "Medium"
+REVIVE_SECONDS = DIFFICULTIES[DEFAULT_DIFFICULTY]["revive"]
 REVIVE_HEALTH = 0.5        # share of full health a revived player comes back with
 BONES_GLYPH = "%"
 
@@ -267,19 +293,57 @@ SKELETON_MOST = 9
 # MAGE_CYCLE, out of reach of melee, and casts lightning every MAGE_BOLT seconds.
 MAGE_FLOAT = 6.0
 MAGE_CYCLE = 10.0
-MAGE_BOLT = 3.0
+MAGE_BOLT = 2.5
 MAGE_RANGE = 8
 LIGHTNING_DAMAGE = (6, 12)
+
+# The cult leader fights with its wand of fire: it backs off to LEADER_RANGE, throws LEADER_VOLLEY
+# bolts one after another, the last setting the ground alight around you, then rests LEADER_REST
+# seconds before the next volley.
+LEADER_RANGE = (3, 6)
+LEADER_VOLLEY = 3
+LEADER_REST = 2.0
+LEADER_FIRE_DAMAGE = (4, 8)
+
+# A giant spider queen nests in the big cave on SPIDER_CHANCE of floors SPIDER_FLOORS that have
+# one, with SPIDER_BROOD smaller spiders, and webs over WEB_SHARE of the cave. Walking into a web
+# slows you for SLOW_SECONDS. Run more than WEB_SPIT_RANGE tiles from her and she spits web at you
+# every WEB_SPIT_SECONDS, out to WEB_SPIT_REACH, which slows you to WEB_FACTOR for WEB_SECONDS.
+SPIDER_FLOORS = (8, 40)
+SPIDER_CHANCE = 0.35
+SPIDER_BROOD = (2, 3)
+WEB_SHARE = 0.12
+WEB_SPIT_RANGE = 5
+WEB_SPIT_REACH = 10
+WEB_SPIT_SECONDS = 4.0
+WEB_FACTOR = 3             # a webbed step takes this many times as long
+WEB_SECONDS = 3.0
+# Smaller spiders leap from up to LEAP_RANGE tiles away to bite, every LEAP_SECONDS, then back
+# off LEAP_RETREAT steps. A spider's bite adds VENOM_PER_BITE seconds of venom, up to VENOM_MOST,
+# taking VENOM_DAMAGE every VENOM_EVERY seconds. Venom never takes you below 1 health.
+LEAP_RANGE = 3
+LEAP_SECONDS = 3.0
+LEAP_RETREAT = 2
+VENOM_PER_BITE = 10.0
+VENOM_MOST = 40.0
+VENOM_DAMAGE = 1
+VENOM_EVERY = 2.0
 STAFF_RANGE = 9
 
 # Kobolds. A kobold next to a rat may turn on it. Leaders keep a tile away and reach in with a
 # spear, on floors KOBOLD_LEADER_FLOORS. Scouts throw fire every SCOUT_RELOAD seconds.
 KOBOLD_RAT_CHANCE = 0.03
 KOBOLD_ALONE = 4           # with no other monster this close, a kobold runs
-KOBOLD_ROCK_CHANCE = 0.05  # each turn below half health, for a thrown rock
+KOBOLD_ROCKS = (3, 4)      # rocks a kobold throws from a distance before it closes in to fight
+KOBOLD_ROCK_CHANCE = 0.05  # after that, each turn below half health, for another rock
 KOBOLD_ROCK_RANGE = 6
 ROCK_DAMAGE = (1, 3)
 KOBOLD_LEADER_FLOORS = (5, 25)
+# A leader thrusts its spear SPEAR_THRUSTS times, then tires and backs off to at least
+# SPEAR_REST_DISTANCE tiles away for SPEAR_REST seconds before coming back for more.
+SPEAR_THRUSTS = 5
+SPEAR_REST = 3.0
+SPEAR_REST_DISTANCE = 4
 KOBOLD_LEADER_CHANCE = 0.35  # of one leader on a floor; it has this chance again of a second
 KOBOLD_SCOUT_FLOORS = (10, 15)
 KOBOLD_SCOUT_CHANCE = 0.6
@@ -295,5 +359,18 @@ DEFENSE_FACTOR = 0.987     # hit% = accuracy * DEFENSE_FACTOR ** defense
 NOTICE_RANGE_SLEEPING = 7
 NOTICE_RANGE_AWAKE = 14
 
-PROTOCOL_VERSION = 21
+PROTOCOL_VERSION = 22
 DEFAULT_PORT = 5555
+
+# Keeping a server open to the internet safe from strangers and misbehaving bots.
+MAX_PLAYERS = 6            # players connected at once; the host counts as one
+MAX_LINE = 16 * 1024       # bytes in one message from a player; theirs are all tiny
+MSG_RATE = 30              # messages a second a player may send, on average...
+MSG_BURST = 60             # ...and how many at once (a mouse walk can send one a frame)
+FLOOD_STRIKES = 120        # messages over the limit before the server hangs up...
+FLOOD_FORGIVE = 2          # ...forgetting this many a second
+CHAT_RATE = 0.5            # chat lines a second, on average...
+CHAT_BURST = 5             # ...and in a row
+JOIN_RATE = 0.1            # joins a second from one address, on average...
+JOIN_BURST = 5             # ...and in a row; this computer is never limited
+WRONG_PASSWORD_WAIT = 1.0  # seconds before answering a wrong password, to slow guessing

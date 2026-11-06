@@ -136,20 +136,21 @@ class NoiseTests(unittest.TestCase):
 
     def test_fallen_gear_and_new_runs_clear_the_cap(self):
         w, lvl, a = setup_world(["plate"])
+        w.revive_seconds = None  # the fallen stay down, as on Hard
         w._kill(a, make_monster("rat", 800))
-        self.assertEqual(a.stealth_cap, STEALTH_MAX)         # dropped on death in Classic
+        self.assertEqual(a.stealth_cap, STEALTH_MAX)         # dropped on death when there's no reviving
         w, lvl, a = setup_world(["plate"])
         w.reset_run()
         self.assertEqual(a.stealth_cap, STEALTH_MAX)
 
     def test_revived_players_keep_their_cap(self):
-        w = World(1, mode="Revive")
+        w = World(1)
         lvl = w.level(1)
         a, b = w.join("A"), w.join("B")
         a.pack = [make_item("plate")]
         w._perform(a, {"a": "use", "slot": 0})
         w._kill(a, make_monster("rat", 800))
-        w.advance(int(3 * TICKS_PER_SECOND))
+        w.advance(int(w.revive_seconds * TICKS_PER_SECOND))
         self.assertTrue(a.alive)
         self.assertEqual(a.stealth_cap, 60)
         self.assertLessEqual(a.stealth, a.stealth_cap)

@@ -9,8 +9,8 @@ from .constants import (BOMB_SECONDS, ENHANCE_ACCURACY, ENHANCE_BOOST, ENHANCE_D
 from .tiles import LOCK_COLORS
 
 GLYPHS = {"potion": "!", "weapon": ")", "armor": "[", "gold": "*", "key": "\u2640", "cloak": "¶", "wand": "/", "amulet": "§", "ranged": "}",
-          "ammo": "|", "bomb": "δ", "food": "Θ"}
-AUTO_PICKUP = ("potion", "gold", "key", "ammo", "bomb")   # collected by walking over them; the rest wait for a key press
+          "ammo": "|", "bomb": "δ", "food": "Θ", "hook": "\u2321"}
+AUTO_PICKUP = ("potion", "gold", "key", "ammo", "bomb", "hook")   # collected by walking over them; the rest wait for a key press
 
 
 @dataclass(eq=False)
@@ -26,6 +26,8 @@ class Item:
     waterwalk: float = 0.0      # seconds of walking on deep water
     lavawalk: float = 0.0       # seconds of walking on lava
     teleport: bool = False      # moves you elsewhere on the floor
+    strength: int = 0           # melee damage added for good
+    cure: bool = False          # ends slime poison and spider venom
     price: int = 0              # what a merchant asks for it
     damage: tuple = (0, 0)
     attack_cost: int = TICKS_PER_TURN
@@ -52,11 +54,11 @@ class Item:
 
     @property
     def stacks(self) -> bool:
-        return self.category in ("potion", "ammo", "bomb")
+        return self.category in ("potion", "ammo", "bomb", "hook")
 
     @property
     def sellable(self) -> bool:
-        return self.price > 0 and self.category not in ("key", "amulet", "gold", "food")
+        return self.price > 0 and self.category not in ("key", "amulet", "gold", "food", "hook")
 
     @property
     def sell_price(self) -> int:
@@ -89,6 +91,12 @@ class Item:
             return f"blows up {BOMB_SECONDS:.0f}s after use"
         if self.category == "food":
             return "walk into it to eat"
+        if self.category == "hook":
+            return "give it to the fisherman"
+        if self.strength:
+            return f"+{self.strength} damage for good"
+        if self.cure:
+            return "cures poison and venom"
         if self.category == "cloak":
             return f"detection -{self.hush:.0%}, noise {self.noise}"
         if self.heal:
@@ -167,6 +175,15 @@ ITEMS = {
                     depths=(30, 75), weight=2),
     "greatsword": dict(name="greatsword", category="weapon", color=(235, 235, 250), damage=(20, 28), noise=30,
                        price=560, attack_cost=TICKS_PER_TURN * 3 // 2, depths=(55, 98), weight=2),
+    # Only merchants sell it (weight 0), and every one has it.
+    "antidote": dict(name="antidote", category="potion", color=(120, 220, 110), cure=True, price=40,
+                     depths=(1, 1), weight=0),
+    # Never found lying about (weight 0): monkeys drop hooks, and the fisherman trades them for strength.
+    "strength": dict(name="potion of strength", category="potion", color=(230, 90, 40), strength=2, price=200,
+                     depths=(1, 1), weight=0),
+    # Priced like any item, but only the fisherman takes a hook.
+    "hook": dict(name="fisherman's hook", category="hook", color=(190, 200, 210), price=10, depths=(1, 1),
+                 weight=0),
 }
 GOLD_COLOR = (255, 215, 90)
 CLOAK = dict(name="cloak", category="cloak", color=(120, 130, 185), noise=-45, hush=0.5, price=100)  # not found by chance

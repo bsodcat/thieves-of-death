@@ -203,7 +203,7 @@ class ViewTests(unittest.TestCase):
         self.assertEqual(pathing.next_step(open_room, (1, 1), (3, 1), blocked={(2, 1)})[0], 1)
 
     def test_bones_dont_block_the_way(self):
-        w = World(1, mode="Revive")
+        w = World(1)
         lvl = w.level(1)
         for m in list(lvl.monsters):
             lvl.remove(m)

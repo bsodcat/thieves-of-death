@@ -1,4 +1,4 @@
-"""Kobolds and their leaders and scouts, the cultist mage, and the skeleton war bands."""
+"""Kobolds and their leaders and scouts, the cult leader and mage, and the skeleton war bands."""
 import unittest
 from unittest import mock
 
@@ -94,23 +94,67 @@ class KoboldTests(unittest.TestCase):
 
     def test_a_lone_kobold_runs(self):
         k = add(self.w, self.lvl, "kobold", self.x + 2, self.y, target=self.p)
+        k.rocks = 0
         self.w._monster_turn(k, self.lvl)
         self.assertEqual(cheb(k, self.p), 3)
 
     def test_with_friends_near_it_fights(self):
         k = add(self.w, self.lvl, "kobold", self.x + 2, self.y, target=self.p)
+        k.rocks = 0
         add(self.w, self.lvl, "kobold", self.x + 3, self.y + 2, target=self.p)
         self.w._monster_turn(k, self.lvl)
         self.assertEqual(cheb(k, self.p), 1)
 
     def test_a_hurt_kobold_throws_rocks_now_and_then(self):
         k = add(self.w, self.lvl, "kobold", self.x + 3, self.y, target=self.p)
-        k.hp = 2
+        k.hp, k.rocks = 2, 0
         with mock.patch.object(self.w.rng, "random", return_value=0.01):
             self.w._monster_turn(k, self.lvl)
         rocks = [m for _, m in self.w.drain_outbox() if m.get("kind") == "rock"]
         self.assertTrue(rocks)
         self.assertEqual(cheb(k, self.p), 3)  # it threw instead of running
+
+    def rocks_thrown(self):
+        return len([m for _, m in self.w.drain_outbox() if m.get("kind") == "rock"])
+
+    def kobold_at(self, dx, reach=9):
+        """A kobold dx tiles east of the player, with a friend nearby so it doesn't run."""
+        x, y = open_spot(self.lvl, reach)
+        put(self.lvl, self.p, x, y)
+        k = add(self.w, self.lvl, "kobold", x + dx, y, target=self.p)
+        add(self.w, self.lvl, "kobold", x + dx, y + 2, target=self.p)
+        self.w.drain_outbox()
+        return k
+
+    def test_a_kobold_throws_three_or_four_rocks_then_closes_in(self):
+        counts = set()
+        for seed in range(8):
+            self.w, self.lvl, self.p = empty_world()
+            self.w.rng.seed(seed)
+            k = self.kobold_at(4)
+            thrown = 0
+            for _ in range(6):
+                self.w._monster_turn(k, self.lvl)
+                thrown += self.rocks_thrown()
+            self.assertIn(thrown, (3, 4))
+            self.assertEqual(k.rocks, 0)
+            self.assertLess(cheb(k, self.p), 4)  # done throwing, it came in
+            counts.add(thrown)
+        self.assertEqual(counts, {3, 4})
+
+    def test_it_keeps_its_distance_while_it_has_rocks(self):
+        k = self.kobold_at(1)
+        self.w._monster_turn(k, self.lvl)
+        self.assertEqual(cheb(k, self.p), 2)       # stepped back instead of hitting
+        self.assertEqual(self.rocks_thrown(), 0)
+        self.w._monster_turn(k, self.lvl)
+        self.assertEqual(self.rocks_thrown(), 1)   # then threw
+
+    def test_out_of_range_it_comes_closer_first(self):
+        k = self.kobold_at(8)
+        self.w._monster_turn(k, self.lvl)
+        self.assertEqual(cheb(k, self.p), 7)
+        self.assertEqual(self.rocks_thrown(), 0)
 
     def test_the_leaders_spear_reaches_two_tiles(self):
         k = add(self.w, self.lvl, "kobold_leader", self.x + 2, self.y, target=self.p)
@@ -192,6 +236,55 @@ class MageTests(unittest.TestCase):
         self.w.submit(self.p, {"a": "use", "slot": 0})  # nothing to aim at; it isn't wielded either
         self.assertIsNone(self.p.weapon)
         self.assertIn("no altar", staff.info)
+
+
+class CultLeaderTests(unittest.TestCase):
+    def setUp(self):
+        self.w, self.lvl, self.p = empty_world()
+        self.x, self.y = open_spot(self.lvl)
+        put(self.lvl, self.p, self.x, self.y)
+        self.p.hp = self.p.max_hp = 1000
+        self.c = add(self.w, self.lvl, "cult_leader", self.x + 3, self.y, target=self.p)
+
+    def turn(self):
+        self.w.drain_outbox()
+        cost = self.w._monster_turn(self.c, self.lvl)
+        bolts = [m for _, m in self.w.drain_outbox() if m.get("t") == "fx" and m.get("kind") == "fire"]
+        return cost, bolts
+
+    def test_three_bolts_then_a_rest(self):
+        from game.constants import LEADER_REST, LEADER_VOLLEY
+        shots = 0
+        for _ in range(LEADER_VOLLEY):
+            _, bolts = self.turn()
+            shots += len(bolts)
+        self.assertEqual(shots, LEADER_VOLLEY)
+        self.assertTrue(self.lvl.fire)  # the last one set the ground alight around you
+        self.assertIn((self.p.x, self.p.y), self.lvl.fire)
+        self.assertLess(self.p.hp, self.p.max_hp)
+        self.assertEqual(self.c.ready_at, self.w.clock + int(LEADER_REST * TICKS_PER_SECOND))
+        _, bolts = self.turn()
+        self.assertEqual(bolts, [])  # resting
+        self.w.clock = self.c.ready_at
+        _, bolts = self.turn()
+        self.assertEqual(len(bolts), 1)  # and the next volley begins
+
+    def test_it_backs_off_when_you_close_in(self):
+        self.lvl.move(self.c, self.x + 1, self.y)
+        _, bolts = self.turn()
+        self.assertEqual(bolts, [])
+        self.assertGreater(cheb(self.c, self.p), 1)
+
+    def test_a_ward_stops_the_bolts_and_the_fire(self):
+        self.p.reflect_until = 10 ** 9
+        for _ in range(3):
+            self.turn()
+        self.assertEqual(self.p.hp, self.p.max_hp)
+        self.assertNotIn((self.p.x, self.p.y), self.lvl.fire)
+
+    def test_tougher_than_before(self):
+        self.assertGreaterEqual(MONSTERS["cult_leader"]["hp"], 75)
+        self.assertGreaterEqual(MONSTERS["cult_mage"]["hp"], 65)
 
 
 if __name__ == "__main__":

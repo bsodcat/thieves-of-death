@@ -12,7 +12,7 @@ import tcod.event
 
 import client
 from game import controls, seasons, settings
-from game.constants import GAME_MODES, MONSTER_TIME, REVIVE_SECONDS
+from game.constants import DEFAULT_DIFFICULTY, DIFFICULTIES
 from game.entities import PLAYER_COLOR_NAMES, PLAYER_GLYPHS
 from game.menu import DIM, GREEN, TEXT, WHITE, Form, Row
 from game.version import AUTHOR, STARTED, VERSION
@@ -25,10 +25,23 @@ FONTS = {
     "Consolas (11x20)":      ("C:/Windows/Fonts/consola.ttf", 11, 20),
 }
 TYPED_WAIT = 0.05  # how long after a key press what it typed can take to arrive
-MONSTER_SPEEDS = {"Slow": 2.0, "Normal": MONSTER_TIME, "Fast": 1.0}
-SETUP_NOTE = (f"Leave the seed blank for a random dungeon.\n"
-              f"Classic: a fallen player is out until the next run.\n"
-              f"Revive: stand next to a fallen player for {REVIVE_SECONDS:.0f} seconds to bring them back.")
+
+
+def _difficulty_line(name: str) -> str:
+    """What a difficulty means, in a line for the setup screen."""
+    rules = DIFFICULTIES[name]
+    speed = {2.0: "slow", 1.0: "fast"}.get(rules["monster_time"], "normal")
+    health, _ = rules["toughness"]
+    tough = "weaker" if health < 1 else "tougher" if health > 1 else "normal"
+    revive = f"revive a teammate in {rules['revive']:.0f}s" if rules["revive"] else "no revives"
+    heal = "you heal over time" if rules["regen"] else "no healing over time"
+    monsters = ", ".join(w for w in (speed, tough) if w != "normal") or "normal"
+    return f"{name}: {monsters} monsters; {heal}; {revive}."
+
+
+SETUP_NOTE = ("Leave the seed blank for a random dungeon.\nLeave the password blank to let anyone join.\n"
+              + "\n".join(map(_difficulty_line, DIFFICULTIES)))
+PASSWORD_LIMIT = 20
 
 
 class WindowClosed(Exception):
@@ -75,11 +88,11 @@ def parse_port(text: str) -> int:
     return int(text)
 
 
-def parse_setup(values: dict) -> tuple[int, int | None, float, str]:
-    """(port, seed, monster_time, mode) from a setup form. Raises ValueError with a message to show."""
-    mode = values["game_mode"] if values["game_mode"] in GAME_MODES else GAME_MODES[0]
+def parse_setup(values: dict) -> tuple[int, int | None, str]:
+    """(port, seed, difficulty) from a setup form. Raises ValueError with a message to show."""
+    difficulty = values.get("difficulty")
     return (parse_port(values["port"]), int(values["seed"]) if values["seed"] else None,
-            MONSTER_SPEEDS.get(values["monster_speed"], MONSTER_TIME), mode)
+            difficulty if difficulty in DIFFICULTIES else DEFAULT_DIFFICULTY)
 
 
 def title_footer() -> str:
@@ -118,7 +131,8 @@ class App:
             elif isinstance(event, tcod.event.MouseMotion):
                 found.append(("hover", int(self.context.convert_event(event).position[1])))
             elif isinstance(event, tcod.event.MouseButtonDown):
-                found.append(("click", int(self.context.convert_event(event).position[1])))
+                x, y = self.context.convert_event(event).position
+                found.append(("click", (int(x), int(y))))
         return found
 
     def present(self, form: Form, extra=None) -> None:
@@ -160,11 +174,16 @@ class App:
         c = self.config
         return [Row("Port", "port", c["port"], digits=True, limit=5),
                 Row("Dungeon seed", "seed", c["seed"], digits=True, limit=10),
-                Row("Monster speed", "monster_speed", c["monster_speed"], choices=tuple(MONSTER_SPEEDS)),
-                Row("Game mode", "game_mode", c["game_mode"], choices=GAME_MODES)]
+                Row("Difficulty", "difficulty", c["difficulty"], choices=tuple(DIFFICULTIES)),
+                Row("Password", "host_password", c["host_password"], limit=PASSWORD_LIMIT)]
+
+    def start_runner(self, values: dict, port: int, seed, difficulty: str) -> ServerRunner:
+        return ServerRunner(port, seed, difficulty=difficulty, season_fn=self.season_fn,
+                            password=values.get("host_password", ""))
 
     def look(self) -> dict:
-        return {"aim": self.config["ranged_target"], "glyph": self.config["shape"], "color": self.config["color"],
+        return {"aim": self.config["ranged_target"], "auto": self.config["auto_attack"],
+                "glyph": self.config["shape"], "color": self.config["color"],
                 "pickup": controls.labels(controls.load(self.config))["pickup"]}
 
     def run_game(self, net, leave_note: str = "", intro: tuple = ()) -> None:
@@ -183,19 +202,22 @@ class App:
             values = form.values()
             self.remember(values)
             try:
-                port, seed, monster_time, mode = parse_setup(values)
+                port, seed, difficulty = parse_setup(values)
             except ValueError as exc:
                 form.error = str(exc)
                 continue
-            runner = ServerRunner(port, seed, monster_time, mode=mode, season_fn=self.season_fn)
+            runner = self.start_runner(values, port, seed, difficulty)
             try:
                 runner.start()
             except OSError:
                 form.error = port_error(port)
                 continue
             try:
-                net = client.Net("127.0.0.1", runner.port, values["name"], look=self.look())
+                password = values.get("host_password", "")
+                net = client.Net("127.0.0.1", runner.port, values["name"], look=self.look(), password=password)
                 shares = [f"Friends can join at {a}, port {runner.port}." for a in lan_addresses()[:1]]
+                if password:
+                    shares.append(f"They'll need the password: {password}")
                 self.run_game(net, " (this ends the game for everyone)", tuple(shares))
             finally:
                 runner.stop()
@@ -206,8 +228,9 @@ class App:
         form = Form("Join a Game",
                     [Row("Your name", "name", c["name"], limit=16), Row("Address", "address", c["address"], limit=40),
                      Row("Port", "port", c["port"], digits=True, limit=5),
+                     Row("Password", "join_password", c["join_password"], limit=PASSWORD_LIMIT),
                      Row("Connect", action="go"), Row("Back", action="back")],
-                    note="Ask the host for their address and port.")
+                    note="Ask the host for their address and port,\nand the password if they set one.")
         while self.show(form) == "go":
             values = form.values()
             self.remember(values)
@@ -221,7 +244,8 @@ class App:
             self.present(form)
             form.message = ""
             try:
-                net = client.Net(values["address"], port, values["name"], timeout=5, look=self.look())
+                net = client.Net(values["address"], port, values["name"], timeout=5, look=self.look(),
+                                 password=values["join_password"])
             except OSError:
                 form.error = f"Couldn't reach {values['address']}:{port}. Check the address and that it's running."
                 continue
@@ -235,11 +259,11 @@ class App:
             values = form.values()
             self.remember(values)
             try:
-                port, seed, monster_time, mode = parse_setup(values)
+                port, seed, difficulty = parse_setup(values)
             except ValueError as exc:
                 form.error = str(exc)
                 continue
-            runner = ServerRunner(port, seed, monster_time, mode=mode, season_fn=self.season_fn)
+            runner = self.start_runner(values, port, seed, difficulty)
             try:
                 runner.start()
             except OSError:
@@ -260,14 +284,18 @@ class App:
             status = runner.status
             y = 12
             console.print(20, y, f"Port {runner.port}    Seed {status['seed']}    Run {status['run']}"
-                                 f"    {status['mode']} mode", fg=WHITE)
+                                 f"    {status['difficulty']}", fg=WHITE)
             y += 1
             shown = ", ".join(addresses[:2]) or "no network found"
             console.print(20, y, f"On your network, friends join at: {shown}", fg=GREEN)
             y += 1
             console.print(20, y, f"Over the internet, forward TCP port {runner.port} on your router.", fg=DIM)
+            y += 1
+            password = runner.game.password
+            console.print(20, y, f"Password: {password}" if password else "No password: anyone who finds it can join.",
+                          fg=GREEN if password else DIM)
             y += 2
-            console.print(20, y, f"Players ({len(status['players'])})", fg=WHITE)
+            console.print(20, y, f"Players ({len(status['players'])} of {runner.game.max_players})", fg=WHITE)
             y += 1
             for p in status["players"][:6]:
                 ping = "--" if p["ping"] is None else f"{p['ping']}ms"
@@ -298,7 +326,7 @@ class App:
                      Row("Shape", "shape", c["shape"], choices=PLAYER_GLYPHS),
                      Row("Color", "color", c["color"], choices=tuple(PLAYER_COLOR_NAMES)),
                      Row("Save", action="save"), Row("Back", action="back")],
-                    note="Use left and right to look through shapes and colors.")
+                    note="Use left and right, or click the arrows, to look through shapes and colors.")
 
         def preview(console) -> None:
             # The character standing in a little room, as they'll look in the dungeon.
@@ -319,11 +347,15 @@ class App:
         form = Form("Options", [Row("Font", "font", self.config["font"], choices=tuple(FONTS)),
                                 Row("Holiday themes", "holiday_themes", self.config["holiday_themes"],
                                     choices=("On", "Off")),
-                                Row("Ranged weapons aim at", "ranged_target", self.config["ranged_target"],
+                                Row("Ranged aim at", "ranged_target", self.config["ranged_target"],
                                     choices=("Strongest", "Weakest")),
+                                Row("Auto attack", "auto_attack", self.config["auto_attack"], choices=("Off", "On")),
                                 Row("Controls", action="controls"),
                                 Row("Save", action="save"), Row("Back", action="back")],
-                    note="Holiday themes follow the host's setting.")
+                    note="Holiday themes follow the host's setting.\n"
+                         "Auto attack hits back at monsters beside you. With it on,\n"
+                         "using a bow, boomerang, wand or staff readies it, and it\n"
+                         "fires on its own at monsters fighting you.")
         action = self.show(form)
         while action == "controls":
             self.controls_screen()

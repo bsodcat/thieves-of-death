@@ -13,7 +13,7 @@ import client
 from game import commands, mapgen, protocol
 from game.constants import SCREEN_H, TELEPORT_STEPS, MAP_H, MAP_W
 from game.items import ITEMS, make_item
-from game.render import MARK_ITEM, MARK_MONSTER, ClientView
+from game.render import LINK_BG, MARK_ITEM, MARK_MONSTER, ClientView
 from game.entities import make_monster
 from game.tiles import DEEP, LAVA, LOCKED, PIT, WALKABLE, WALL
 from game.world import Level, LockedRoom, World
@@ -356,7 +356,6 @@ class CollisionTests(unittest.TestCase):
         self.assertEqual((self.p.x, self.p.y), (x + 1, y + 1))
 
     def test_dying_inside_a_wall_leaves_bones_where_they_can_be_reached(self):
-        self.w.mode = "Revive"
         self.w.join("Friend")
         self.ghost()
         wall = next((x, y) for x in range(2, MAP_W - 2) for y in range(2, MAP_H - 2)
@@ -453,6 +452,26 @@ class ViewTests(unittest.TestCase):
         for _, msg in w.drain_outbox():
             v.apply(msg)
         self.assertIn("cult_leader", "".join(line for line, _ in v.console_log))
+
+    def test_list_is_in_tidy_columns(self):
+        from game.render import CONSOLE_WIDTH
+        w, p = host()
+        w.drain_outbox()
+        commands.run(w, p, "list")
+        sent = [m for _, m in w.drain_outbox() if m["t"] == "console"]
+        rows = [m["text"] for m in sent]
+        self.assertTrue(all(len(r) <= CONSOLE_WIDTH - 4 for r in rows))  # nothing wraps
+        self.assertEqual(sum(tuple(m["c"]) == commands.HEADING for m in sent), 2)
+        self.assertTrue(any(r.startswith("Weapons") and "sword" in r for r in rows))
+        listed = " ".join(rows).split()
+        for name in [*commands.item_names(), *commands.MONSTERS]:
+            self.assertIn(name, listed)
+
+    def test_list_just_the_monsters(self):
+        w, p = host()
+        rows = " ".join(run(w, p, "list mon"))
+        self.assertIn("skeleton_warrior", rows)
+        self.assertNotIn("greatsword", rows)
 
     def test_up_and_down_recall(self):
         v, w, p = self.view()
@@ -618,6 +637,92 @@ class FakeContext:
         pass
 
 
+class CompletionTests(unittest.TestCase):
+    def test_command_names(self):
+        self.assertEqual(commands.complete("go"), (0, ["gold", "god", "goto"]))
+        self.assertEqual(commands.complete(""), (0, []))     # nothing typed: no list in the way
+
+    def test_each_commands_arguments(self):
+        self.assertEqual(commands.complete("give heal"), (5, ["healing"]))
+        self.assertIn("goblin", commands.complete("spawn gob")[1])
+        self.assertIn("nest", commands.complete("spawn ")[1])
+        self.assertEqual(commands.complete("collision o")[1], ["on", "off"])
+        self.assertEqual(commands.complete("list ")[1], ["items", "monsters"])
+        self.assertEqual(commands.complete("floor 3 b", ["Bob", "Al"])[1], ["Bob"])
+        self.assertEqual(commands.complete("gi heal")[1], ["healing"])   # a command's start is enough
+        self.assertEqual(commands.complete("heal x")[1], [])
+        self.assertEqual(commands.complete("nonsense x")[1], [])
+
+    def test_clicked_words(self):
+        self.assertEqual(commands.clicked_word("", "give"), "give ")
+        self.assertEqual(commands.clicked_word("gi", "give"), "give ")
+        self.assertEqual(commands.clicked_word("give he", "healing"), "give healing ")
+        self.assertEqual(commands.clicked_word("help ", "spawn"), "help spawn ")
+        self.assertEqual(commands.clicked_word("", "goblin"), "spawn goblin ")
+        self.assertEqual(commands.clicked_word("", "healing"), "give healing ")
+        self.assertEqual(commands.clicked_word("gold 5", "goblin"), "spawn goblin ")
+        self.assertIsNone(commands.clicked_word("", "Floor"))
+
+
+class ConsoleMouseTests(unittest.TestCase):
+    def view(self):
+        v, w, p = ViewTests.view(self)
+        v.console_open = True
+        return v, w, p
+
+    def find(self, v, text):
+        """The screen cell where some text starts."""
+        rows = rows_of(v.draw()).splitlines()
+        for y, row in enumerate(rows):
+            if text in row:
+                return row.index(text), y
+        self.fail(f"{text!r} isn't on screen")
+
+    def test_tab_finishes_then_cycles(self):
+        v, w, p = self.view()
+        v.console_buf = "go"
+        self.assertIn("Tab 1/3", rows_of(v.draw()))
+        v.console_complete()
+        self.assertEqual(v.console_buf, "gold ")
+        self.assertIn("Tab 1/3", rows_of(v.draw()))   # the list stays while cycling
+        v.console_complete()
+        self.assertEqual(v.console_buf, "god ")
+        self.assertIn("Tab 2/3", rows_of(v.draw()))
+        v.console_complete()
+        v.console_complete()
+        self.assertEqual(v.console_buf, "gold ")
+        v.console_buf = "give heal"   # typing starts over
+        v.console_complete()
+        self.assertEqual(v.console_buf, "give healing ")
+        v.console_complete()          # nothing more to finish
+        self.assertEqual(v.console_buf, "give healing ")
+
+    def test_clicking_a_suggestion(self):
+        v, w, p = self.view()
+        v.console_buf = "go"
+        self.assertIsNone(v.console_click(self.find(v, " goto")))
+        self.assertEqual(v.console_buf, "goto ")
+
+    def test_clicking_a_name_in_the_text(self):
+        v, w, p = self.view()
+        commands.run(w, p, "list")
+        for _, msg in w.drain_outbox():
+            v.apply(msg)
+        x, y = self.find(v, "goblin")
+        v.mouse = (x + 1, y)
+        bg = v.draw()["bg"]
+        self.assertEqual([tuple(bg[x + i, y]) for i in (0, 5)], [LINK_BG, LINK_BG])   # lit up under the pointer
+        self.assertIsNone(v.console_click((x + 1, y)))
+        self.assertEqual(v.console_buf, "spawn goblin ")
+
+    def test_help_and_close_in_the_title(self):
+        v, w, p = self.view()
+        self.assertEqual(v.console_click(self.find(v, "help")), "help")
+        self.assertEqual(v.console_click(self.find(v, "[x]")), "close")
+        self.assertIsNone(v.console_click(self.find(v, "Test")))
+        self.assertIsNone(v.console_click(None))
+
+
 class KeyHandlingTests(unittest.TestCase):
     """Sends the real play loop the same events a keyboard would."""
 
@@ -663,6 +768,12 @@ class KeyHandlingTests(unittest.TestCase):
         cmds, _ = self.play(self.key(keys.F2), *self.typed("healx"), self.key(keys.BACKSPACE), self.key(keys.RETURN),
                             self.key(keys.UP), self.key(keys.RETURN))
         self.assertEqual([c["text"] for c in cmds], ["heal", "heal"])
+
+    def test_tab_finishes_the_word(self):
+        keys = tcod.event.KeySym
+        cmds, _ = self.play(self.key(keys.F2), *self.typed("gi"), self.key(keys.TAB), *self.typed("heal"),
+                            self.key(keys.TAB), self.key(keys.RETURN))
+        self.assertEqual(cmds[0]["text"], "give healing")
 
     def test_opening_it_stops_walking(self):
         keys = tcod.event.KeySym

@@ -66,6 +66,7 @@ class NotesTests(unittest.TestCase):
 
     def test_a_death_sums_up_the_character(self):
         w, lvl, p, m = setup()
+        w.revive_seconds = None  # the fallen stay down, as on Hard
         p.hp = 0
         w._kill(p, m)
         last = [s for s in lines(w) if "DIED" in s][0]
@@ -107,9 +108,9 @@ class NotesTests(unittest.TestCase):
         w.note(p, "again")
         self.assertTrue(lines(w)[0].startswith("0:00:00.0 "))
 
-    def test_the_head_names_the_version_seed_and_mode(self):
+    def test_the_head_names_the_version_seed_and_difficulty(self):
         head = World(3).ledger_head()["head"]
-        self.assertRegex(head, r"^Togetherogue \d+\.\d+\.\d+ \| run 1 \| seed 3 \| Classic$")
+        self.assertRegex(head, r"^Togetherogue \d+\.\d+\.\d+ \| run 1 \| seed 3 \| Medium$")
 
     def test_noting_changes_nothing_in_the_game(self):
         def play(noted):

@@ -2,6 +2,117 @@
 
 Versions are MAJOR.MINOR.PATCH. See "Versions" in the README for what each number means.
 
+## 2.12.0 - November 6, 2026
+
+2.11 and older players can't join a 2.12 game, and 2.12 players can't join theirs.
+
+### Added
+
+- A join password. Host Game and the Server Tool have a Password field, and Join Game asks for
+  it. Blank lets anyone in. The Server Tool shows it, and `server.py`, `client.py` and `bot.py`
+  take `--password`. A wrong guess waits a second before the server answers.
+- At most 6 players connected at once. A seventh is told the game is full. `server.py` takes
+  `--max-players`.
+- Limits on misbehaving players and bots. The server ignores messages from anyone sending more
+  than about 30 a second, and disconnects anyone who keeps that up. More than 5 chat lines in a
+  row get a "chatting too fast" warning. One address can only join about once every 10 seconds,
+  except your own computer. A message over 16 KB ends the connection.
+- Test console: `enable bot [count]` adds up to 5 bot teammates, and `disable bot` removes them.
+  Bots follow the player who added them, fight with auto attack, revive players who are down, and
+  appear beside you if they fall behind. They run inside the server and take no player seats.
+
+- Antidote (`!`, 40 gold): every merchant sells it. It cures slime poison and the slowness that
+  comes with it, and spider venom.
+- Menus: click a choice's `<` to step it back or `>` to step it on. Clicking the value itself still
+  steps it on.
+- The test console finishes what you type. Tab completes command names and then what each command
+  takes: items, monsters, players or on/off. Press Tab again for the next choice, or click one in
+  the list shown above the typing line.
+- Click a command, item or monster name in the console to fill it in: after `list`, clicking an
+  item makes `give <item> ` and a monster makes `spawn <monster> `. Click `help` in the title to
+  list the commands, or `[x]` to close. What can be clicked lights up under the pointer.
+- Auto attack, in Options. While you stand still you hit monsters fighting you from the 8 tiles
+  around you, and with nothing beside you, a readied bow, boomerang, wand or staff fires at them.
+  With it on, using one of those from the pack readies it instead of firing it. It never attacks
+  sleeping or wandering monsters, or a monkey you haven't attacked.
+- The fisherman's hook (`⌡`), dropped by every monkey. Give hooks back to the fisherman and he
+  thanks you with a potion of strength for each, which adds 2 to your melee damage for the rest of
+  the run. Potions of strength aren't found anywhere else.
+
+### Changed
+
+- Floor layouts change with depth. Floors 9 to 14 are mostly caves, round rooms come back from
+  floor 15, and from floor 41 rooms tend to come in mirrored pairs. Floors 50 to 59 try out new
+  layouts: a maze, rings, a grid of rooms, a pillared hall and one huge cavern. Floors 1 to 8 are
+  unchanged.
+- A kobold leader's spear thrust shows: a red `-`, `|`, `/` or `\`, depending on the angle, across
+  the tile between you and lunging into yours. After 5 thrusts it's winded and backs off for 3
+  seconds before coming back.
+- Grass (`"`) no longer blocks sight; only tall grass (`τ`, once called foliage) does.
+- One monkey a run, on the floor above or below the fisherman's, instead of monkeys on any floor
+  from 2 to 10. A run without a fisherman has none.
+- When the whole party falls, the new dungeon waits 10 seconds instead of 4, with a countdown on
+  the status line. Press Enter to start it sooner; with more than one player, it starts once
+  everyone still connected has pressed Enter.
+- Kobolds (green `k`) keep their distance and throw 3 or 4 rocks, up to 6 tiles, before they close
+  in to fight. One you get next to steps back to throw again; cornered, it fights.
+- Wolves can lose their nerve. A wolf has a 20% chance of running when it falls below 20% of its
+  health, and another 20% chance when more than a third of its pack is below half health. One that
+  runs keeps running, and fights only when cornered.
+- Monkeys are thieves. One leaves you be unless you attack it, then fights back. It steals one item
+  or 15 to 25 gold, never what you're wearing, a key or the Amulet, and runs until it's more than 30
+  tiles away. Half the time it drinks a stolen potion, which works on it as it would on you:
+  healing, haste, strength, levitation, water or lava walking, or teleporting to a random floor.
+  Attacked and below 40% health, it has a 66% chance of running, and drops what it stole. Killed,
+  it drops what it stole, 10 to 30 gold and a fisherman's hook.
+
+- Options: "Ranged weapons aim at" is now "Ranged aim at", so it no longer runs into its value.
+
+### Removed
+
+- The Go downstairs and Go upstairs keys (`>` and `<`). Walk into the stairs to take them, as
+  before. `>` and `<` are free to give to other actions.
+
+## 2.11.0 - November 2, 2026
+
+2.10 players can still join a 2.11 game.
+
+### Added
+
+- Difficulty, chosen by the host, in place of Monster speed and Game mode:
+  - **Easy**: slow monsters with less health and armor, health returns over time, and a teammate
+    revives you in 3 seconds.
+  - **Medium**: normal monsters, no health over time, and reviving takes 8 seconds.
+  - **Hard**: fast monsters with more health and armor, no health over time, and no reviving.
+  The server's `--mode` option is now `--difficulty`.
+- The giant spider queen (`A`) nests in big caves on floors 8 to 40, with 2 or 3 spiders (`a`) and
+  webs that slow you. Run more than 5 tiles from her and she spits web that slows you even more.
+  Spiders leap at you, bite, and back off. Their venom lasts up to 40 seconds and stops healing,
+  but never takes you below 1 health. The console's `spawn nest` adds one.
+- Arrows, rocks, kobold scouts' fireballs and spat web fly across the map a tile at a time, like
+  the boomerang, instead of flashing. Magic still flashes.
+- Merchants and the fisherman no longer block the way, even in a doorway. Walk into one to shop or
+  talk, then walk into them again straight away to step past.
+
+### Changed
+
+- The cult leader fights with its wand of fire. It backs off out of reach, throws three fire bolts
+  one after another, the last setting the ground around you alight, then rests 2 seconds. It has 75
+  health instead of 50, more armor and hits harder up close.
+- The cultist mage has 65 health instead of 45 and more armor, and casts lightning every 2.5
+  seconds instead of 3.
+- A locked room's walls are drawn in its key's color, so it stands out from across the floor.
+- The fisherman always waits at the water's edge, on a floor from 2 to 6 that has water.
+- The console's `list` sorts items by kind and puts everything in columns. `list items` or
+  `list monsters` shows just one.
+
+### Fixed
+
+- A monster killed by a boomerang or an arrow stays in view until the shot reaches it.
+- The way into a hidden room was a single `#` a shade off from the rest of the wall, so it looked
+  as if its fairy was shut in for good. It's now a gold `▒` stretch 1 to 3 tiles wide, and a bomb
+  beside any of it breaks all of it open. 2.10.0 and 2.10.1 players still see it as a `#`.
+
 ## 2.10.1 - November 2, 2026
 
 ### Changed

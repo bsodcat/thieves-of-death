@@ -181,7 +181,6 @@ class WaterTests(unittest.TestCase):
 
     def test_dying_over_water_leaves_bones_on_land(self):
         w, lvl, p = world_with((1, DEEP))
-        w.mode = "Revive"
         p.levitate_until = w.clock + 100000
         step(w, p)
         w._kill(p, None)
@@ -337,7 +336,6 @@ class IslandTests(unittest.TestCase):
 
     def test_bones_on_an_island_come_back_to_the_mainland(self):
         w, lvl, p, cut = island_world()
-        w.mode = "Revive"
         w.join("B")
         lvl.move(p, *cut[0])
         w._kill(p, None)

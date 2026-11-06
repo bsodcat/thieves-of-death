@@ -22,10 +22,11 @@ def hidden_floor(seeds=range(40)):
 
 
 def beside_crack(lvl):
-    for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-        n = (lvl.crack[0] + dx, lvl.crack[1] + dy)
-        if lvl.mainland[n] and n not in lvl.occupant:
-            return n
+    for x, y in sorted(lvl.cracks):
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            n = (x + dx, y + dy)
+            if lvl.mainland[n] and n not in lvl.occupant:
+                return n
     raise AssertionError("can't reach the crack")
 
 
@@ -51,19 +52,39 @@ class HiddenRoomTests(unittest.TestCase):
 
     def test_shut_off_until_the_wall_breaks(self):
         w, lvl = hidden_floor()
-        self.assertEqual(lvl.tiles[lvl.crack], CRACKED)
-        self.assertFalse(lvl.walkable[lvl.crack])
+        for c in lvl.cracks:
+            self.assertEqual(lvl.tiles[c], CRACKED)
+            self.assertFalse(lvl.walkable[c])
         self.assertFalse(lvl.mainland[lvl.hidden].any())
         self.assertFalse(any(lvl.hidden[c] for c in lvl.floor_cells))  # nothing spawns in there
         fairy = next(n for n in lvl.npcs if n.role == "fairy")
         self.assertTrue(lvl.hidden[fairy.x, fairy.y])
 
-    def test_the_wall_is_only_a_shade_off(self):
-        self.assertEqual(GLYPH[CRACKED], GLYPH[WALL])
-        self.assertEqual(NAMES[CRACKED], NAMES[WALL])
-        self.assertEqual(DESCRIPTIONS[CRACKED], DESCRIPTIONS[WALL])
-        diff = np.abs(FG[CRACKED].astype(int) - FG[WALL].astype(int))
-        self.assertTrue(0 < diff.max() <= 15, diff)
+    def test_the_cracks_are_easy_to_spot(self):
+        self.assertNotEqual(GLYPH[CRACKED], GLYPH[WALL])
+        self.assertEqual(NAMES[CRACKED], "cracked wall")
+        self.assertIn("bomb", DESCRIPTIONS[CRACKED])
+        self.assertEqual(sum(g == GLYPH[CRACKED] for g in GLYPH), 1)  # nothing else looks like it
+
+    def test_one_to_three_tiles_of_wall_in_a_straight_line(self):
+        widths = set()
+        for seed in range(30):
+            w = World(seed)
+            for depth in range(2, 16):
+                lvl = w.level(depth)
+                if lvl.hidden is None:
+                    continue
+                cracks = sorted(lvl.cracks)
+                widths.add(len(cracks))
+                self.assertTrue(1 <= len(cracks) <= 3, (seed, depth))
+                xs, ys = {x for x, _ in cracks}, {y for _, y in cracks}
+                self.assertTrue(len(xs) == 1 or len(ys) == 1)  # along one wall
+                self.assertEqual(max(len(xs), len(ys)), len(cracks))  # with no gaps
+                for x, y in cracks:  # each with the room right behind it
+                    self.assertTrue(any(lvl.hidden[x + dx, y + dy] for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))))
+                self.assertTrue(any(lvl.mainland[x + dx, y + dy] for x, y in cracks
+                                    for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))), (seed, depth))
+        self.assertEqual(widths, {1, 2, 3})
 
 
 class BombTests(unittest.TestCase):
@@ -78,9 +99,11 @@ class BombTests(unittest.TestCase):
         self.assertEqual(len(lvl.bombs), 1)
         self.assertEqual(p.pack, [])
         w.advance(seconds(BOMB_SECONDS) - 10)
-        self.assertEqual(lvl.tiles[lvl.crack], CRACKED)  # not yet
+        cracks = set(lvl.cracks)
+        self.assertTrue(all(lvl.tiles[c] == CRACKED for c in cracks))  # not yet
         w.advance(20)
-        self.assertIsNone(lvl.crack)
+        self.assertEqual(lvl.cracks, set())
+        self.assertTrue(all(lvl.tiles[c] == FLOOR for c in cracks))  # the whole stretch, not just the near end
         self.assertTrue(lvl.mainland[lvl.hidden].all())
         self.assertIn("room behind it", said(w))
 

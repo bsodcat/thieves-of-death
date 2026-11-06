@@ -14,7 +14,7 @@ What's in it so far:
   unless someone is standing in them, no cutting diagonally around wall corners,
   sneak attacks on unaware monsters, and walking into stairs to use them.
 - Per-player field of view and memory of explored tiles (per depth).
-- Monsters that sleep, wander and hunt, with melee combat and HP regeneration.
+- Monsters that sleep, wander and hunt, with melee combat, and three difficulties.
 - Real-time online co-op: nobody ever waits for anybody (see "How time works").
 - Items: potions, weapons, armor and gold, a 10-slot pack, and dropping things for
   teammates. A run clock in the sidebar.
@@ -28,13 +28,19 @@ that one file. The main menu has:
 
 - **Host Game**: starts a server inside the game and puts you in it. Leaving ends the game for
   everyone. The first time, Windows may ask to allow it through the firewall.
-- **Join Game**: type the host's address and port.
-- **Server Tool**: runs a server without playing, and shows the address to share, who's
-  connected, their floor and ping, and a log.
-- **Character**: your name, shape and color.
-- **Options**: the font, whether to show the holiday themes, and what ranged weapons aim at.
+- **Join Game**: type the host's address and port, and the password if the host set one.
+- **Server Tool**: runs a server without playing, and shows the address to share, the password,
+  who's connected, their floor and ping, and a log.
 
-Use the arrow keys and Enter, or the mouse. Your choices are saved in
+Host Game and the Server Tool have a **Password** field. Leave it blank to let anyone in, or set
+one before forwarding a port to the internet, and tell your friends. Up to 6 players can be
+connected at once.
+- **Character**: your name, shape and color.
+- **Options**: the font, whether to show the holiday themes, what ranged weapons aim at, and
+  auto attack.
+
+Use the arrow keys and Enter, or the mouse; click a choice's `<` or `>` to step it back or on.
+Your choices are saved in
 `%APPDATA%\Togetherogue\settings.json`. In the game, press `Q` twice to leave.
 
 The version and the date the project began are at the bottom of the title screen, and come from
@@ -64,9 +70,18 @@ python client.py --name Bob --host 192.168.1.20   # another machine on your netw
 ```
 
 To play over the internet, the host forwards TCP port 5555 on their router, or everyone
-joins a virtual LAN like Tailscale or ZeroTier and uses the host's address on it.
+joins a virtual LAN like Tailscale or ZeroTier and uses the host's address on it. With a port
+forwarded, set a password (`server.py --password ...`, and `client.py --password ...` to join).
+The password is sent as plain text, so don't reuse one that matters.
 
-No friends online? `python bot.py` adds a simple bot that follows you around.
+The server also protects itself from misbehaving players and bots. It allows 6 players at once
+(`--max-players`) and ignores messages from anyone sending more than about 30 a second. Anyone
+who keeps that up is disconnected. Chat is held to a few lines in a row, and one address can
+only join about once every 10 seconds. A message over 16 KB ends the connection. The limits
+are at the bottom of `game/constants.py`.
+
+No friends online? `python bot.py` adds a simple bot that follows you around
+(`--password` if the server has one).
 
 Useful options: `server.py --port 6000 --seed 42`,
 `client.py --font myfont.ttf --tile 12x24` (a .ttf, a Windows .fon bitmap font, or a 16x16
@@ -81,7 +96,7 @@ On Windows the client uses the classic Terminal font (`8514oem.fon`, 10x20), rea
 | Key | Action |
 | --- | --- |
 | `W A S D`, arrows, numpad, or `h j k l y u b n` | Move or attack (8 directions). Hold to keep going; two keys together move diagonally |
-| Walk into `>` / `<`, or press `>` / `<` next to them | Take the stairs |
+| Walk into `>` / `<` | Take the stairs |
 | `1`-`9`, `0` | Use the item in that pack slot: drink a potion, or equip or remove gear |
 | `q` | Quick heal: drink the smallest healing potion that fills you up, or your biggest if none will |
 | `i` | Show or hide the pack. While it's open, click an item to use it, or press `o` to sort |
@@ -103,7 +118,9 @@ do one thing, and giving `h j k l y u b n` another job takes it off movement. Nu
 `` ` ``, F1 and F2 can't be changed. The arrows and numpad always move you, unless you bind them.
 
 Walk into a teammate to go straight past them, which leaves them where they are. If there's nowhere
-to land on the far side you trade places instead, so nobody can block a corridor.
+to land on the far side you trade places instead, so nobody can block a corridor. Merchants and the
+fisherman can stand in doorways, so they never block you either: walk into one to shop or talk, and
+walk into them again straight away to step past the same way.
 
 ## How time works
 
@@ -113,25 +130,32 @@ The game runs in real time, on one clock shared by everyone:
   action happens at once. Press again during the cooldown and it's queued for when the
   cooldown ends, with the newest press replacing any older one.
 - Nobody waits for anybody. Your actions depend only on your own cooldown.
-- Monsters act on their own clock whether or not anyone is pressing keys, at 1.5 times the
-  player's action time (`MONSTER_TIME`), so you can get away from most of them. Jackals
-  are still faster than you.
+- Monsters act on their own clock whether or not anyone is pressing keys. On Medium that's 1.5
+  times the player's action time (`MONSTER_TIME`), so you can get away from most of them. Jackals
+  are still faster than you. Easy makes them slower, and Hard faster.
 - Monsters only run on levels with a living player. Other levels stay frozen until
   someone arrives.
-- Health returns over time, a full bar in about 48 seconds, so there's no rest key.
+- On Easy, health returns over time, a full bar in about 48 seconds. On Medium and Hard it
+  doesn't: heal with potions, ponds, food and fairies.
 
 All of these numbers are in `game/constants.py`.
 
-## Game modes
+## Difficulty
 
-Choose one under Host Game or Server Tool.
+The host chooses one under Host Game or Server Tool, and it holds for the whole game. The server
+command line takes `--difficulty Easy|Medium|Hard`.
 
-- **Classic**: a fallen player is out until the next run, and their gear lands around them
-  for the party to collect.
-- **Revive**: a fallen player stays on the map as bones (`%`), keeps their gear, and can watch
-  what's nearby. Stand next to the bones for 3 seconds to bring them back at half health. If you
-  move out of reach, the progress resets. Monsters ignore bones. If everyone goes down, the run
-  restarts.
+| | Monsters | Their health and armor | Health over time | Reviving a teammate |
+|---|---|---|---|---|
+| **Easy** | slow (2 times your action time) | 80%, 5 less armor | returns | 3 seconds |
+| **Medium** | normal (1.5 times) | as listed | doesn't return | 8 seconds |
+| **Hard** | fast (as fast as you) | 130%, 5 more armor | doesn't return | none |
+
+When a player falls on Easy or Medium they stay on the map as bones (`%`), keep their gear, and can
+watch what's nearby. Stand next to the bones to bring them back at half health. If you move out of
+reach, the progress resets. Monsters ignore bones. On Hard a fallen player is out until the next
+run, and their gear lands around them for the party to collect. If everyone goes down, the run
+restarts.
 
 ## Your character
 
@@ -172,13 +196,14 @@ Your score is the gold you're carrying times your kills, times 100, divided by y
 score = gold x kills x 100 / moves. A win doubles it. So gold and kills raise it, every move lowers
 it, and with no kills or no gold it's 0. It's shown in the sidebar as you play. Moves
 counts every action, including attacks and using items. The score uses
-the gold you carry when you fall, so gold you drop no longer counts, and in Classic the gold that
+the gold you carry when you fall, so gold you drop no longer counts, and on Hard the gold that
 scatters from you still does.
 
 Press `t` for your tally: score, kills by monster, and the hardest enemy you've fought, ranked by
 health times damage per turn. Any monster that's hit or been hit by you counts, even if nobody won.
 The same numbers appear when you fall, and when the whole party falls everyone sees a ranked
-scoreboard. Scores aren't kept between runs. Change the 100 with `SCORE_SCALE` in
+scoreboard. A fresh dungeon starts 10 seconds later (`RESET_DELAY`), or as soon as everyone still
+connected presses Enter. Scores aren't kept between runs. Change the 100 with `SCORE_SCALE` in
 `game/constants.py`.
 
 ## Action log
@@ -251,9 +276,15 @@ Press `` ` `` or F2 in a game to open the console, type a command and press Ente
 recall what you've typed, the mouse wheel scrolls back through what it's printed, and Esc closes
 it. The game keeps running behind it.
 
+Tab finishes the word you're typing: command names, then items, monsters, players or on/off,
+whichever that command takes. Press Tab again for the next choice, or click one in the list.
+Clicking a command, item or monster name anywhere in the console fills it in, so `list` then a
+click on an item gives you `give <item> `. Click `help` in the title to list the commands, or
+`[x]` to close.
+
 | Command | Does |
 | --- | --- |
-| `help`, `list` | List the commands, or the item and monster names |
+| `help`, `list [items\|monsters]` | List the commands, or the item and monster names in columns, items by kind |
 | `info` | Seed, floor, locked rooms and where cloaks are waiting |
 | `give <item> [count]` | Put an item in your pack, such as `give wand` or `give tele 3`. `give gold 500` adds gold |
 | `gold <amount>` | Add gold, which raises your score |
@@ -269,11 +300,34 @@ it. The game keeps running behind it.
 | `ultrabright` | Toggle: every floor is drawn fully lit, without showing what's out of sight |
 | `stealth <0-100>` | Set your stealth |
 | `teleport` | Jump to another part of this floor |
+| `enable bot [count]` | Add up to 5 bot teammates. They follow you, fight with auto attack and revive you if you're down |
+| `disable bot` | Remove every bot |
 | `clear` | Empty the console |
+
+Bots run inside the server, so they work in the exe and take no player seats. One that falls
+behind on another floor, or can't find a way to you, appears beside you. If you leave, they follow
+another player. If every real player has fallen for good, the bots fall too, so a new dungeon can
+start. When everyone real has left, the bots leave too.
 
 Names can be cut short as long as they still match only one thing. Only someone playing on the
 computer running the server can use commands, and everyone else in the game is told when one
 runs. Add your own in `game/commands.py`.
+
+## Floor layouts
+
+How a floor is laid out changes as you go down:
+
+- Floors 1 to 8 mix rectangular, cross-shaped and round rooms with caves.
+- Floors 9 to 14 are mostly caves: they grow from a big cave, the rooms off it are nearly all
+  small caves, and there are few doors or hallways.
+- From floor 15, round rooms come back, some of them bigger than before, alongside caves.
+- From floor 41, the first room sits in the middle and is the same on both sides, and each room
+  after it has a 60% chance of a mirrored twin across the middle, so floors are more symmetrical.
+- Floors 50 to 59 try out new layouts, each used on two floors: a maze of narrow passages with a
+  few chambers (50 and 55), rings around a round hall (51 and 56), a grid of rooms (52 and 57), a
+  great hall with rows of pillars (53 and 58), and one huge cavern (54 and 59).
+
+The bands are `CAVE_FLOORS`, `ROUND_FLOORS`, `MIRROR_FLOORS` and `ODD_FLOORS` in `game/mapgen.py`.
 
 ## Terrain
 
@@ -300,9 +354,9 @@ down as close as possible to where you fell, and that can be lava. It costs 25 h
 fall and can kill you. If you live, you end up on the nearest ground. Lava always stays 2 tiles
 clear of deep water, so it never touches water of any kind.
 
-Some walls are cracked, with a hidden room behind them. A cracked wall is the same `#` as the rest,
-a shade off in color. A floor with no locked door and no cult altar has a 33% chance of one. A bomb
-set off beside it breaks it open, and inside is a fairy: walk into it to free it, and every living
+Some walls are cracked, with a hidden room behind them. A cracked wall is a gold `▒` stretch, 1 to 3
+tiles wide. A floor with no locked door and no cult altar has a 33% chance of one. A bomb
+set off beside any of it breaks the whole stretch open, and inside is a fairy: walk into it to free it, and every living
 player's maximum health rises by a fifth, healed at once.
 
 Now and then a room closed off by doors, with a torch and nothing else in it, holds a barrel of
@@ -313,18 +367,32 @@ food (`Θ`). Walk into it and "Food is good!": you heal 2 health a second for 8 
 - **Skeletal dragon** (`D`): sleeps on floor 80, as far from the stairs as it can. Every 6 seconds it
   breathes fire in a line at whoever it's hunting, from up to 8 tiles, for 8 to 14 damage.
 
+- **Monkeys** (`m`): just one a run, on the floor above or below the fisherman's (never floor 1),
+  and none in a run without him. A monkey leaves you be unless you attack it. It comes up to you
+  and steals one item or 15 to 25 gold, never what you're wearing, a key or the Amulet, then runs
+  until it's more than 30 tiles away. Half the time it drinks a stolen potion, and the potion works
+  on it as it would on you: healing, haste, strength, levitating out of reach and over water,
+  walking on water or lava, or teleporting to a random floor. If a potion wears off while it's over
+  water, lava or a chasm, it scrambles to the nearest floor. Attacked, it fights back, and the first
+  time it falls below 40% of its health it has a 66% chance of running, dropping what it stole.
+  Killed, it drops what it stole, 10 to 30 gold of its own and a fisherman's hook (`⌡`).
 - **Wolves** (`w`): from floor 3 down, a floor has a 20% chance of a pack of 3 to 6. They're twice as
-  fast as you, and when one notices you they all do.
+  fast as you, and when one notices you they all do. A wolf may lose its nerve: it has a 20% chance
+  of running when it falls below a fifth of its health, and another 20% chance when more than a
+  third of its pack is below half health. One that runs keeps running, and fights only when cornered.
 - **Mushrooms** (`f`): floors 3 to 50, and never more than 8 on a floor. They never move and don't attack. Get within 2 tiles and one fills the space
   around it with toxic gas, up to 4 tiles away in any direction, however stealthy you are. Walls and
   doors stop it. It thins from the edges inward and is gone
   in 12 seconds. Gas does 2 damage a second, and the mushroom can do it again after 20 seconds. Kill
   it from a distance, or go around.
-- **Kobolds** (`k`, green): floors 1 to 7. One that's alone, with no other monster within 4 tiles,
-  runs from you. Below half health it has a 5% chance each turn of throwing a rock instead, and one
-  next to a rat has a 3% chance each turn of killing it.
+- **Kobolds** (`k`, green): floors 1 to 7. Each throws 3 or 4 rocks from up to 6 tiles away,
+  stepping back if you get next to it, then closes in to fight. One that's alone, with no other
+  monster within 4 tiles, runs from you. Below half health it has a 5% chance each turn of throwing
+  another rock instead, and one next to a rat has a 3% chance each turn of killing it.
 - **Kobold leaders** (`K`, blue): floors 5 to 25, no more than 2 on a floor, each with 2 or 3
-  kobolds. Slow and tough, it keeps a tile between you and it and reaches across with its spear.
+  kobolds. Slow and tough, it keeps a tile between you and it and reaches across with its spear,
+  shown as a red `-`, `|`, `/` or `\` lunging at you. After 5 thrusts it's winded and backs off to 4
+  tiles away for 3 seconds, then comes back for 5 more.
 - **Kobold scouts** (`k`, red): floors 10 to 15, up to 3 on a floor. They keep 4 to 8 tiles away and
   throw a fireball every 5 seconds, for 4 to 8 damage. A ward stops it.
 - **Ogres** (`O`): from floor 7 to floor 65, and most common on floors 45 to 55.
@@ -336,24 +404,40 @@ food (`Θ`). Walk into it and "Food is good!": you heal 2 health a second for 8 
   touch poisons you for 1 damage a second for 6 seconds, with no healing meanwhile, and halves your
   speed for 3 seconds, and so
   does walking on the green trail they leave, which lasts 15 seconds. Levitating avoids the trail.
+- **Spider queens** (`A`), giants: on about a third of the floors from 8 to 40 that grew from a big
+  cave, one nests in it with 2 or 3 **spiders** (`a`), and webs (`:`) spun across the cave. Walking
+  into a web slows you for 3 seconds; fire burns webs away. The queen is slow and tough. Run more
+  than 5 tiles from her and she spits web at you from up to 10 tiles, every 4 seconds: it slows you
+  to a third of your speed for 3 seconds and leaves a web where you stand. Spiders leap at you from
+  up to 3 tiles away, biting as they land, then back off two steps and come again. Every spider's
+  bite adds 10 seconds of venom, up to 40: 1 damage every 2 seconds and no healing meanwhile, but
+  venom never takes you below 1 health.
 - **Ghosts** (`G`): only appear after you've used an altar. See Altars.
 - **Zombies** (`z`): slow, and only raised by the necromancer.
 
 A monster on fire and below half health runs from you. Where a monster dies it leaves a mark on
-the floor: blood for most, green goo for slimes, bones for skeletons, rot for zombies and spores
-for mushrooms. Ghosts leave nothing.
+the floor: blood for most, green goo for slimes and spiders, bones for skeletons, rot for zombies
+and spores for mushrooms. Ghosts leave nothing.
 
-Walk into the **fisherman** (`F`), who waits on one floor from 2 to 6, often by the water. He tells
+Arrows, rocks, kobold scouts' fireballs and the spider queen's web fly across the map a tile at a
+time, as your own arrows and boomerang do; magic flashes along its whole line at once. Anything
+your arrow or boomerang kills stays in view until the shot reaches it.
+
+Walk into the **fisherman** (`F`), who waits at the water's edge on one floor from 2 to 6. He tells
 you which floor a locked room's key lies on, a different room each time, or gives you a tip if
 there are no locked rooms this run.
+
+Monkeys have been stealing his hooks. Walk into him with any you've taken from dead monkeys and he
+thanks you and gives you a potion of strength for each one, which adds 2 to your melee damage for
+the rest of the run. Potions of strength aren't found anywhere else.
 
 ## Ponds of healing
 
 About 1 floor in 8 has a small bright teal pond. Step in to heal fully and be warded for 3 minutes:
 a blue glow surrounds you, and magic aimed at you goes straight back at whoever cast it. The pond is then spent.
 Magic armor has the same ward for as long as you wear it, with a smaller, slower glow. So far the dragon's fire is the only magic
-aimed at players, along with the cultist mage's lightning and the kobold scouts' fireballs. A ward
-stops those two outright.
+aimed at players, along with the cultist mage's lightning, the cult leader's fire bolts and the kobold
+scouts' fireballs. A ward stops those three outright.
 
 A monster about to hit you in melee warns you first: it blinks, faster and faster as the blow gets
 close. When a player strikes a monster, a red glow flares around it and fades. Most monsters give you about half a second, and slow hitters like ogres nearly a
@@ -362,8 +446,9 @@ second, so you can step away. Monsters attack half as often as they did before 2
 
 ## Plants
 
-Some floors have patches of tall grass (`"`) and thicker foliage (`τ`). You can walk through them, but
-you can't see through them. Whatever walks through tramples them for good, for everyone.
+Some floors have patches of grass (`"`) with tall grass (`τ`) in them. You can walk through both.
+You can see over grass, but not through tall grass. Whatever walks through tramples them for good,
+for everyone.
 
 ## Altars
 
@@ -382,7 +467,10 @@ that goes through walls, and it always knows where you are. You get one ghost fo
 ## Cultists
 
 From floor 10 down, a floor has a 20% chance of a group of 6 to 12 cultists, one of them their
-leader (`C`). When one notices you they all do. Kill the leader and it drops a wand of fire, which
+leader (`C`). When one notices you they all do. The leader fights with its wand of fire: it backs
+off to 3 to 6 tiles away, throws three fire bolts one after another for 4 to 8 damage each, the last
+setting the ground around you alight, then rests 2 seconds before the next three. Cornered, it fights
+hand to hand. A ward stops its bolts. Kill the leader and it drops that wand of fire, which
 anyone can pick up with `g`. Use it like any pack item: it burns the nearest monster in sight within
 10 tiles for 8 to 14 damage and sets it alight for 3 of its turns. The ground around it burns for 2
 to 3.5 seconds, and fire spreads through grass until it has all burned away to ash. Anything that
@@ -391,14 +479,15 @@ and if there's nothing to aim at, a use isn't spent.
 
 Every cult has a **cultist mage** (`M`) a floor above or below it. Every 10 seconds it rises into
 the air for 6 seconds, glowing violet, and drifts over to hang near you, usually above you. While
-it floats, melee can't reach it: use a bow, a boomerang, a wand or a staff. Every 3 seconds it casts
+it floats, melee can't reach it: use a bow, a boomerang, a wand or a staff. Every 2.5 seconds it casts
 lightning at you from up to 8 tiles, for 6 to 12 damage, which a pond's ward or magic armor stops.
 It drops a staff of lightning, which never runs out. It isn't a melee weapon, so no altar can
 enhance it.
 
 ## Locked rooms
 
-Each of floors 4 to 14 has a 15% chance of a locked room, in red, blue, green or yellow. Its key is
+Each of floors 4 to 14 has a 15% chance of a locked room, in red, blue, green or yellow. Its walls are
+drawn in its color, so you can pick it out from across the floor. Its key is
 the same color and lies exactly 2 floors above or below, so you may have to come back for it. Walk over a
 key to pick it up, then walk into the door. Anyone in the party can use it, and it's used up.
 Inside are two pieces of gear from deeper down, a potion and a big pile of gold.
@@ -408,8 +497,10 @@ Inside are two pieces of gear from deeper down, a potion and a big pile of gold.
 Every 5th floor has a 60% chance of a merchant (`$`), and you'll hear them when you arrive. Walk
 into them to see their stock, and press a number to buy. They sell 3 to 5 weapons and armor suited
 to the floor, and there's one of each, shared by the whole party. Every merchant also has bombs,
-which never sell out. Walking away closes the shop.
-Spending gold lowers your score, since it counts what you're carrying. You can't walk through a merchant.
+which never sell out, and antidotes (40 gold), which cure slime poison and its slowness, and
+spider venom. Antidotes aren't found anywhere else. Walking away closes the shop.
+Spending gold lowers your score, since it counts what you're carrying. Walk into a merchant again
+right after the shop opens to step past them.
 
 Press Tab at a shop to sell instead. It lists your pack with what the merchant will pay, which is
 half an item's price, and a number sells it: one potion or bomb at a time, or a whole quiver of
@@ -460,6 +551,7 @@ doesn't pause while the pack is open; the panel opens on the far side of the map
 | Potion of levitation | `!` | Float for 9 seconds, out of reach of ground monsters | |
 | Potion of teleportation | `!` | Jump to a random spot on a random floor, anywhere from 1 to 99. A real gamble | |
 | Potion of water walking | `!` | Walk on deep water for 1 minute, in a blue glow reaching 5 tiles that fades away as it runs out. Floors 18 to 42 | |
+| Antidote | `!` | Cures slime poison, its slowness, and spider venom. Only merchants sell it | |
 | Potion of lava walking | `!` | Walk on lava for 1 minute, in an orange glow reaching 5 tiles that fades away as it runs out. Floors 18 to 42 | |
 | Dagger | `)` | 3-5 damage | 5 |
 | Sword | `)` | 5-9 damage | 15 |
@@ -492,8 +584,21 @@ random floor among the 4 starting from the one its player joined on, so a late a
 near the party. Anyone can pick one up, and it takes one slot like any other gear.
 
 Use a bow or boomerang from the pack, like a wand. Ranged weapons and wands aim for you: at monsters
-already fighting first, then the strongest of them, or the weakest if you change **Ranged weapons aim
-at** in Options. A change takes effect the next time you join a game.
+already fighting first, then the strongest of them, or the weakest if you change **Ranged aim at**
+in Options. A change takes effect the next time you join a game.
+
+### Auto attack
+
+Turn on **Auto attack** in Options and you fight back by yourself whenever you're standing still.
+A monster fighting you in any of the 8 tiles around you gets hit with your melee weapon. With
+nothing beside you, a readied ranged weapon fires at the monsters fighting you, aimed the same way
+as above. With auto attack on, using a bow, boomerang, wand or staff from the pack readies it
+(it shows as "on") instead of firing it; use it again to put it away.
+
+It leaves sleeping and wandering monsters alone, so it never wakes anything, and it leaves a monkey
+alone until you've attacked it. It doesn't fire without arrows or before a boomerang is back, and a
+wand of frost doesn't freeze what's already frozen. Moving or using anything takes over at once.
+Wands still use up their charges. Like the aim, a change takes effect the next time you join.
 
 ## Versions
 
@@ -523,6 +628,7 @@ bot.py             headless test player bot
 game/world.py      game state, real-time clock, combat, monster AI   <- most of the game
 game/mapgen.py     level generator
 game/commands.py   the test console's commands
+game/bots.py       bot teammates added from the console
 game/controls.py   the keys a player can change
 game/ledger.py     saves the action log to a text file
 game/entities.py   players and the monster list (add more monsters here)

@@ -13,7 +13,9 @@ from game.world import World
 
 
 def setup_world(mode="Classic", names=("Alice",)):
-    w = World(1, mode=mode)
+    w = World(1)
+    if mode == "Classic":
+        w.revive_seconds = None  # the fallen stay down
     lvl = w.level(1)
     for m in list(lvl.monsters):
         lvl.remove(m)
