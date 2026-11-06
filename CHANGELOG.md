@@ -2,9 +2,9 @@
 
 Versions are MAJOR.MINOR.PATCH. See "Versions" in the README for what each number means.
 
-## Unreleased
+## 2.12.0 - November 6, 2026
 
-Older copies can't join this version, or host games it can join.
+2.11 and older players can't join a 2.12 game, and 2.12 players can't join theirs.
 
 ### Added
 
