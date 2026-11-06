@@ -39,7 +39,9 @@ def _difficulty_line(name: str) -> str:
     return f"{name}: {monsters} monsters; {heal}; {revive}."
 
 
-SETUP_NOTE = "Leave the seed blank for a random dungeon.\n" + "\n".join(map(_difficulty_line, DIFFICULTIES))
+SETUP_NOTE = ("Leave the seed blank for a random dungeon.\nLeave the password blank to let anyone join.\n"
+              + "\n".join(map(_difficulty_line, DIFFICULTIES)))
+PASSWORD_LIMIT = 20
 
 
 class WindowClosed(Exception):
@@ -172,7 +174,12 @@ class App:
         c = self.config
         return [Row("Port", "port", c["port"], digits=True, limit=5),
                 Row("Dungeon seed", "seed", c["seed"], digits=True, limit=10),
-                Row("Difficulty", "difficulty", c["difficulty"], choices=tuple(DIFFICULTIES))]
+                Row("Difficulty", "difficulty", c["difficulty"], choices=tuple(DIFFICULTIES)),
+                Row("Password", "host_password", c["host_password"], limit=PASSWORD_LIMIT)]
+
+    def start_runner(self, values: dict, port: int, seed, difficulty: str) -> ServerRunner:
+        return ServerRunner(port, seed, difficulty=difficulty, season_fn=self.season_fn,
+                            password=values.get("host_password", ""))
 
     def look(self) -> dict:
         return {"aim": self.config["ranged_target"], "auto": self.config["auto_attack"],
@@ -199,15 +206,18 @@ class App:
             except ValueError as exc:
                 form.error = str(exc)
                 continue
-            runner = ServerRunner(port, seed, difficulty=difficulty, season_fn=self.season_fn)
+            runner = self.start_runner(values, port, seed, difficulty)
             try:
                 runner.start()
             except OSError:
                 form.error = port_error(port)
                 continue
             try:
-                net = client.Net("127.0.0.1", runner.port, values["name"], look=self.look())
+                password = values.get("host_password", "")
+                net = client.Net("127.0.0.1", runner.port, values["name"], look=self.look(), password=password)
                 shares = [f"Friends can join at {a}, port {runner.port}." for a in lan_addresses()[:1]]
+                if password:
+                    shares.append(f"They'll need the password: {password}")
                 self.run_game(net, " (this ends the game for everyone)", tuple(shares))
             finally:
                 runner.stop()
@@ -218,8 +228,9 @@ class App:
         form = Form("Join a Game",
                     [Row("Your name", "name", c["name"], limit=16), Row("Address", "address", c["address"], limit=40),
                      Row("Port", "port", c["port"], digits=True, limit=5),
+                     Row("Password", "join_password", c["join_password"], limit=PASSWORD_LIMIT),
                      Row("Connect", action="go"), Row("Back", action="back")],
-                    note="Ask the host for their address and port.")
+                    note="Ask the host for their address and port,\nand the password if they set one.")
         while self.show(form) == "go":
             values = form.values()
             self.remember(values)
@@ -233,7 +244,8 @@ class App:
             self.present(form)
             form.message = ""
             try:
-                net = client.Net(values["address"], port, values["name"], timeout=5, look=self.look())
+                net = client.Net(values["address"], port, values["name"], timeout=5, look=self.look(),
+                                 password=values["join_password"])
             except OSError:
                 form.error = f"Couldn't reach {values['address']}:{port}. Check the address and that it's running."
                 continue
@@ -251,7 +263,7 @@ class App:
             except ValueError as exc:
                 form.error = str(exc)
                 continue
-            runner = ServerRunner(port, seed, difficulty=difficulty, season_fn=self.season_fn)
+            runner = self.start_runner(values, port, seed, difficulty)
             try:
                 runner.start()
             except OSError:
@@ -278,8 +290,12 @@ class App:
             console.print(20, y, f"On your network, friends join at: {shown}", fg=GREEN)
             y += 1
             console.print(20, y, f"Over the internet, forward TCP port {runner.port} on your router.", fg=DIM)
+            y += 1
+            password = runner.game.password
+            console.print(20, y, f"Password: {password}" if password else "No password: anyone who finds it can join.",
+                          fg=GREEN if password else DIM)
             y += 2
-            console.print(20, y, f"Players ({len(status['players'])})", fg=WHITE)
+            console.print(20, y, f"Players ({len(status['players'])} of {runner.game.max_players})", fg=WHITE)
             y += 1
             for p in status["players"][:6]:
                 ping = "--" if p["ping"] is None else f"{p['ping']}ms"

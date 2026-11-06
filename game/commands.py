@@ -6,6 +6,7 @@ Add a command by writing a function and listing it in COMMANDS.
 """
 from __future__ import annotations
 
+from . import bots
 from .constants import LAST_FLOOR, STAMINA_MAX, STEALTH_MAX
 from .entities import MONSTERS
 from .items import ITEMS, make_amulet, make_cloak, make_item, make_key, make_staff, make_wand
@@ -219,6 +220,31 @@ def teleport(w, p, args) -> str:
     return f"You're at {p.x}, {p.y}."
 
 
+TOGGLES = ("bot",)  # what enable and disable work on
+
+
+def enable(w, p, args) -> str:
+    """`enable bot [count]` adds bot teammates that follow you and fight beside you."""
+    if not args or pick(args[0], TOGGLES, "thing to enable") != "bot":
+        raise Refused("enable bot [count]")
+    if len(w.bots) >= bots.MAX_BOTS:
+        raise Refused(f"There are already {bots.MAX_BOTS} bots. Try: disable bot")
+    count = number(args[1], 1, bots.MAX_BOTS) if len(args) > 1 else 1
+    added = bots.add(w, p, count)
+    names = ", ".join(b.name for b in added)
+    full = f" (at most {bots.MAX_BOTS})" if len(added) < count else ""
+    return f"Added {names}{full}. They follow you; disable bot removes them."
+
+
+def disable(w, p, args) -> str:
+    if not args or pick(args[0], TOGGLES, "thing to disable") != "bot":
+        raise Refused("disable bot")
+    names = bots.remove(w)
+    if not names:
+        raise Refused("There are no bots. Try: enable bot")
+    return f"Removed {', '.join(names)}."
+
+
 def info(w, p, args) -> list[str]:
     lvl = w.levels[p.depth]
     rooms = ", ".join(f"{r.color} on {r.depth}, key on {r.key_depth}" for r in w.locked_rooms.values())
@@ -287,7 +313,9 @@ COMMANDS = {
     "ultrabright": (ultrabright, "ultrabright", "Light up every floor, on or off"),
     "stealth": (stealth, "stealth <0-100>", "Set your stealth"),
     "teleport": (teleport, "teleport", "Jump to another part of this floor"),
-    "clear": (None, "clear", "Empty this console"),
+    "enable": (enable, "enable bot [count]", "Add bot teammates that follow you"),
+    "disable": (disable, "disable bot", "Remove every bot"),
+    "clear":(None, "clear", "Empty this console"),
 }
 
 
@@ -325,7 +353,8 @@ def _arg_pool(name: str, position: int, players) -> list[str]:
     """What fits the argument at a position after a command, if the console can know."""
     pools = {("help", 0): list(COMMANDS), ("list", 0): ["items", "monsters"], ("give", 0): item_names(),
              ("spawn", 0): [*sorted(MONSTERS), "cult", "nest"], ("collision", 0): ["on", "off"],
-             ("summon", 0): list(players), ("floor", 1): list(players)}
+             ("summon", 0): list(players), ("floor", 1): list(players),
+             ("enable", 0): list(TOGGLES), ("disable", 0): list(TOGGLES)}
     return pools.get((name, position), [])
 
 

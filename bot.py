@@ -31,10 +31,12 @@ def main() -> None:
     ap.add_argument("--port", type=int, default=DEFAULT_PORT)
     ap.add_argument("--name", default="Bot")
     ap.add_argument("--delay", type=float, default=0.4, help="seconds between moves")
+    ap.add_argument("--password", default="", help="the server's password, if it has one")
     args = ap.parse_args()
 
     sock = socket.create_connection((args.host, args.port))
-    sock.sendall(protocol.encode({"t": "hello", "name": args.name, "version": PROTOCOL_VERSION}))
+    sock.sendall(protocol.encode({"t": "hello", "name": args.name, "version": PROTOCOL_VERSION,
+                                  "password": args.password}))
     inbox: queue.Queue = queue.Queue()
 
     def reader() -> None:
@@ -57,7 +59,7 @@ def main() -> None:
                 print(f"joined as {msg['name']}")
             elif msg["t"] == "state":
                 state = msg
-            elif msg["t"] == "msg":
+            elif msg["t"] in ("msg", "reject"):
                 print(msg["text"])
             elif msg["t"] == "ping":
                 sock.sendall(protocol.encode({"t": "pong", "n": msg["n"]}))

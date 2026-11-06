@@ -359,5 +359,18 @@ DEFENSE_FACTOR = 0.987     # hit% = accuracy * DEFENSE_FACTOR ** defense
 NOTICE_RANGE_SLEEPING = 7
 NOTICE_RANGE_AWAKE = 14
 
-PROTOCOL_VERSION = 21
+PROTOCOL_VERSION = 22
 DEFAULT_PORT = 5555
+
+# Keeping a server open to the internet safe from strangers and misbehaving bots.
+MAX_PLAYERS = 6            # players connected at once; the host counts as one
+MAX_LINE = 16 * 1024       # bytes in one message from a player; theirs are all tiny
+MSG_RATE = 30              # messages a second a player may send, on average...
+MSG_BURST = 60             # ...and how many at once (a mouse walk can send one a frame)
+FLOOD_STRIKES = 120        # messages over the limit before the server hangs up...
+FLOOD_FORGIVE = 2          # ...forgetting this many a second
+CHAT_RATE = 0.5            # chat lines a second, on average...
+CHAT_BURST = 5             # ...and in a row
+JOIN_RATE = 0.1            # joins a second from one address, on average...
+JOIN_BURST = 5             # ...and in a row; this computer is never limited
+WRONG_PASSWORD_WAIT = 1.0  # seconds before answering a wrong password, to slow guessing

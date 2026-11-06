@@ -1,7 +1,8 @@
 """Wire format: one JSON object per line, UTF-8.
 
 Client -> server
-    {"t": "hello", "name": "Alice", "glyph": "@", "color": "Gold"}
+    {"t": "hello", "name": "Alice", "glyph": "@", "color": "Gold", "password": ""}
+                             the password is checked only if the server has one
     {"t": "act", "a": "move", "dx": 1, "dy": 0}                  one step
     {"t": "act", "a": "hold", "dx": 1, "dy": 0, "press": true}   keep walking until told otherwise;
                                                                  dx = dy = 0 stops, press buffers a step
@@ -35,7 +36,12 @@ Server -> client
     {"t": "msg", "text": "...", "c": [r, g, b]}
     {"t": "ping", "n": 7}
     {"t": "shop", "name": "merchant", "x": 4, "y": 9, "stock": [...]}   sent when you're at the shop
-    {"t": "reject", "text": "..."}   the versions don't match; the server then hangs up
+    {"t": "reject", "text": "..."}   why the server is hanging up: the versions don't match, the
+                             password is wrong, the game is full, or the player sent too much
+
+Limits on what a player sends (see constants.py): a line is at most MAX_LINE bytes, about
+MSG_RATE messages a second with bursts of MSG_BURST, and CHAT_RATE chat lines. Messages over
+the rate are ignored, and the server hangs up on a player who keeps going over it.
 """
 from __future__ import annotations
 

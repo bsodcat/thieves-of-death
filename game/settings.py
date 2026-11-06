@@ -13,6 +13,8 @@ DEFAULTS = {
     "port": str(DEFAULT_PORT),
     "seed": "",
     "difficulty": DEFAULT_DIFFICULTY,
+    "host_password": "",   # what friends must type to join your game; blank lets anyone in
+    "join_password": "",   # the last one you typed to join someone else's
     "font": "Terminal (10x20)",
     "shape": "@",
     "color": "Gold",

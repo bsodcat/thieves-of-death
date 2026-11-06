@@ -4,7 +4,22 @@ Versions are MAJOR.MINOR.PATCH. See "Versions" in the README for what each numbe
 
 ## Unreleased
 
+Older copies can't join this version, or host games it can join.
+
 ### Added
+
+- A join password. Host Game and the Server Tool have a Password field, and Join Game asks for
+  it. Blank lets anyone in. The Server Tool shows it, and `server.py`, `client.py` and `bot.py`
+  take `--password`. A wrong guess waits a second before the server answers.
+- At most 6 players connected at once. A seventh is told the game is full. `server.py` takes
+  `--max-players`.
+- Limits on misbehaving players and bots. The server ignores messages from anyone sending more
+  than about 30 a second, and disconnects anyone who keeps that up. More than 5 chat lines in a
+  row get a "chatting too fast" warning. One address can only join about once every 10 seconds,
+  except your own computer. A message over 16 KB ends the connection.
+- Test console: `enable bot [count]` adds up to 5 bot teammates, and `disable bot` removes them.
+  Bots follow the player who added them, fight with auto attack, revive players who are down, and
+  appear beside you if they fall behind. They run inside the server and take no player seats.
 
 - Antidote (`!`, 40 gold): every merchant sells it. It cures slime poison and the slowness that
   comes with it, and spider venom.

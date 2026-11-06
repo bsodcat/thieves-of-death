@@ -28,9 +28,13 @@ that one file. The main menu has:
 
 - **Host Game**: starts a server inside the game and puts you in it. Leaving ends the game for
   everyone. The first time, Windows may ask to allow it through the firewall.
-- **Join Game**: type the host's address and port.
-- **Server Tool**: runs a server without playing, and shows the address to share, who's
-  connected, their floor and ping, and a log.
+- **Join Game**: type the host's address and port, and the password if the host set one.
+- **Server Tool**: runs a server without playing, and shows the address to share, the password,
+  who's connected, their floor and ping, and a log.
+
+Host Game and the Server Tool have a **Password** field. Leave it blank to let anyone in, or set
+one before forwarding a port to the internet, and tell your friends. Up to 6 players can be
+connected at once.
 - **Character**: your name, shape and color.
 - **Options**: the font, whether to show the holiday themes, what ranged weapons aim at, and
   auto attack.
@@ -66,9 +70,18 @@ python client.py --name Bob --host 192.168.1.20   # another machine on your netw
 ```
 
 To play over the internet, the host forwards TCP port 5555 on their router, or everyone
-joins a virtual LAN like Tailscale or ZeroTier and uses the host's address on it.
+joins a virtual LAN like Tailscale or ZeroTier and uses the host's address on it. With a port
+forwarded, set a password (`server.py --password ...`, and `client.py --password ...` to join).
+The password is sent as plain text, so don't reuse one that matters.
 
-No friends online? `python bot.py` adds a simple bot that follows you around.
+The server also protects itself from misbehaving players and bots. It allows 6 players at once
+(`--max-players`) and ignores messages from anyone sending more than about 30 a second. Anyone
+who keeps that up is disconnected. Chat is held to a few lines in a row, and one address can
+only join about once every 10 seconds. A message over 16 KB ends the connection. The limits
+are at the bottom of `game/constants.py`.
+
+No friends online? `python bot.py` adds a simple bot that follows you around
+(`--password` if the server has one).
 
 Useful options: `server.py --port 6000 --seed 42`,
 `client.py --font myfont.ttf --tile 12x24` (a .ttf, a Windows .fon bitmap font, or a 16x16
@@ -287,7 +300,14 @@ click on an item gives you `give <item> `. Click `help` in the title to list the
 | `ultrabright` | Toggle: every floor is drawn fully lit, without showing what's out of sight |
 | `stealth <0-100>` | Set your stealth |
 | `teleport` | Jump to another part of this floor |
+| `enable bot [count]` | Add up to 5 bot teammates. They follow you, fight with auto attack and revive you if you're down |
+| `disable bot` | Remove every bot |
 | `clear` | Empty the console |
+
+Bots run inside the server, so they work in the exe and take no player seats. One that falls
+behind on another floor, or can't find a way to you, appears beside you. If you leave, they follow
+another player. If every real player has fallen for good, the bots fall too, so a new dungeon can
+start. When everyone real has left, the bots leave too.
 
 Names can be cut short as long as they still match only one thing. Only someone playing on the
 computer running the server can use commands, and everyone else in the game is told when one
@@ -608,6 +628,7 @@ bot.py             headless test player bot
 game/world.py      game state, real-time clock, combat, monster AI   <- most of the game
 game/mapgen.py     level generator
 game/commands.py   the test console's commands
+game/bots.py       bot teammates added from the console
 game/controls.py   the keys a player can change
 game/ledger.py     saves the action log to a text file
 game/entities.py   players and the monster list (add more monsters here)

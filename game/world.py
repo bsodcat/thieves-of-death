@@ -418,6 +418,7 @@ class World:
         self.fishers: dict[int, int | None] = {}  # seed: the fisherman's floor
         self.players: dict[int, Player] = {}   # connected players
         self.offline: dict[str, Player] = {}   # disconnected, keyed by name, restored on rejoin
+        self.bots: dict[int, dict] = {}        # bot player -> who added it and more (see bots.py)
         self.clock = 0
         self.dirty = True                      # something changed since the last state was sent
         self.outbox: list[tuple[int | None, dict]] = []

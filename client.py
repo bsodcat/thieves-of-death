@@ -98,12 +98,13 @@ def held_direction(held: dict) -> tuple[int, int]:
 class Net:
     """Socket I/O on a background thread; the main thread polls a queue."""
 
-    def __init__(self, host: str, port: int, name: str, timeout: float = 10, look: dict | None = None):
+    def __init__(self, host: str, port: int, name: str, timeout: float = 10, look: dict | None = None,
+                 password: str = ""):
         self.sock = socket.create_connection((host, port), timeout=timeout)
         self.sock.settimeout(None)
         self.inbox: queue.Queue = queue.Queue()
         self.send_lock = threading.Lock()
-        self.send({"t": "hello", "name": name, "version": PROTOCOL_VERSION, **(look or {})})
+        self.send({"t": "hello", "name": name, "version": PROTOCOL_VERSION, "password": password, **(look or {})})
         threading.Thread(target=self._reader, daemon=True).start()
 
     def _reader(self) -> None:
@@ -424,13 +425,14 @@ def main() -> None:
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=DEFAULT_PORT)
     ap.add_argument("--name", default=os.environ.get("USER") or os.environ.get("USERNAME") or "Adventurer")
+    ap.add_argument("--password", default="", help="the server's password, if it has one")
     ap.add_argument("--font", help="a .ttf font, a Windows .fon bitmap font, or a 16x16 CP437 tilesheet .png")
     ap.add_argument("--tile", default="11x20", help="cell size in pixels for TTF fonts, or which size to use from a .fon, e.g. 12x16")
     args = ap.parse_args()
     tw, th = (int(v) for v in args.tile.lower().split("x"))
 
     try:
-        net = Net(args.host, args.port, args.name)
+        net = Net(args.host, args.port, args.name, password=args.password)
     except OSError as exc:
         sys.exit(f"Could not connect to {args.host}:{args.port}: {exc}")
 

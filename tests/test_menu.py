@@ -264,7 +264,7 @@ class RunnerTests(unittest.TestCase):
         net.close()
 
     def test_chosen_look_survives_the_network(self):
-        runner = ServerRunner(0, host="127.0.0.1")
+        runner = ServerRunner(0, host="127.0.0.1", max_players=len(PLAYER_GLYPHS))  # one of each at once
         runner.start()
         self.addCleanup(runner.stop)
         for glyph in PLAYER_GLYPHS:
