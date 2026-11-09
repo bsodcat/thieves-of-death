@@ -1528,6 +1528,8 @@ class World:
 
     def _tick_auto_attacks(self) -> None:
         for p in self.players.values():
+            if self.bots.get(p.id, {}).get("mode") == "rover":
+                continue  # a rover decides for itself whether to swing or run (see bots.py)
             if (p.auto_attack and p.alive and p.connected and p.pending is None and p.hold is None
                     and p.next_time <= self.clock and self._auto_choice(p)):
                 p.pending = {"a": "auto"}

@@ -220,28 +220,36 @@ def teleport(w, p, args) -> str:
     return f"You're at {p.x}, {p.y}."
 
 
-TOGGLES = ("bot",)  # what enable and disable work on
+TOGGLES = ("bot", "rover")  # what enable and disable work on
+BOT_KINDS = {"bot": "follow", "rover": "rover"}
 
 
 def enable(w, p, args) -> str:
-    """`enable bot [count]` adds bot teammates that follow you and fight beside you."""
-    if not args or pick(args[0], TOGGLES, "thing to enable") != "bot":
-        raise Refused("enable bot [count]")
+    """`enable bot [count]` adds bot teammates that follow you and fight beside you.
+    `enable rover [count]` adds ones that roam near you, loot, hunt and heal themselves."""
+    if not args:
+        raise Refused("enable bot|rover [count]")
+    kind = pick(args[0], TOGGLES, "thing to enable")
     if len(w.bots) >= bots.MAX_BOTS:
         raise Refused(f"There are already {bots.MAX_BOTS} bots. Try: disable bot")
     count = number(args[1], 1, bots.MAX_BOTS) if len(args) > 1 else 1
-    added = bots.add(w, p, count)
+    added = bots.add(w, p, count, BOT_KINDS[kind])
     names = ", ".join(b.name for b in added)
     full = f" (at most {bots.MAX_BOTS})" if len(added) < count else ""
+    if kind == "rover":
+        return f"Added {names}{full}. They roam near you, loot and fight; disable rover removes them."
     return f"Added {names}{full}. They follow you; disable bot removes them."
 
 
 def disable(w, p, args) -> str:
-    if not args or pick(args[0], TOGGLES, "thing to disable") != "bot":
-        raise Refused("disable bot")
-    names = bots.remove(w)
+    """`disable bot` removes every bot, rovers too; `disable rover` just the rovers."""
+    if not args:
+        raise Refused("disable bot|rover")
+    kind = pick(args[0], TOGGLES, "thing to disable")
+    names = bots.remove(w, "rover" if kind == "rover" else None)
     if not names:
-        raise Refused("There are no bots. Try: enable bot")
+        raise Refused("There are no rovers. Try: enable rover" if kind == "rover"
+                      else "There are no bots. Try: enable bot")
     return f"Removed {', '.join(names)}."
 
 
@@ -313,8 +321,8 @@ COMMANDS = {
     "ultrabright": (ultrabright, "ultrabright", "Light up every floor, on or off"),
     "stealth": (stealth, "stealth <0-100>", "Set your stealth"),
     "teleport": (teleport, "teleport", "Jump to another part of this floor"),
-    "enable": (enable, "enable bot [count]", "Add bot teammates that follow you"),
-    "disable": (disable, "disable bot", "Remove every bot"),
+    "enable": (enable, "enable bot|rover [count]", "Add bots that follow, or rovers that roam"),
+    "disable": (disable, "disable bot|rover", "Remove every bot, or just the rovers"),
     "clear":(None, "clear", "Empty this console"),
 }
 
