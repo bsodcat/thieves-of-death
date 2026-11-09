@@ -2,7 +2,9 @@
 
 Versions are MAJOR.MINOR.PATCH. See "Versions" in the README for what each number means.
 
-## Unreleased
+## 2.13.0 - November 8, 2026
+
+2.12 and 2.13 players can play together.
 
 ### Added
 
