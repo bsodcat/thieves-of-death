@@ -1,6 +1,6 @@
 # Thieves of Death: The Fellowship
 
-<img width="1000" height="680" alt="01_title" src="https://github.com/user-attachments/assets/b90c0778-2f92-4c5c-8af1-679274d6c7fd" />
+<img width="1002" height="712" alt="image" src="https://github.com/user-attachments/assets/dc4ed734-2e2a-4a9a-b97b-aabb9a856663" />
 
 A revived project for an online co-op roguelike in the spirit of Brogue, written in Python with
 libtcod (python-tcod). One server holds the dungeon; each player runs a client.
