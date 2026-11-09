@@ -1,7 +1,9 @@
 """Bot teammates from the test console: enable bot and disable bot."""
+import random
 import socket
 import time
 import unittest
+from unittest import mock
 
 from game import algo, bots, commands, protocol
 from game.constants import PROTOCOL_VERSION, TICKS_PER_SECOND
@@ -242,7 +244,8 @@ class RoverTests(unittest.TestCase):
         run(w, p, "disable bot")      # every bot, rovers too
         self.assertEqual(w.bots, {})
 
-    def test_wanders_but_stays_near(self):
+    @mock.patch.object(bots, "random", new_callable=lambda: random.Random(1))  # where it wanders is random: pin it
+    def test_wanders_but_stays_near(self, _rng):
         w, p = host()
         clear_monsters(w, 1)
         p.god = True
