@@ -2,6 +2,15 @@
 
 Versions are MAJOR.MINOR.PATCH. See "Versions" in the README for what each number means.
 
+## Unreleased
+
+### Added
+
+- Test console: `enable rover [count]` adds rovers, smarter bot teammates that share the 5-bot
+  cap. They roam near you, pick up and wear better gear, go after the monsters they see, drink
+  healing potions and antidotes, and run back to you when a fight goes badly. `disable rover`
+  removes just the rovers; `disable bot` still removes every bot.
+
 ## 2.12.0 - November 6, 2026
 
 2.11 and older players can't join a 2.12 game, and 2.12 players can't join theirs.
