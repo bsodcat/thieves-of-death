@@ -110,7 +110,7 @@ class NotesTests(unittest.TestCase):
 
     def test_the_head_names_the_version_seed_and_difficulty(self):
         head = World(3).ledger_head()["head"]
-        self.assertRegex(head, r"^Togetherogue \d+\.\d+\.\d+ \| run 1 \| seed 3 \| Medium$")
+        self.assertRegex(head, r"^Thieves of Death: The Fellowship \d+\.\d+\.\d+ \| run 1 \| seed 3 \| Medium$")
 
     def test_noting_changes_nothing_in_the_game(self):
         def play(noted):

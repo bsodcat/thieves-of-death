@@ -76,7 +76,7 @@ from .items import (AUTO_PICKUP, ITEMS, Item, enhance_weapon, make_amulet, make_
 from .tiles import (ALTAR, ALTAR_SPENT, ASH, CRACKED, DEEP, DOOR, FLOOR, FOLIAGE, GRASS, HOVER, LAVA, LOCK_COLORS, LOCKED,
                     PIT, POND, SHALLOW, STAIRS_DOWN, STAIRS_UP, TORCH, TRAMPLED, TRANSPARENT,
                     WALKABLE, WALL)
-from .version import VERSION
+from .version import NAME, VERSION
 
 DIRS8 = [(dx, dy) for dx in (-1, 0, 1) for dy in (-1, 0, 1) if dx or dy]
 
@@ -1018,7 +1018,7 @@ class World:
     def ledger_head(self) -> dict:
         """Starts a run's action log. Someone joining later is sent this too."""
         return {"t": "log", "run": self.run, "seed": self.seed,
-                "head": f"Togetherogue {VERSION} | run {self.run} | seed {self.seed} | {self.difficulty}"}
+                "head": f"{NAME} {VERSION} | run {self.run} | seed {self.seed} | {self.difficulty}"}
 
     def note(self, who, text: str, depth: int | None = None) -> None:
         """A line in the action log. `who` is a player, a monster or just a name."""

@@ -23,7 +23,7 @@ from game.constants import (CHAT_BURST, CHAT_RATE, DEFAULT_DIFFICULTY, DEFAULT_P
                             PING_SECONDS, PING_TIMEOUT, PROTOCOL_VERSION, TICK_RATE, TICKS_PER_SECOND,
                             WRONG_PASSWORD_WAIT)
 from game.ledger import Ledger
-from game.version import VERSION
+from game.version import NAME, VERSION
 from game.world import World
 
 log = logging.getLogger("server")
@@ -183,7 +183,7 @@ class GameServer:
 
         if hello.get("version", PROTOCOL_VERSION) != PROTOCOL_VERSION:
             log.info("refused %s: wrong version", where)
-            await self.refuse(writer, f"This server runs Togetherogue {VERSION}. You need the same version to join.")
+            await self.refuse(writer, f"This server runs {NAME} {VERSION}. You need the same version to join.")
             return
         if self.password and not password_matches(hello.get("password"), self.password):
             log.info("refused %s: wrong password", where)
@@ -347,7 +347,7 @@ class ServerRunner:
 
 
 async def main() -> None:
-    ap = argparse.ArgumentParser(description="Togetherogue server")
+    ap = argparse.ArgumentParser(description=f"{NAME} server")
     ap.add_argument("--host", default="0.0.0.0")
     ap.add_argument("--port", type=int, default=DEFAULT_PORT)
     ap.add_argument("--seed", type=int, default=None)

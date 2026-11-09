@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .constants import SCREEN_H, SCREEN_W
+from .version import NAME
 
 TITLE_Y = 3
 ROW_Y = 9
@@ -116,7 +117,7 @@ class Form:
 
     def draw(self, console) -> None:
         console.clear()
-        title = "T O G E T H E R O G U E"
+        title = " ".join(NAME.upper())
         console.print((SCREEN_W - len(title)) // 2, TITLE_Y, title, fg=GOLD)
         console.print((SCREEN_W - len(self.title)) // 2, TITLE_Y + 2, self.title, fg=WHITE)
         for i, row in enumerate(self.rows):

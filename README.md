@@ -1,4 +1,4 @@
-# Togetherogue
+# Thieves of Death: The Fellowship
 
 <img width="1000" height="680" alt="01_title" src="https://github.com/user-attachments/assets/b90c0778-2f92-4c5c-8af1-679274d6c7fd" />
 
@@ -27,7 +27,7 @@ What's in it so far:
 
 ## Playing
 
-Double-click `Togetherogue.exe`. It needs no Python or terminal, and friends only need
+Double-click `thieves-of-death.exe`. It needs no Python or terminal, and friends only need
 that one file. The main menu has:
 
 - **Host Game**: starts a server inside the game and puts you in it. Leaving ends the game for
@@ -45,14 +45,14 @@ connected at once.
 
 Use the arrow keys and Enter, or the mouse; click a choice's `<` or `>` to step it back or on.
 Your choices are saved in
-`%APPDATA%\Togetherogue\settings.json`. In the game, press `Q` twice to leave.
+`%APPDATA%\Thieves of Death\settings.json`. In the game, press `Q` twice to leave.
 
 The version and the date the project began are at the bottom of the title screen, and come from
 `game/version.py`. A server refuses players whose copy doesn't match it, and tells them why.
 
 ### Building the exe
 
-Python 3.10 or newer, then double-click `build.bat`. The result is `dist\Togetherogue.exe`.
+Python 3.10 or newer, then double-click `build.bat`. The result is `dist\thieves-of-death.exe`.
 
 ### Running from a terminal
 
@@ -222,7 +222,7 @@ Press `v` in a game to read what's happened this run, including after you die. U
 mouse wheel scroll it, and `v` or Esc closes it. The game keeps running behind it.
 
 The same lines are saved as you play, one text file for each run, in
-`%APPDATA%\Togetherogue\logs`. The panel shows the file's name. Everyone playing gets their
+`%APPDATA%\Thieves of Death\logs`. The panel shows the file's name. Everyone playing gets their
 own file, from the moment they joined, and only the newest 200 are kept. A server run on its own
 with `server.py` saves one too.
 
@@ -639,7 +639,7 @@ Reset the numbers to the right when one goes up. Separately, raise `PROTOCOL_VER
 server checks when someone joins.
 
 To release: update `game/version.py` and `CHANGELOG.md`, run the tests, commit, tag it
-(`git tag -a v1.1.0 -m "Togetherogue 1.1.0"`), then run `build.bat`. To get an old version back,
+(`git tag -a v1.1.0 -m "Thieves of Death 1.1.0"`), then run `build.bat`. To get an old version back,
 use `git checkout v0.1.0`.
 
 ## Project layout

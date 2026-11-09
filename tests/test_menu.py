@@ -105,7 +105,7 @@ class FormTests(unittest.TestCase):
         f.note, f.error, f.message = "a note", "an error", "a message"
         f.draw(con)
         text = "\n".join("".join(chr(c) for c in con.rgb["ch"][:, y]) for y in range(con.height))
-        for expected in ("T O G E T H E R O G U E", "Alice"[:2], "< Normal >", "Go", "an error"):
+        for expected in ("T H I E V E S   O F   D E A T H", "Alice"[:2], "< Normal >", "Go", "an error"):
             self.assertIn(expected, text)
 
 

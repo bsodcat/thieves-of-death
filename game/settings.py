@@ -25,9 +25,19 @@ DEFAULTS = {
 }
 
 
+FOLDER = "Thieves of Death"
+OLD_FOLDER = "Togetherogue"  # the game's name before 2.13.1; its folder is moved over on first run
+
+
 def default_path() -> str:
     base = os.environ.get("APPDATA") or os.path.expanduser("~")
-    return os.path.join(base, "Togetherogue", "settings.json")
+    folder, old = os.path.join(base, FOLDER), os.path.join(base, OLD_FOLDER)
+    if not os.path.exists(folder) and os.path.isdir(old):
+        try:
+            os.rename(old, folder)  # keeps the player's settings and logs
+        except OSError:
+            return os.path.join(old, "settings.json")
+    return os.path.join(folder, "settings.json")
 
 
 def load(path: str | None = None) -> dict:

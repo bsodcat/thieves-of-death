@@ -2,6 +2,15 @@
 
 Versions are MAJOR.MINOR.PATCH. See "Versions" in the README for what each number means.
 
+## 2.13.1 - November 9, 2026
+
+2.12 and 2.13 players can play together.
+
+### Changed
+
+- The game is now called Thieves of Death: The Fellowship. The exe is `thieves-of-death.exe`, and
+  settings and logs move from `%APPDATA%\Togetherogue` to `%APPDATA%\Thieves of Death` on first run.
+
 ## 2.13.0 - November 8, 2026
 
 2.12 and 2.13 players can play together.

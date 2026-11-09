@@ -1,6 +1,6 @@
-"""The Togetherogue app: main menu, setup screens and the Server Tool.
+"""The Thieves of Death: The Fellowship app: main menu, setup screens and the Server Tool.
 
-   type python togetherogue.py   ->   or double-click Togetherogue.exe
+   type python togetherogue.py   ->   or double-click thieves-of-death.exe
 """
 from __future__ import annotations
 

@@ -24,6 +24,7 @@ from game import controls, fon, protocol, settings
 from game.constants import DEFAULT_PORT, PROTOCOL_VERSION, SCREEN_H, SCREEN_W
 from game.ledger import Ledger
 from game.render import ClientView
+from game.version import NAME
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FONT_CANDIDATES = [
@@ -177,7 +178,7 @@ def load_tileset(path: str | None, tw: int, th: int):
 def open_window(tileset):
     """The game window. Use it in a `with` block; pair it with new_console()."""
     context = tcod.context.new(columns=SCREEN_W, rows=SCREEN_H, tileset=tileset,
-                               title="Togetherogue", vsync=True)
+                               title=NAME, vsync=True)
     window = getattr(context, "sdl_window", None)
     if window is not None and hasattr(window, "start_text_input"):
         try:  # needed on SDL3-based tcod versions; harmless elsewhere
@@ -421,7 +422,7 @@ def play(context, console, net: Net, leave_note: str = "", intro: tuple = (), co
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="Togetherogue client")
+    ap = argparse.ArgumentParser(description=f"{NAME} client")
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=DEFAULT_PORT)
     ap.add_argument("--name", default=os.environ.get("USER") or os.environ.get("USERNAME") or "Adventurer")
