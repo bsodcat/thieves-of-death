@@ -316,7 +316,9 @@ click on an item gives you `give <item> `. Click `help` in the title to list the
 | `stealth <0-100>` | Set your stealth |
 | `teleport` | Jump to another part of this floor |
 | `enable bot [count]` | Add up to 5 bot teammates. They follow you, fight with auto attack and revive you if you're down |
-| `disable bot` | Remove every bot |
+| `enable rover [count]` | Add rovers, smarter bot teammates (5 bots at most, rovers included). They roam near you, pick up and wear better gear, go after the monsters they see, drink healing potions when hurt and run back to you when a fight goes badly |
+| `disable bot` | Remove every bot, rovers too |
+| `disable rover` | Remove just the rovers |
 | `clear` | Empty the console |
 
 Bots run inside the server, so they work in the exe and take no player seats. One that falls
